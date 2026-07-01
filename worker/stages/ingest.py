@@ -38,14 +38,36 @@ def run(stage: dict) -> tuple[str, str | None]:
     task = db.get_client().table("tasks").select("source_url").eq("id", task_id).single().execute()
     source_url = (task.data or {}).get("source_url") or ""
 
-    # --- 手动上传兜底：前端已上传视频，params 里带 storage_path ---
-    if params.get("manual_video"):
+    # --- 手动上传兜底：前端已上传文件到 Storage，params 里带路径 ---
+    if params.get("manual_file"):
         _write_task_meta(task_id, type("R", (), {
             "title": params.get("manual_title"),
             "play_count": params.get("manual_like"),
             "author": {"name": params.get("manual_author")} if params.get("manual_author") else {},
         })())
-        return "done", params["manual_video"]
+        src_path = params["manual_file"]          # e.g. {task_id}/manual.mp4
+        storage.ensure_bucket()
+        local = storage.download_artifact(src_path)
+        audio = None
+        try:
+            # 视频→抽音频；已是音频→直接用
+            audio = local if params.get("manual_is_audio") else storage.extract_audio(local)
+            sp = f"{task_id}/audio.mp3"
+            storage.upload(sp, audio, "audio/mpeg")
+            storage.add_artifact(task_id, "ingest", "audio", sp, meta={
+                "source": "manual_upload",
+                "original": src_path,
+            })
+        finally:
+            paths = {local}
+            if audio:
+                paths.add(audio)
+            for p in paths:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        return "done", sp
 
     # --- 一级：自研解析 ---
     res = self_resolver.resolve(source_url)

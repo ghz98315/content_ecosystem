@@ -18,6 +18,11 @@ THIRDPARTY_DOUYIN_KEY = os.environ.get("THIRDPARTY_DOUYIN_KEY", "")  # 可选备
 # ---- 轮询 ----
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))
 
+# ---- Whisper（M2 逐字稿）----
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")       # tiny/base/small/medium/large-v3
+WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")       # cpu / cuda
+WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")    # int8(cpu) / float16(cuda)
+
 # 8 阶段顺序
 STAGE_ORDER = ["ingest", "transcribe", "clean", "rewrite", "tts", "image", "book", "render"]
 

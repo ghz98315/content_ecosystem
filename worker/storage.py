@@ -57,6 +57,16 @@ def download(url: str, suffix: str = ".mp4", referer: str = "https://www.douyin.
     return path
 
 
+def download_artifact(storage_path: str, suffix: str = "") -> str:
+    """从 Storage 下载到临时文件，返回本地路径。"""
+    sb = db.get_client()
+    data = sb.storage.from_(BUCKET).download(storage_path)
+    fd, path = tempfile.mkstemp(suffix=suffix or os.path.splitext(storage_path)[1])
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    return path
+
+
 def upload(storage_path: str, local_file: str, content_type: str = "video/mp4") -> str:
     """上传本地文件到 Storage，返回 storage_path。覆盖同名。"""
     sb = db.get_client()
@@ -65,6 +75,14 @@ def upload(storage_path: str, local_file: str, content_type: str = "video/mp4") 
     sb.storage.from_(BUCKET).upload(
         storage_path, data,
         {"content-type": content_type, "upsert": "true"},
+    )
+    return storage_path
+
+
+def upload_bytes(storage_path: str, data: bytes, content_type: str) -> str:
+    """直接上传字节（用于 JSON 等动态内容）。覆盖同名。"""
+    db.get_client().storage.from_(BUCKET).upload(
+        storage_path, data, {"content-type": content_type, "upsert": "true"},
     )
     return storage_path
 

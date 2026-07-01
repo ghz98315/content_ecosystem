@@ -12,6 +12,7 @@ import {
   STATUS_LABEL,
   STATUS_COLOR,
 } from "@/lib/types";
+import { ManualUpload } from "@/components/ManualUpload";
 
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -90,27 +91,34 @@ export default function TaskDetail() {
         {STAGES.map((def, i) => {
           const st = stages.find((s) => s.kind === def.kind);
           const status = st?.status ?? "pending";
+          const isIngestReview = def.kind === "ingest" && status === "needs_review";
           return (
-            <div key={def.kind} style={S.stageRow}>
-              <span style={{ ...S.dot, background: STATUS_COLOR[status] }}>
-                {i + 1}
-              </span>
-              <span style={{ width: 90, fontSize: 14 }}>{def.label}</span>
-              <span style={{ ...S.stageStatus, color: STATUS_COLOR[status] }}>
-                {STATUS_LABEL[status]}
-              </span>
-              <span style={{ flex: 1, fontSize: 12, color: "#9ca3af" }}>
-                {st?.error ? "⚠ " + st.error : st?.output_ref ?? ""}
-              </span>
-              {status === "needs_review" && st && (
-                <button style={S.approveBtn} onClick={() => approve(st.id)}>
-                  确认继续
-                </button>
-              )}
-              {st && status !== "processing" && status !== "pending" && (
-                <button style={S.rerunBtn} onClick={() => rerun(st.id)}>
-                  重跑
-                </button>
+            <div key={def.kind}>
+              <div style={S.stageRow}>
+                <span style={{ ...S.dot, background: STATUS_COLOR[status] }}>
+                  {i + 1}
+                </span>
+                <span style={{ width: 90, fontSize: 14 }}>{def.label}</span>
+                <span style={{ ...S.stageStatus, color: STATUS_COLOR[status] }}>
+                  {STATUS_LABEL[status]}
+                </span>
+                <span style={{ flex: 1, fontSize: 12, color: "#9ca3af" }}>
+                  {st?.error ? "⚠ " + st.error : st?.output_ref ?? ""}
+                </span>
+                {/* ingest 的 needs_review 走手动上传，不显示"确认继续" */}
+                {status === "needs_review" && st && !isIngestReview && (
+                  <button style={S.approveBtn} onClick={() => approve(st.id)}>
+                    确认继续
+                  </button>
+                )}
+                {st && status !== "processing" && status !== "pending" && (
+                  <button style={S.rerunBtn} onClick={() => rerun(st.id)}>
+                    重跑
+                  </button>
+                )}
+              </div>
+              {isIngestReview && st && (
+                <ManualUpload taskId={task.id} stage={st} />
               )}
             </div>
           );
