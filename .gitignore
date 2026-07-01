@@ -4,9 +4,11 @@ __pycache__/
 .venv/
 venv/
 worker/.env
+worker/cookies.txt
 worker/downloads/
 worker/output/
 worker/tmp/
+worker/f2out.json
 
 # ---- Node (web) ----
 node_modules/

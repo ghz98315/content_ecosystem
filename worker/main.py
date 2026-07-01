@@ -11,10 +11,11 @@
 import time
 import config
 import db
+from stages import REAL_HANDLERS
 
 
 def process_fake(stage: dict) -> None:
-    """M0 假处理：sleep 一下模拟重活。"""
+    """M0 假处理：sleep 一下模拟重活（还没接真实处理器的阶段用）。"""
     print(f"  [{stage['kind']}] 处理中…（模拟）")
     time.sleep(2)
 
@@ -44,14 +45,26 @@ def tick() -> bool:
     print(f"认领 stage: task={task_id[:8]} kind={kind} seq={stage['seq']}")
 
     try:
-        process_fake(stage)
-        if kind in config.REVIEW_GATES:
-            db.set_stage(stage["id"], "needs_review",
-                         output_ref=f"m0-fake://{kind}")
-            print(f"  ⏸  {kind} 进入评审门 needs_review（等前端确认）")
+        handler = REAL_HANDLERS.get(kind)
+        if handler:
+            # 真实处理器：自己决定 status/output_ref（可能 done 或 needs_review）
+            status, output_ref = handler(stage)
+            if status == "needs_review":
+                # 处理器内部已 set 过 stage，这里只打印
+                print(f"  ⏸  {kind} 进入评审门 needs_review")
+            else:
+                db.set_stage(stage["id"], "done", output_ref=output_ref)
+                print(f"  ✔  {kind} done → {output_ref}")
         else:
-            db.set_stage(stage["id"], "done", output_ref=f"m0-fake://{kind}")
-            print(f"  ✔  {kind} done")
+            # 还没接真实处理器的阶段：M0 假处理 + 评审门
+            process_fake(stage)
+            if kind in config.REVIEW_GATES:
+                db.set_stage(stage["id"], "needs_review",
+                             output_ref=f"m0-fake://{kind}")
+                print(f"  ⏸  {kind} 进入评审门 needs_review（等前端确认）")
+            else:
+                db.set_stage(stage["id"], "done", output_ref=f"m0-fake://{kind}")
+                print(f"  ✔  {kind} done")
     except Exception as e:  # noqa: BLE001
         db.set_stage(stage["id"], "failed", error=str(e))
         print(f"  ✖  {kind} failed: {e}")

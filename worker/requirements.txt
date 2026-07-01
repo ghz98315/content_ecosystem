@@ -1,3 +1,14 @@
-# M0 骨架依赖（重活库 M1+ 再加）
+# M0 骨架 + M1 采集依赖
 supabase>=2.4.0
 python-dotenv>=1.0.0
+
+# 抖音自研解析（f2 内置 a_bogus 签名）
+f2==0.0.1.7
+yt-dlp>=2026.6.9              # 备用/兜底解析
+
+# 版本约束：f2 会把这两个降级，需固定到 supabase realtime 可用的范围
+pydantic>=2.11.7
+websockets>=13,<16
+
+# 音频抽取（自带静态 ffmpeg 二进制，免系统安装；M2 whisper / M8 渲染复用）
+imageio-ffmpeg>=0.5.1
