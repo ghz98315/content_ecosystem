@@ -13,6 +13,7 @@ import {
   STATUS_COLOR,
 } from "@/lib/types";
 import { ManualUpload } from "@/components/ManualUpload";
+import { RewriteReview } from "@/components/RewriteReview";
 
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -91,7 +92,8 @@ export default function TaskDetail() {
         {STAGES.map((def, i) => {
           const st = stages.find((s) => s.kind === def.kind);
           const status = st?.status ?? "pending";
-          const isIngestReview = def.kind === "ingest" && status === "needs_review";
+          const isIngestReview  = def.kind === "ingest"  && status === "needs_review";
+          const isRewriteReview = def.kind === "rewrite" && status === "needs_review";
           return (
             <div key={def.kind}>
               <div style={S.stageRow}>
@@ -106,7 +108,8 @@ export default function TaskDetail() {
                   {st?.error ? "⚠ " + st.error : st?.output_ref ?? ""}
                 </span>
                 {/* ingest 的 needs_review 走手动上传，不显示"确认继续" */}
-                {status === "needs_review" && st && !isIngestReview && (
+                {/* rewrite 的 needs_review 走候选展示，不显示"确认继续" */}
+                {status === "needs_review" && st && !isIngestReview && !isRewriteReview && (
                   <button style={S.approveBtn} onClick={() => approve(st.id)}>
                     确认继续
                   </button>
@@ -119,6 +122,9 @@ export default function TaskDetail() {
               </div>
               {isIngestReview && st && (
                 <ManualUpload taskId={task.id} stage={st} />
+              )}
+              {isRewriteReview && st && (
+                <RewriteReview taskId={task.id} stage={st} />
               )}
             </div>
           );

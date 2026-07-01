@@ -10,9 +10,13 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 # worker 用 service_role key，绕过 RLS
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
-# ---- 大模型（M1+ 才用，M0 占位）----
+# ---- 大模型（清洗/改写/生图/书名反推）----
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")       # 书名反推，没配 fallback openai
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+
+CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "gpt-4o-mini")   # 清洗：便宜够用
+REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-4o")        # 改写：质量要求高
+BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "")               # 书名反推：空=用 deepseek-v4-flash，没 key 则 fallback gpt-4o-mini       # 书名反推，没配 fallback openai
 THIRDPARTY_DOUYIN_KEY = os.environ.get("THIRDPARTY_DOUYIN_KEY", "")  # 可选备用解析
 
 # ---- 轮询 ----
