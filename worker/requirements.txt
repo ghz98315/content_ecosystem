@@ -15,3 +15,6 @@ imageio-ffmpeg>=0.5.1
 
 # TTS 配音（句级时间戳，edge-tts 7.x 中文只给 SentenceBoundary）
 edge-tts>=7.2.0
+
+# 生图：9宫格切割
+Pillow>=10.0.0
