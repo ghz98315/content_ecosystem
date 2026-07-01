@@ -13,5 +13,5 @@ websockets>=13,<16
 # 音频抽取（自带静态 ffmpeg 二进制，免系统安装；M2 whisper / M8 渲染复用）
 imageio-ffmpeg>=0.5.1
 
-# 逐字稿（本地 ASR，词级时间戳；首次运行下载模型）
-faster-whisper>=1.1.0
+# TTS 配音（句级时间戳，edge-tts 7.x 中文只给 SentenceBoundary）
+edge-tts>=7.2.0
