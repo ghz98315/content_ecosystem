@@ -1,0 +1,3 @@
+# M0 骨架依赖（重活库 M1+ 再加）
+supabase>=2.4.0
+python-dotenv>=1.0.0

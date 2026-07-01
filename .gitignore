@@ -1,0 +1,25 @@
+# ---- Python (worker) ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+worker/.env
+worker/downloads/
+worker/output/
+worker/tmp/
+
+# ---- Node (web) ----
+node_modules/
+.next/
+out/
+web/.env
+web/.env.local
+web/tsconfig.tsbuildinfo
+.vercel
+
+# ---- misc ----
+.DS_Store
+*.log
+.idea/
+.vscode/
+_bands/
