@@ -36,10 +36,11 @@ export function RewriteReview({ taskId, stage }: { taskId: string; stage: Stage 
     if (selected == null) { setErr("请先选择一个候选"); return; }
     setBusy(true); setErr(null);
     try {
-      await supabase
+      const { error: sbErr } = await supabase
         .from("stages")
         .update({ status: "pending", error: null, params: { ...(stage.params || {}), chosen_index: selected } })
         .eq("id", stage.id);
+      if (sbErr) throw new Error(sbErr.message);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

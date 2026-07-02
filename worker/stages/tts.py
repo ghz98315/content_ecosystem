@@ -38,14 +38,23 @@ def _get_chosen_text(task_id: str, stage: dict) -> str | None:
             os.remove(local)
         except OSError:
             pass
-    # 优先用 stage.params 里 chosen_index，其次 rewrite.json 里存的 chosen
     params = stage.get("params") or {}
     raw_idx = params.get("chosen_index")
-    idx = raw_idx if raw_idx is not None else rw.get("chosen")
+    if raw_idx is None:
+        raw_idx = rw.get("chosen")
+    if raw_idx is None:
+        # chosen_index is written to the rewrite stage's params by the frontend, not the tts stage
+        res = (
+            db.get_client().table("stages").select("params")
+            .eq("task_id", task_id).eq("kind", "rewrite")
+            .limit(1).execute()
+        )
+        if res.data:
+            raw_idx = (res.data[0].get("params") or {}).get("chosen_index")
     candidates = rw.get("candidates", [])
-    if idx is None or not candidates:
+    if raw_idx is None or not candidates:
         return None
-    return candidates[int(idx)] if int(idx) < len(candidates) else None
+    return candidates[int(raw_idx)] if int(raw_idx) < len(candidates) else None
 
 
 async def _synthesize(text: str, voice: str) -> tuple[bytes, list[dict]]:
