@@ -70,7 +70,7 @@ export function RewriteReview({ taskId, stage }: { taskId: string; stage: Stage 
           <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", marginBottom: 4 }}>
             候选 {["A", "B", "C"][i] ?? i + 1}
           </div>
-          <pre style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.6, fontFamily: "inherit" }}>
+          <pre style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.6, fontFamily: "inherit", userSelect: "none", pointerEvents: "none" }}>
             {text}
           </pre>
         </div>

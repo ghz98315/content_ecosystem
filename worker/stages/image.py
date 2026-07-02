@@ -106,11 +106,21 @@ def _find_chosen_text(task_id: str, stage: dict) -> str | None:
         except OSError: pass
     params = stage.get("params") or {}
     raw_idx = params.get("chosen_index")
-    idx = raw_idx if raw_idx is not None else rw.get("chosen")
+    if raw_idx is None:
+        raw_idx = rw.get("chosen")
+    if raw_idx is None:
+        # chosen_index is written to the rewrite stage's params by the frontend
+        res2 = (
+            db.get_client().table("stages").select("params")
+            .eq("task_id", task_id).eq("kind", "rewrite")
+            .limit(1).execute()
+        )
+        if res2.data:
+            raw_idx = (res2.data[0].get("params") or {}).get("chosen_index")
     candidates = rw.get("candidates", [])
-    if idx is None or not candidates:
+    if raw_idx is None or not candidates:
         return None
-    return candidates[int(idx)] if int(idx) < len(candidates) else None
+    return candidates[int(raw_idx)] if int(raw_idx) < len(candidates) else None
 
 
 def run(stage: dict) -> tuple[str, str | None]:
