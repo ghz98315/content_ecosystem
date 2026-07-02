@@ -85,7 +85,7 @@ export default function HomePage() {
       <div style={S.createRow}>
         <input
           style={S.input}
-          placeholder="粘贴抖音分享链接…"
+          placeholder="粘贴抖音分享链接或整段分享文案…"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && createTask()}
