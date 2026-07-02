@@ -11,8 +11,6 @@ import os
 import re
 import urllib.request
 
-from openai import OpenAI
-
 import config
 import db
 import storage
@@ -123,7 +121,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                      error="未找到选定改写稿（请先完成改写阶段）")
         return "failed", None
 
-    client = OpenAI(api_key=config.OPENAI_API_KEY)
+    client = config.openai_client()
     sentences = _split_sentences(text)
     image_paths: list[str] = []
     meta_list: list[dict] = []

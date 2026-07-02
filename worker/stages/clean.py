@@ -4,20 +4,17 @@ import json
 import os
 from pathlib import Path
 
-from openai import OpenAI
-
 import config
 import db
 import storage
 
 _PROMPT = (Path(__file__).parent.parent / "prompts" / "clean.txt").read_text(encoding="utf-8")
-_client: OpenAI | None = None
+_client = None
 
-
-def _llm() -> OpenAI:
+def _llm():
     global _client
     if not _client:
-        _client = OpenAI(api_key=config.OPENAI_API_KEY)
+        _client = config.openai_client()
     return _client
 
 

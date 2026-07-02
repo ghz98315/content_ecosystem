@@ -21,9 +21,8 @@ def _llm_client():
         return OpenAI(
             api_key=config.DEEPSEEK_API_KEY,
             base_url="https://api.deepseek.com/v1",
-        ), "deepseek-chat"      # deepseek-v4-flash 的 model id
-    from openai import OpenAI
-    return OpenAI(api_key=config.OPENAI_API_KEY), "gpt-4o-mini"
+        ), "deepseek-chat"
+    return config.openai_client(), "gpt-4o-mini"
 
 
 def _find_rewrite_text(task_id: str, stage: dict) -> str | None:

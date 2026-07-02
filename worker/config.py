@@ -11,13 +11,26 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 # ---- 大模型（清洗/改写/生图/书名反推）----
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_API_KEY  = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")   # 第三方中转填此项，如 https://api.xcode.best/v1
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
-CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "gpt-4o-mini")   # 清洗：便宜够用
-REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-4o")        # 改写：质量要求高
-BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "")               # 书名反推：空=用 deepseek-v4-flash，没 key 则 fallback gpt-4o-mini       # 书名反推，没配 fallback openai
-THIRDPARTY_DOUYIN_KEY = os.environ.get("THIRDPARTY_DOUYIN_KEY", "")  # 可选备用解析
+CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "gpt-4o-mini")
+REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-4o")
+BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "")
+
+THIRDPARTY_DOUYIN_KEY = os.environ.get("THIRDPARTY_DOUYIN_KEY", "")
+
+
+def openai_client(api_key: str = "", base_url: str = ""):
+    """创建 OpenAI 客户端，自动读取 base_url（支持第三方中转）。"""
+    from openai import OpenAI
+    key  = api_key  or OPENAI_API_KEY
+    url  = base_url or OPENAI_BASE_URL
+    kwargs = {"api_key": key}
+    if url:
+        kwargs["base_url"] = url
+    return OpenAI(**kwargs)
 
 # ---- 轮询 ----
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))
