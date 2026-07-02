@@ -148,8 +148,13 @@ def run(stage: dict) -> tuple[str, str | None]:
             size=_IMG_SIZE,
             response_format="b64_json",   # gpt-image-2 只返回 b64_json
         )
-        import base64
-        raw = base64.b64decode(resp.data[0].b64_json)
+        # gpt-image-2 返回 b64_json；doubao / dall-e-3 返回 url
+        item = resp.data[0]
+        if getattr(item, "b64_json", None):
+            import base64
+            raw = base64.b64decode(item.b64_json)
+        else:
+            raw = _download_image(item.url)
 
         pieces = _split_grid(raw, len(batch))
         for i, piece_bytes in enumerate(pieces):
