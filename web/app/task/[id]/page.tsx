@@ -55,12 +55,22 @@ function StageRow({
 }) {
   const status = st?.status ?? "pending";
   const color = STATUS_COLOR[status];
-  const icon = STATUS_ICON[status];
   const isProcessing = status === "processing";
   const isDone = status === "done";
   const isFailed = status === "failed";
   const isReview = status === "needs_review";
   const isPending = status === "pending";
+  const isCancelled = status === "cancelled";
+
+  // done 阶段默认折叠，其他展开
+  const [expanded, setExpanded] = useState(!isDone);
+  // 当状态变化时自动展开（如重跑后变 processing）
+  useEffect(() => { if (!isDone) setExpanded(true); }, [status]);
+
+  const statusText = {
+    pending: "等待中", processing: "处理中…", done: "完成",
+    failed: "失败", needs_review: "待确认", cancelled: "已跳过",
+  }[status];
 
   return (
     <div style={{ marginBottom: 2 }}>
@@ -73,21 +83,15 @@ function StageRow({
           borderRadius: 6,
           background: isProcessing ? "#eff6ff" : isFailed ? "#fef2f2" : isReview ? "#fffbeb" : "#fafafa",
           border: `1px solid ${isProcessing ? "#bfdbfe" : isFailed ? "#fecaca" : isReview ? "#fde68a" : "#f3f4f6"}`,
-          opacity: isPending ? 0.5 : 1,
+          opacity: isPending || isCancelled ? 0.45 : 1,
         }}
       >
-        {/* 序号 + 图标 */}
+        {/* 序号圆圈 */}
         <div
           style={{
-            width: 28,
-            height: 28,
-            borderRadius: "50%",
-            background: color,
-            color: "#fff",
-            fontSize: isProcessing ? 16 : 13,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            width: 28, height: 28, borderRadius: "50%", background: color,
+            color: "#fff", fontSize: isProcessing ? 16 : 13,
+            display: "flex", alignItems: "center", justifyContent: "center",
             flexShrink: 0,
             animation: isProcessing ? "spin 1.2s linear infinite" : "none",
           }}
@@ -97,65 +101,62 @@ function StageRow({
 
         {/* 内容 */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {/* 标题行 — 点击展开/折叠 done 阶段 */}
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 6, cursor: isDone ? "pointer" : "default" }}
+            onClick={() => isDone && setExpanded(e => !e)}
+          >
             <span style={{ fontWeight: 600, fontSize: 14 }}>{def.label}</span>
-            <span style={{ fontSize: 12, color, fontWeight: 500 }}>
-              {icon} {status === "pending" ? "等待中" : status === "processing" ? "处理中…" : status === "done" ? "完成" : status === "failed" ? "失败" : "待确认"}
-            </span>
+            <span style={{ fontSize: 12, color, fontWeight: 500 }}>{statusText}</span>
+            {isDone && (
+              <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: "auto" }}>
+                {expanded ? "▲ 收起" : "▼ 展开"}
+              </span>
+            )}
           </div>
 
-          {/* 描述：processing 或 done 时显示 */}
-          {(isProcessing || isDone || isFailed || isReview) && (
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-              {STAGE_DESC[def.kind]}
-            </div>
-          )}
+          {/* 展开内容 */}
+          {expanded && (
+            <>
+              {/* 阶段动作描述 */}
+              {(isProcessing || isDone || isFailed || isReview) && (
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  {STAGE_DESC[def.kind]}
+                </div>
+              )}
 
-          {/* 错误详情 */}
-          {isFailed && st?.error && (
-            <div
-              style={{
-                fontSize: 12,
-                color: "#dc2626",
-                marginTop: 4,
-                background: "#fff",
-                padding: "4px 8px",
-                borderRadius: 4,
-                fontFamily: "monospace",
-                wordBreak: "break-all",
-              }}
-            >
-              {st.error}
-            </div>
-          )}
+              {/* 错误详情 */}
+              {isFailed && st?.error && (
+                <div style={{
+                  fontSize: 12, color: "#dc2626", marginTop: 4,
+                  background: "#fff", padding: "4px 8px", borderRadius: 4,
+                  fontFamily: "monospace", wordBreak: "break-all",
+                }}>
+                  {st.error}
+                </div>
+              )}
 
-          {/* output_ref（done 时显示缩略） */}
-          {isDone && st?.output_ref && !st.output_ref.startsWith("m0-fake") && (
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2, fontFamily: "monospace" }}>
-              → {st.output_ref}
-            </div>
-          )}
+              {/* output_ref */}
+              {isDone && st?.output_ref && !st.output_ref.startsWith("m0-fake") && (
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2, fontFamily: "monospace" }}>
+                  → {st.output_ref}
+                </div>
+              )}
 
-          {/* 需要人工介入的组件 */}
-          {def.kind === "ingest" && isReview && st && (
-            <ManualUpload taskId={taskId} stage={st} />
-          )}
-          {def.kind === "rewrite" && isReview && st && (
-            <RewriteReview taskId={taskId} stage={st} />
+              {/* 人工介入组件 */}
+              {def.kind === "ingest"  && isReview && st && <ManualUpload taskId={taskId} stage={st} />}
+              {def.kind === "rewrite" && isReview && st && <RewriteReview taskId={taskId} stage={st} />}
+            </>
           )}
         </div>
 
         {/* 操作按钮 */}
-        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 4, flexShrink: 0, paddingTop: 2 }}>
           {isReview && st && def.kind !== "ingest" && def.kind !== "rewrite" && (
-            <button style={S.approveBtn} onClick={() => onApprove(st.id, def.kind)}>
-              确认继续
-            </button>
+            <button style={S.approveBtn} onClick={() => onApprove(st.id, def.kind)}>确认继续</button>
           )}
-          {st && !isPending && !isProcessing && (
-            <button style={S.rerunBtn} onClick={() => onRerun(st.id)}>
-              重跑
-            </button>
+          {st && !isPending && !isProcessing && !isCancelled && (
+            <button style={S.rerunBtn} onClick={() => onRerun(st.id)}>重跑</button>
           )}
         </div>
       </div>
