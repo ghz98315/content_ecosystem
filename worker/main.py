@@ -44,6 +44,13 @@ def tick() -> bool:
     task_id = stage["task_id"]
     print(f"认领 stage: task={task_id[:8]} kind={kind} seq={stage['seq']}")
 
+    # 任务已被取消 → 跳过并标记
+    task_res = db.get_client().table("tasks").select("status").eq("id", task_id).single().execute()
+    if task_res.data and task_res.data.get("status") == "cancelled":
+        db.set_stage(stage["id"], "cancelled")
+        print(f"  ⊘  {kind} 跳过（任务已取消）")
+        return True
+
     try:
         handler = REAL_HANDLERS.get(kind)
         if handler:

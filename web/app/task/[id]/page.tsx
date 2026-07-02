@@ -224,8 +224,8 @@ export default function TaskDetail() {
             fontSize: 12,
             padding: "2px 10px",
             borderRadius: 12,
-            background: task.status === "done" ? "#dcfce7" : task.status === "failed" ? "#fee2e2" : "#eff6ff",
-            color: task.status === "done" ? "#15803d" : task.status === "failed" ? "#dc2626" : "#2563eb",
+            background: task.status === "done" ? "#dcfce7" : task.status === "cancelled" ? "#f3f4f6" : task.status === "failed" ? "#fee2e2" : "#eff6ff",
+            color: task.status === "done" ? "#15803d" : task.status === "cancelled" ? "#6b7280" : task.status === "failed" ? "#dc2626" : "#2563eb",
             fontWeight: 600,
           }}
         >
@@ -234,6 +234,14 @@ export default function TaskDetail() {
         <span style={{ fontSize: 12, color: "#9ca3af" }}>
           {stages.filter(s => s.status === "done").length} / {STAGES.length} 阶段完成
         </span>
+        {!["done", "cancelled", "failed"].includes(task.status) && (
+          <button
+            onClick={cancelTask}
+            style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 12, background: "none", border: "1px solid #e5e7eb", borderRadius: 5, cursor: "pointer", color: "#9ca3af" }}
+          >
+            取消任务
+          </button>
+        )}
       </div>
 
       {/* 处理日志 */}
