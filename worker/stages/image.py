@@ -121,7 +121,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                      error="未找到选定改写稿（请先完成改写阶段）")
         return "failed", None
 
-    client = config.openai_client()
+    client = config.image_client()
     sentences = _split_sentences(text)
     image_paths: list[str] = []
     meta_list: list[dict] = []
@@ -132,7 +132,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         prompt = _build_grid_prompt(batch)
 
         resp = client.images.generate(
-            model="gpt-image-1",
+            model=config.IMAGE_MODEL,
             prompt=prompt,
             n=1,
             size=_IMG_SIZE,

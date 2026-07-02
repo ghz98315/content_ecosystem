@@ -15,9 +15,21 @@ OPENAI_API_KEY  = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")   # 第三方中转填此项，如 https://api.xcode.best/v1
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
-CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "gpt-4o-mini")
-REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-4o")
-BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "")
+CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "gpt-5.5")
+REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-5.5")
+BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "gpt-5.5")
+
+# ---- 生图（可独立于文字模型，单独配 key/base_url/模型）----
+IMAGE_API_KEY  = os.environ.get("IMAGE_API_KEY",  "")   # 留空则复用 OPENAI_API_KEY
+IMAGE_BASE_URL = os.environ.get("IMAGE_BASE_URL", "")   # 留空则复用 OPENAI_BASE_URL
+IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "gpt-image-1")
+
+
+def image_client():
+    """生图专用客户端：优先用 IMAGE_* 配置，未配则回退 OPENAI_*。"""
+    key = IMAGE_API_KEY or OPENAI_API_KEY
+    url = IMAGE_BASE_URL or OPENAI_BASE_URL
+    return openai_client(api_key=key, base_url=url)
 
 THIRDPARTY_DOUYIN_KEY = os.environ.get("THIRDPARTY_DOUYIN_KEY", "")
 
