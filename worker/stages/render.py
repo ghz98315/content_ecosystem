@@ -127,21 +127,65 @@ def _make_image_clip(img_path: str, duration: float, out_mp4: str) -> None:
     subprocess.run(cmd, check=True, capture_output=True)
 
 
-def _make_text_card(text: str, duration: float, out_mp4: str) -> None:
-    """纯文字卡片 → MP4 片段（黑底白字，多行换行用 \\n）。"""
-    escaped = text.replace("'", "\\'").replace(":", "\\:")
-    vf = (
-        f"color=black:size={W}x{H}:duration={duration}:rate={FPS},"
-        f"drawtext=text='{escaped}':fontfile='':fontsize=52:fontcolor=white:"
-        f"x=(w-text_w)/2:y=(h-text_h)/2:line_spacing=20"
-    )
-    cmd = [
-        ff(), "-y",
-        "-f", "lavfi", "-i", vf,
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-an", out_mp4,
+def _find_cjk_font() -> str:
+    """在 Windows Fonts 目录中找中文字体，返回路径；找不到抛 FileNotFoundError。"""
+    candidates = [
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\msyhbd.ttc",
+        r"C:\Windows\Fonts\simhei.ttf",
+        r"C:\Windows\Fonts\simsun.ttc",
+        r"C:\Windows\Fonts\STZHONGS.TTF",
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    for p in candidates:
+        if Path(p).exists():
+            return p
+    raise FileNotFoundError("未找到中文字体，请确认 C:\\Windows\\Fonts 下有 msyh.ttc 或 simhei.ttf")
+
+
+def _make_text_card(text: str, duration: float, out_mp4: str) -> None:
+    """纯文字卡片 → MP4 片段（Pillow 绘制，避免 ffmpeg drawtext 中文字体问题）。"""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (W, H), color=(0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    font_path = _find_cjk_font()
+    font_size = 52
+    try:
+        font = ImageFont.truetype(font_path, font_size)
+    except Exception:
+        font = ImageFont.load_default()
+
+    lines = text.replace("\\n", "\n").split("\n")
+    line_spacing = 20
+    line_heights = []
+    for line in lines:
+        bb = draw.textbbox((0, 0), line, font=font)
+        line_heights.append(bb[3] - bb[1])
+    total_h = sum(line_heights) + line_spacing * (len(lines) - 1)
+    y = (H - total_h) // 2
+
+    for i, line in enumerate(lines):
+        bb = draw.textbbox((0, 0), line, font=font)
+        lw = bb[2] - bb[0]
+        x = (W - lw) // 2
+        draw.text((x, y), line, font=font, fill=(255, 255, 255))
+        y += line_heights[i] + line_spacing
+
+    # PNG → 临时文件，再用 ffmpeg loop 成 MP4
+    tmp_png = out_mp4.replace(".mp4", "_card.png")
+    img.save(tmp_png, "PNG")
+    try:
+        subprocess.run([
+            ff(), "-y",
+            "-loop", "1", "-t", str(duration), "-i", tmp_png,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-r", str(FPS), "-an",
+            out_mp4,
+        ], check=True, capture_output=True)
+    finally:
+        try: os.remove(tmp_png)
+        except OSError: pass
 
 
 # ── 主流程 ────────────────────────────────────────────────────────────────────
@@ -218,12 +262,14 @@ def run(stage: dict) -> tuple[str, str | None]:
 
         # 7. 合并视频 + 音频 + 字幕，输出 final.mp4
         final = os.path.join(tmpdir, "final.mp4")
+        # Windows 路径中 "C:" 的冒号在 ffmpeg filter graph 里需转义
+        ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:")
         # 音频从 INTRO_DUR 处开始，片头无声
         subprocess.run([
             ff(), "-y",
             "-i", video_only,
             "-itsoffset", str(INTRO_DUR), "-i", audio_path,
-            "-vf", f"ass={ass_path}",
+            "-vf", f"ass={ass_escaped}",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-shortest",
             final,
