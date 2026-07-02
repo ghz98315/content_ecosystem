@@ -121,7 +121,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                      error="未找到选定改写稿（请先完成改写阶段）")
         return "failed", None
 
-    client = config.image_client()
+    client, image_model = config.image_client()
     sentences = _split_sentences(text)
     image_paths: list[str] = []
     meta_list: list[dict] = []
@@ -132,18 +132,14 @@ def run(stage: dict) -> tuple[str, str | None]:
         prompt = _build_grid_prompt(batch)
 
         resp = client.images.generate(
-            model=config.IMAGE_MODEL,
+            model=image_model,
             prompt=prompt,
             n=1,
             size=_IMG_SIZE,
+            response_format="b64_json",   # gpt-image-2 只返回 b64_json
         )
-        url = resp.data[0].url
-        if not url:
-            # gpt-image-1 有时返回 b64_json 而非 url
-            import base64
-            raw = base64.b64decode(resp.data[0].b64_json)
-        else:
-            raw = _download_image(url)
+        import base64
+        raw = base64.b64decode(resp.data[0].b64_json)
 
         pieces = _split_grid(raw, len(batch))
         for i, piece_bytes in enumerate(pieces):

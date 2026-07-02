@@ -19,17 +19,27 @@ CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "gpt-5.5")
 REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-5.5")
 BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "gpt-5.5")
 
-# ---- 生图（可独立于文字模型，单独配 key/base_url/模型）----
+# ---- 生图（可独立于文字模型，支持 openai / doubao 两个后端）----
+IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")   # openai | doubao
+
+# gpt 生图
 IMAGE_API_KEY  = os.environ.get("IMAGE_API_KEY",  "")   # 留空则复用 OPENAI_API_KEY
 IMAGE_BASE_URL = os.environ.get("IMAGE_BASE_URL", "")   # 留空则复用 OPENAI_BASE_URL
-IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "gpt-image-1")
+IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "gpt-image-2")
+
+# doubao（豆包）生图
+DOUBAO_API_KEY     = os.environ.get("DOUBAO_API_KEY", "")
+DOUBAO_BASE_URL    = os.environ.get("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+DOUBAO_IMAGE_MODEL = os.environ.get("DOUBAO_IMAGE_MODEL", "doubao-seedream-3-0-t2i-250415")
 
 
 def image_client():
-    """生图专用客户端：优先用 IMAGE_* 配置，未配则回退 OPENAI_*。"""
+    """生图专用客户端。按 IMAGE_PROVIDER 选后端，返回 (client, model)。"""
+    if IMAGE_PROVIDER == "doubao":
+        return openai_client(api_key=DOUBAO_API_KEY, base_url=DOUBAO_BASE_URL), DOUBAO_IMAGE_MODEL
     key = IMAGE_API_KEY or OPENAI_API_KEY
     url = IMAGE_BASE_URL or OPENAI_BASE_URL
-    return openai_client(api_key=key, base_url=url)
+    return openai_client(api_key=key, base_url=url), IMAGE_MODEL
 
 THIRDPARTY_DOUYIN_KEY = os.environ.get("THIRDPARTY_DOUYIN_KEY", "")
 
