@@ -57,6 +57,10 @@ export default function HomePage() {
     }
   };
 
+  const cancelTask = async (taskId: string) => {
+    await supabase.from("tasks").update({ status: "cancelled" }).eq("id", taskId);
+  };
+
   if (authError)
     return (
       <main style={S.main}>
@@ -101,16 +105,36 @@ export default function HomePage() {
         <p style={{ color: "#9ca3af", fontSize: 13 }}>还没有任务</p>
       )}
       <ul style={{ listStyle: "none", padding: 0 }}>
-        {tasks.map((t) => (
-          <li key={t.id} style={S.taskItem}>
-            <Link href={`/task/${t.id}`} style={S.taskLink}>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {t.title || t.source_url || t.id}
-              </span>
-              <span style={S.badge}>{t.status}</span>
-            </Link>
-          </li>
-        ))}
+        {tasks.map((t) => {
+          const active = !["done", "cancelled", "failed"].includes(t.status);
+          return (
+            <li key={t.id} style={{ ...S.taskItem, display: "flex", alignItems: "center" }}>
+              <Link href={`/task/${t.id}`} style={{ ...S.taskLink, flex: 1 }}>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {t.title || t.source_url || t.id}
+                </span>
+                <span
+                  style={{
+                    ...S.badge,
+                    color: t.status === "done" ? "#15803d" : t.status === "cancelled" ? "#6b7280" : t.status === "failed" ? "#dc2626" : "#2563eb",
+                    background: t.status === "done" ? "#dcfce7" : t.status === "cancelled" ? "#f3f4f6" : t.status === "failed" ? "#fee2e2" : "#eff6ff",
+                  }}
+                >
+                  {t.status}
+                </span>
+              </Link>
+              {active && (
+                <button
+                  style={S.cancelBtn}
+                  onClick={(e) => { e.preventDefault(); cancelTask(t.id); }}
+                  title="取消任务"
+                >
+                  ✕
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </main>
   );
@@ -123,5 +147,6 @@ const S: Record<string, React.CSSProperties> = {
   btn: { padding: "8px 16px", background: "#111827", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 14 },
   taskItem: { borderBottom: "1px solid #f3f4f6" },
   taskLink: { display: "flex", alignItems: "center", gap: 8, padding: "10px 4px", textDecoration: "none", color: "#111827", fontSize: 14 },
-  badge: { fontSize: 12, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 10 },
+  badge: { fontSize: 12, padding: "2px 8px", borderRadius: 10 },
+  cancelBtn: { padding: "4px 8px", background: "none", border: "1px solid #e5e7eb", borderRadius: 5, cursor: "pointer", fontSize: 12, color: "#9ca3af", marginLeft: 4 },
 };

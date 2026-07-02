@@ -49,7 +49,7 @@ function StageRow({
   def: { kind: StageKind; label: string };
   st: Stage | undefined;
   index: number;
-  onApprove: (id: string) => void;
+  onApprove: (id: string, kind: string) => void;
   onRerun: (id: string) => void;
   taskId: string;
 }) {
@@ -148,7 +148,7 @@ function StageRow({
         {/* 操作按钮 */}
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
           {isReview && st && def.kind !== "ingest" && def.kind !== "rewrite" && (
-            <button style={S.approveBtn} onClick={() => onApprove(st.id)}>
+            <button style={S.approveBtn} onClick={() => onApprove(st.id, def.kind)}>
               确认继续
             </button>
           )}
@@ -193,11 +193,17 @@ export default function TaskDetail() {
     return () => { active = false; supabase.removeChannel(ch); };
   }, [userId, id]);
 
-  const approve = async (stageId: string) => {
-    await supabase.from("stages").update({ status: "pending" }).eq("id", stageId);
+  // 评审门确认：rewrite → pending（worker 检测 chosen_index 后 done）
+  //             book   → 直接 done（LLM 反复重跑会死循环）
+  const approve = async (stageId: string, kind: string) => {
+    const next = kind === "book" ? "done" : "pending";
+    await supabase.from("stages").update({ status: next }).eq("id", stageId);
   };
   const rerun = async (stageId: string) => {
     await supabase.from("stages").update({ status: "pending", error: null }).eq("id", stageId);
+  };
+  const cancelTask = async () => {
+    await supabase.from("tasks").update({ status: "cancelled" }).eq("id", id);
   };
 
   if (!task) return <main style={S.main}><p>加载中…</p></main>;

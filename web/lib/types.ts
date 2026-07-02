@@ -17,7 +17,8 @@ export type StageStatus =
   | "processing"
   | "done"
   | "failed"
-  | "needs_review";
+  | "needs_review"
+  | "cancelled";
 
 export interface Task {
   id: string;
@@ -49,6 +50,7 @@ export const STATUS_LABEL: Record<StageStatus, string> = {
   done: "完成",
   failed: "失败",
   needs_review: "待确认",
+  cancelled: "已取消",
 };
 
 export const STATUS_COLOR: Record<StageStatus, string> = {
@@ -57,4 +59,5 @@ export const STATUS_COLOR: Record<StageStatus, string> = {
   done: "#16a34a",
   failed: "#dc2626",
   needs_review: "#d97706",
+  cancelled: "#6b7280",
 };

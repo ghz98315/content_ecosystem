@@ -35,8 +35,21 @@ def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
 
-    # 若已从 params 里拿到选定稿（前端确认后重跑会带 chosen_index）
+    # ── 用户已选定候选 → 直接 done，不再重新生成 ──────────────────────────
     chosen = params.get("chosen_index")
+    if chosen is not None:
+        res = (
+            db.get_client().table("artifacts")
+            .select("storage_path")
+            .eq("task_id", task_id)
+            .eq("type", "rewrite")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return "done", res.data[0]["storage_path"]
+        # 找不到 artifact 则继续重新生成（容错）
 
     cl_path = _find_clean(task_id)
     if not cl_path:
