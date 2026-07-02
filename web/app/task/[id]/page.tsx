@@ -212,7 +212,7 @@ export default function TaskDetail() {
   if (!task) return <main style={S.main}><p>加载中…</p></main>;
 
   const renderStage = stages.find((s) => s.kind === "render");
-  const taskDone = task.status === "done";
+  const videoReady = renderStage?.status === "done" && !!renderStage?.output_ref;
 
   return (
     <main style={S.main}>
@@ -267,7 +267,7 @@ export default function TaskDetail() {
       </div>
 
       {/* 成片下载 */}
-      {taskDone && renderStage?.output_ref && (
+      {videoReady && renderStage?.output_ref && (
         <DownloadButton storagePath={renderStage.output_ref} />
       )}
     </main>

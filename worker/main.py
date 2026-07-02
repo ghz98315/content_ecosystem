@@ -91,6 +91,8 @@ def main() -> None:
             break
         except Exception as e:  # noqa: BLE001
             print("循环异常:", e)
+            # 清除 lru_cache 以便下次重建 Supabase 连接
+            db.get_client.cache_clear()
             worked = False
         if not worked:
             time.sleep(config.POLL_INTERVAL)
