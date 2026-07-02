@@ -1,10 +1,7 @@
 "use client";
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
 
-const BUCKET = "artifacts";
-
-/** 成片下载按钮：从 Storage 生成签名链接触发下载。 */
+/** 成片下载按钮：通过 API route（service_role）生成签名链接触发下载。 */
 export function DownloadButton({
   storagePath,
   label = "下载成片",
@@ -19,12 +16,11 @@ export function DownloadButton({
     setBusy(true);
     setErr(null);
     try {
-      const { data, error } = await supabase.storage
-        .from(BUCKET)
-        .createSignedUrl(storagePath, 600); // 10 分钟有效
-      if (error || !data?.signedUrl) throw error ?? new Error("获取下载链接失败");
+      const res = await fetch(`/api/signed-url?path=${encodeURIComponent(storagePath)}`);
+      if (!res.ok) throw new Error("获取下载链接失败");
+      const { signedUrl } = await res.json();
       const a = document.createElement("a");
-      a.href = data.signedUrl;
+      a.href = signedUrl;
       a.download = "final.mp4";
       document.body.appendChild(a);
       a.click();
@@ -46,7 +42,7 @@ export function DownloadButton({
   );
 }
 
-const S: React.CSSProperties & { btn: React.CSSProperties } = {
+const S = {
   btn: {
     padding: "10px 28px",
     background: "#16a34a",
@@ -56,5 +52,5 @@ const S: React.CSSProperties & { btn: React.CSSProperties } = {
     cursor: "pointer",
     fontSize: 15,
     fontWeight: 600,
-  },
-} as { btn: React.CSSProperties };
+  } as React.CSSProperties,
+};
