@@ -262,18 +262,17 @@ def run(stage: dict) -> tuple[str, str | None]:
 
         # 7. 合并视频 + 音频 + 字幕，输出 final.mp4
         final = os.path.join(tmpdir, "final.mp4")
-        # Windows 路径中 "C:" 的冒号在 ffmpeg filter graph 里需转义
-        ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:")
-        # 音频从 INTRO_DUR 处开始，片头无声
+        # 用 cwd=tmpdir + 相对路径 "subs.ass" 避免 Windows 路径中 "C:" 冒号在
+        # ffmpeg filter graph 里的转义问题
         subprocess.run([
             ff(), "-y",
             "-i", video_only,
             "-itsoffset", str(INTRO_DUR), "-i", audio_path,
-            "-vf", f"ass={ass_escaped}",
+            "-vf", "ass=subs.ass",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-shortest",
             final,
-        ], check=True, capture_output=True)
+        ], check=True, capture_output=True, cwd=tmpdir)
 
         # 8. 上传
         sp = f"{task_id}/final.mp4"
