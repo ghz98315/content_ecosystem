@@ -25,7 +25,7 @@ IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")   # openai | doubao
 # gpt 生图
 IMAGE_API_KEY  = os.environ.get("IMAGE_API_KEY",  "")   # 留空则复用 OPENAI_API_KEY
 IMAGE_BASE_URL = os.environ.get("IMAGE_BASE_URL", "")   # 留空则复用 OPENAI_BASE_URL
-IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "gpt-image-2")
+IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "dall-e-3")
 
 # doubao（豆包）生图
 DOUBAO_API_KEY     = os.environ.get("DOUBAO_API_KEY", "")

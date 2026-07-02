@@ -146,7 +146,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             prompt=prompt,
             n=1,
             size=_IMG_SIZE,
-            response_format="b64_json",   # gpt-image-2 只返回 b64_json
+            # response_format 不硬编码：gpt-image-* 默认 b64_json，dall-e-3 默认 url
         )
         # gpt-image-2 返回 b64_json；doubao / dall-e-3 返回 url
         item = resp.data[0]
