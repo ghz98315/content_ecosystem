@@ -59,9 +59,12 @@ def tick() -> bool:
             if status == "needs_review":
                 # 处理器内部已 set 过 stage，这里只打印
                 print(f"  ⏸  {kind} 进入评审门 needs_review")
-            else:
+            elif status == "done":
                 db.set_stage(stage["id"], "done", output_ref=output_ref)
                 print(f"  ✔  {kind} done → {output_ref}")
+            else:
+                # failed：处理器内部已 set_stage，这里只打印
+                print(f"  ✖  {kind} failed（handler 已记录错误）")
         else:
             # 还没接真实处理器的阶段：M0 假处理 + 评审门
             process_fake(stage)
