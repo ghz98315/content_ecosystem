@@ -8,6 +8,7 @@ import { useAnonAuth } from "@/lib/useAnonAuth";
 import { Task, Stage, STAGES, StageKind } from "@/lib/types";
 import { ManualUpload } from "@/components/ManualUpload";
 import { RewriteReview } from "@/components/RewriteReview";
+import { BookReview } from "@/components/BookReview";
 import { DownloadButton } from "@/components/DownloadButton";
 
 // 每阶段做什么的简述（processing 时显示）
@@ -146,13 +147,14 @@ function StageRow({
               {/* 人工介入组件 */}
               {def.kind === "ingest"  && isReview && st && <ManualUpload taskId={taskId} stage={st} />}
               {def.kind === "rewrite" && isReview && st && <RewriteReview taskId={taskId} stage={st} />}
+              {def.kind === "book"    && isReview && st && <BookReview stage={st} />}
             </>
           )}
         </div>
 
         {/* 操作按钮 */}
         <div style={{ display: "flex", gap: 4, flexShrink: 0, paddingTop: 2 }}>
-          {isReview && st && def.kind !== "ingest" && def.kind !== "rewrite" && (
+          {isReview && st && def.kind !== "ingest" && def.kind !== "rewrite" && def.kind !== "book" && (
             <button style={S.approveBtn} onClick={() => onApprove(st.id, def.kind)}>确认继续</button>
           )}
           {st && !isPending && !isProcessing && !isCancelled && (
