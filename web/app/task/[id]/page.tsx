@@ -9,6 +9,7 @@ import { Task, Stage, STAGES, StageKind } from "@/lib/types";
 import { ManualUpload } from "@/components/ManualUpload";
 import { RewriteReview } from "@/components/RewriteReview";
 import { BookReview } from "@/components/BookReview";
+import { StageArtifact } from "@/components/StageArtifact";
 import { DownloadButton } from "@/components/DownloadButton";
 
 // 每阶段做什么的简述（processing 时显示）
@@ -148,6 +149,11 @@ function StageRow({
               {def.kind === "ingest"  && isReview && st && <ManualUpload taskId={taskId} stage={st} />}
               {def.kind === "rewrite" && isReview && st && <RewriteReview taskId={taskId} stage={st} />}
               {def.kind === "book"    && isReview && st && <BookReview stage={st} />}
+
+              {/* 产物预览（done 状态） */}
+              {isDone && st?.output_ref && (
+                <StageArtifact kind={def.kind} outputRef={st.output_ref} />
+              )}
             </>
           )}
         </div>
