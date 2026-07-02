@@ -2,7 +2,7 @@
 
 M1 起：ingest 用真实处理器；其余阶段暂用 M0 假处理（sleep），逐个里程碑替换。
 """
-from . import ingest, transcribe, clean, rewrite, tts, image, book
+from . import ingest, transcribe, clean, rewrite, tts, image, book, render
 
 REAL_HANDLERS = {
     "ingest":     ingest.run,
@@ -12,4 +12,5 @@ REAL_HANDLERS = {
     "tts":        tts.run,
     "image":      image.run,
     "book":       book.run,
+    "render":     render.run,
 }

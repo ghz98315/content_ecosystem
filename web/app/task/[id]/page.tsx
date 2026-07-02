@@ -14,6 +14,7 @@ import {
 } from "@/lib/types";
 import { ManualUpload } from "@/components/ManualUpload";
 import { RewriteReview } from "@/components/RewriteReview";
+import { DownloadButton } from "@/components/DownloadButton";
 
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -130,6 +131,15 @@ export default function TaskDetail() {
           );
         })}
       </div>
+
+      {/* 成片完成：显示下载按钮 */}
+      {(() => {
+        const renderStage = stages.find((s) => s.kind === "render");
+        if (renderStage?.status === "done" && renderStage.output_ref) {
+          return <DownloadButton storagePath={renderStage.output_ref} />;
+        }
+        return null;
+      })()}
     </main>
   );
 }
