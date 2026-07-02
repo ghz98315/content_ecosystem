@@ -2,11 +2,21 @@
 from __future__ import annotations
 import json
 import os
+import re
 from pathlib import Path
 
 import config
 import db
 import storage
+
+_CAND_RE = re.compile(r'【候选[ABC]】\s*(.*?)(?=【候选[ABC]】|$)', re.DOTALL)
+
+
+def _parse_candidates(raw: str) -> list[str]:
+    matches = _CAND_RE.findall(raw)
+    if len(matches) == 3:
+        return [m.strip() for m in matches]
+    return [raw]
 
 _PROMPT = (Path(__file__).parent.parent / "prompts" / "rewrite.txt").read_text(encoding="utf-8")
 _client = None
@@ -66,7 +76,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         except OSError:
             pass
 
-    # 生成 3 个候选
+    # 单次生成，包含三种风格候选；n=1 避免每个补全都含全部三段
     resp = _llm().chat.completions.create(
         model=config.REWRITE_MODEL,
         messages=[
@@ -74,9 +84,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             {"role": "user", "content": cleaned_text},
         ],
         temperature=0.8,
-        n=3,
     )
-    candidates = [c.message.content.strip() for c in resp.choices]
+    candidates = _parse_candidates(resp.choices[0].message.content.strip())
 
     data = json.dumps(
         {"candidates": candidates, "chosen": chosen},

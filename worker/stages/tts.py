@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import tempfile
 
 import config
@@ -11,6 +12,28 @@ import storage
 
 # 默认音色，可通过 env 覆盖
 _VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
+
+# 标点停顿规则（长模式优先）
+_PAUSE_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r'……'),    '<break time="900ms"/>'),
+    (re.compile(r'\.{4,}'), '<break time="900ms"/>'),
+    (re.compile(r'——'),    '<break time="700ms"/>'),
+    (re.compile(r'--'),    '<break time="700ms"/>'),
+    (re.compile(r'[。]'),  '<break time="800ms"/>'),
+    (re.compile(r'[！!]'), '<break time="900ms"/>'),
+    (re.compile(r'[？?]'), '<break time="900ms"/>'),
+    (re.compile(r'[；;]'), '<break time="450ms"/>'),
+    (re.compile(r'[：:]'), '<break time="450ms"/>'),
+    (re.compile(r'[，,]'), '<break time="300ms"/>'),
+    (re.compile(r'"'),     '"<break time="150ms"/>'),
+    (re.compile(r'"'),     '<break time="150ms"/>"'),
+]
+
+
+def _add_pauses(text: str) -> str:
+    for pat, repl in _PAUSE_RULES:
+        text = pat.sub(repl, text)
+    return text
 
 
 def _find_rewrite(task_id: str) -> str | None:
@@ -68,7 +91,7 @@ async def _synthesize(text: str, voice: str) -> tuple[bytes, list[dict]]:
     os.close(fd_mp3)
     segs: list[dict] = []
 
-    comm = edge_tts.Communicate(text, voice)
+    comm = edge_tts.Communicate(_add_pauses(text), voice)
     with open(mp3_path, "wb") as f:
         async for chunk in comm.stream():
             if chunk["type"] == "audio":
