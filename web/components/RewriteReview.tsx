@@ -3,8 +3,6 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Stage } from "@/lib/types";
 
-const BUCKET = "artifacts";
-
 interface RewriteData {
   candidates: string[];
   chosen: number | null;
@@ -19,15 +17,14 @@ export function RewriteReview({ taskId, stage }: { taskId: string; stage: Stage 
   useEffect(() => {
     if (!stage.output_ref) return;
     (async () => {
-      // 私有 bucket → 先生成签名链接再下载
-      const { data: urlData, error: urlErr } = await supabase.storage
-        .from(BUCKET)
-        .createSignedUrl(stage.output_ref!, 300);
-      if (urlErr || !urlData?.signedUrl) {
-        setErr("获取候选内容失败：" + (urlErr?.message ?? "无法生成链接"));
+      const res = await fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref!)}`);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setErr("获取候选内容失败：" + (e.error ?? res.status));
         return;
       }
-      const resp = await fetch(urlData.signedUrl);
+      const { signedUrl } = await res.json();
+      const resp = await fetch(signedUrl);
       if (!resp.ok) { setErr("下载候选内容失败"); return; }
       const parsed: RewriteData = await resp.json();
       setData(parsed);
