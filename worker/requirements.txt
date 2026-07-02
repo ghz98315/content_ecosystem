@@ -2,6 +2,16 @@
 supabase>=2.4.0
 python-dotenv>=1.0.0
 
+# HTTP / SSL（supabase-py 底层；certifi 修复 Windows SSL EOF 问题）
+httpx>=0.28.0
+certifi>=2026.0.0
+
+# 大模型调用
+openai>=1.30.0
+
+# ASR 逐字稿（本地 CPU/GPU 推理）
+faster-whisper>=1.0.0
+
 # 抖音自研解析（f2 内置 a_bogus 签名）
 f2==0.0.1.7
 yt-dlp>=2026.6.9              # 备用/兜底解析
