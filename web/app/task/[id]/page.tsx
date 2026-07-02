@@ -209,7 +209,12 @@ export default function TaskDetail() {
     await supabase.from("stages").update({ status: next }).eq("id", stageId);
   };
   const rerun = async (stageId: string) => {
-    await supabase.from("stages").update({ status: "pending", error: null }).eq("id", stageId);
+    const stage = stages.find(s => s.id === stageId);
+    const params = { ...(stage?.params ?? {}) };
+    // 清除上次评审结论，确保重跑时重新进评审门
+    delete params.chosen_index;
+    delete params.manual_book_name;
+    await supabase.from("stages").update({ status: "pending", error: null, params }).eq("id", stageId);
   };
   const cancelTask = async () => {
     await supabase.from("tasks").update({ status: "cancelled" }).eq("id", id);

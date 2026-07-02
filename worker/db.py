@@ -39,7 +39,7 @@ def claim_next_stage() -> dict | None:
                 .lt("seq", seq)
                 .execute()
             )
-            if not all(r["status"] == "done" for r in prior.data):
+            if not all(r["status"] in ("done", "cancelled") for r in prior.data):
                 continue  # 有前置未完成，跳过
 
         # 乐观锁认领
