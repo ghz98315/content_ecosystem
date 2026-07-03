@@ -1,13 +1,13 @@
-// 8 阶段定义（与 worker/supabase 保持一致）
+// 8 阶段定义（与 worker/supabase 保持一致；tts 在 book 之后）
 export const STAGES = [
-  { kind: "ingest", label: "采集" },
+  { kind: "ingest",     label: "采集" },
   { kind: "transcribe", label: "逐字稿" },
-  { kind: "clean", label: "清洗" },
-  { kind: "rewrite", label: "改写" },
-  { kind: "tts", label: "配音" },
-  { kind: "image", label: "生图" },
-  { kind: "book", label: "书籍信息" },
-  { kind: "render", label: "成片" },
+  { kind: "clean",      label: "清洗" },
+  { kind: "rewrite",    label: "改写" },
+  { kind: "image",      label: "生图" },
+  { kind: "book",       label: "书籍信息" },
+  { kind: "tts",        label: "配音" },
+  { kind: "render",     label: "成片" },
 ] as const;
 
 export type StageKind = (typeof STAGES)[number]["kind"];

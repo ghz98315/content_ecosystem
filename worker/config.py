@@ -63,8 +63,8 @@ WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")       # tiny/base/small
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")       # cpu / cuda
 WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")    # int8(cpu) / float16(cuda)
 
-# 8 阶段顺序
-STAGE_ORDER = ["ingest", "transcribe", "clean", "rewrite", "tts", "image", "book", "render"]
+# 8 阶段顺序（tts 在 book 之后，CTA 需要书籍信息）
+STAGE_ORDER = ["ingest", "transcribe", "clean", "rewrite", "image", "book", "tts", "render"]
 
 # M0：这两个阶段进 needs_review，验证评审门（等前端把它推回 pending）
 REVIEW_GATES = {"rewrite", "book"}

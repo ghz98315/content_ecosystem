@@ -108,13 +108,41 @@ async def _synthesize(text: str, voice: str) -> tuple[bytes, list[dict]]:
     return audio, segs
 
 
+def _get_cta(task_id: str) -> str | None:
+    """从 book.json 读取 CTA 文案（book 阶段在 tts 之前完成）。"""
+    res = (
+        db.get_client().table("artifacts")
+        .select("storage_path")
+        .eq("task_id", task_id)
+        .eq("type", "book")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return None
+    local = storage.download_artifact(res.data[0]["storage_path"], ".json")
+    try:
+        data = json.load(open(local, encoding="utf-8"))
+        return data.get("cta_text") or None
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
-    text = _get_chosen_text(task_id, stage)
-    if not text:
+    rewrite_text = _get_chosen_text(task_id, stage)
+    if not rewrite_text:
         db.set_stage(stage["id"], "failed",
                      error="未找到选定的改写稿（请先在改写阶段确认选择）")
         return "failed", None
+
+    # 追加 CTA（book 阶段已在 tts 之前完成）
+    cta = _get_cta(task_id)
+    text = rewrite_text + ("\n\n" + cta if cta else "")
 
     voice = stage.get("params", {}).get("voice") or _VOICE
     audio, segs = asyncio.run(_synthesize(text, voice))

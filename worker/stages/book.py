@@ -1,4 +1,4 @@
-"""⑦ 书籍信息 book：改写文案 → LLM反推书名/作者/国籍 + 生成视频号标题。
+"""⑦ 书籍信息 book：改写文案 → LLM反推书名/作者/国籍 + 生成视频号标题 + 生成CTA文案。
 
 - 优先用 deepseek-v4-flash（按参考实现：便宜且准），没配 key 则 fallback OpenAI
 - confidence=low 时进评审门，人工确认书名后继续
@@ -13,6 +13,7 @@ import db
 import storage
 
 _PROMPT = (Path(__file__).parent.parent / "prompts" / "book.txt").read_text(encoding="utf-8")
+_CTA_PROMPT_TMPL = (Path(__file__).parent.parent / "prompts" / "cta.txt").read_text(encoding="utf-8")
 
 
 def _llm_client():
@@ -23,6 +24,20 @@ def _llm_client():
             base_url="https://api.deepseek.com/v1",
         ), "deepseek-chat"
     return config.openai_client(), "gpt-4o-mini"
+
+
+def _generate_cta(client, model: str, rewrite_text: str, book_name: str, author: str) -> str:
+    prompt = _CTA_PROMPT_TMPL.format(
+        rewrite=rewrite_text,
+        book_name=book_name,
+        author=author,
+    )
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    return resp.choices[0].message.content.strip()
 
 
 def _find_rewrite_text(task_id: str, stage: dict) -> str | None:
@@ -87,6 +102,17 @@ def run(stage: dict) -> tuple[str, str | None]:
     if manual_book:
         info["book_name"] = manual_book
         info["confidence"] = "high"
+
+    # 生成 CTA：呼应改写稿内容 + 引出书名购买行动
+    try:
+        info["cta_text"] = _generate_cta(
+            client, model,
+            rewrite_text=text,
+            book_name=info.get("book_name", ""),
+            author=info.get("author", ""),
+        )
+    except Exception:
+        info["cta_text"] = ""  # CTA 失败不阻断主流程
 
     data = json.dumps(info, ensure_ascii=False, indent=2).encode("utf-8")
     sp = f"{task_id}/book.json"
