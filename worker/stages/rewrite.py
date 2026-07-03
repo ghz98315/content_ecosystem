@@ -45,7 +45,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
 
-    # ── 用户已选定候选 → 直接 done，不再重新生成 ──────────────────────────
+    # ── 用户已选定候选 → 更新 chosen 字段并直接 done，不再重新生成 ───────────
     chosen = params.get("chosen_index")
     if chosen is not None:
         res = (
@@ -58,7 +58,26 @@ def run(stage: dict) -> tuple[str, str | None]:
             .execute()
         )
         if res.data:
-            return "done", res.data[0]["storage_path"]
+            sp = res.data[0]["storage_path"]
+            # 把 chosen 写回 JSON，让 tts/book 可以直接从文件读，无需 DB 查询
+            local = storage.download_artifact(sp, ".json")
+            try:
+                rw = json.load(open(local, encoding="utf-8"))
+                if rw.get("chosen") != int(chosen):
+                    rw["chosen"] = int(chosen)
+                    storage.upload_bytes(
+                        sp,
+                        json.dumps(rw, ensure_ascii=False, indent=2).encode("utf-8"),
+                        "application/json",
+                    )
+            except Exception:
+                pass
+            finally:
+                try:
+                    os.remove(local)
+                except OSError:
+                    pass
+            return "done", sp
         # 找不到 artifact 则继续重新生成（容错）
 
     cl_path = _find_clean(task_id)
