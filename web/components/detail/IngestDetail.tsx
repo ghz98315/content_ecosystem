@@ -10,6 +10,7 @@ interface Meta {
   share_count?: number;
   collect_count?: number;
   duration?: number;
+  hot_comments?: { text: string; likes: number; author: string; replies: number }[];
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -64,7 +65,9 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         <Row label="标题">{task.title || "—"}</Row>
         <Row label="作者">{author?.name ? `@${author.name}` : "—"}</Row>
         <Row label="粉丝量">
-          <span style={{ color: "var(--text-disabled)", fontSize: 12 }}>待获取</span>
+          {(author as any)?.fans_count != null
+            ? fmt((author as any).fans_count)
+            : <span style={{ color: "var(--text-disabled)", fontSize: 12 }}>—</span>}
         </Row>
         <Row label="时长">{fmtDur(meta?.duration)}</Row>
       </section>
@@ -80,10 +83,32 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         </div>
       </section>
 
-      {/* 热门评论占位 */}
+      {/* 热门评论 */}
       <section>
         <Label>热门评论</Label>
-        <p style={{ fontSize: 13, color: "var(--text-disabled)" }}>热门评论抓取功能即将上线</p>
+        {!meta?.hot_comments?.length ? (
+          <p style={{ fontSize: 13, color: "var(--text-disabled)" }}>暂无评论数据</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {meta.hot_comments.map((c, i) => (
+              <div key={i} style={{
+                padding: "10px 14px",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-lg)",
+                background: "var(--bg-page)",
+              }}>
+                <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 6, lineHeight: 1.6 }}>
+                  {c.text}
+                </div>
+                <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--text-disabled)" }}>
+                  <span>@{c.author}</span>
+                  <span>❤ {fmt(c.likes)}</span>
+                  {c.replies > 0 && <span>回复 {c.replies}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </DetailShell>
   );

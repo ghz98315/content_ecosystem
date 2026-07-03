@@ -79,6 +79,14 @@ def run(stage: dict) -> tuple[str, str | None]:
 
     _write_task_meta(task_id, res)
 
+    # 热门评论（best-effort，失败不阻塞流程）
+    comments = []
+    if res.aweme_id:
+        try:
+            comments = self_resolver.fetch_hot_comments(res.aweme_id, limit=10)
+        except Exception:
+            pass
+
     # 下载视频 → 抽音频 → 只上传音频（免费档 50MB 限制；原视频仅用于出逐字稿）
     storage.ensure_bucket()
     local_video = storage.download(res.video_url, suffix=".mp4")
@@ -89,7 +97,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         storage.add_artifact(task_id, "ingest", "audio", sp, meta={
             "aweme_id": res.aweme_id,
             "duration": res.duration,
-            "video_url": res.video_url,   # 保留直链引用，需要时可回看/重下
+            "video_url": res.video_url,
+            "hot_comments": comments,
             **res.raw,
         })
     finally:

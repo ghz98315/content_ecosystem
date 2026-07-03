@@ -92,6 +92,42 @@ def _try_fetch(vid: str, cookie: str) -> dict | None:
     return d if d and d.get("aweme_id") else None
 
 
+async def _fetch_comments(aweme_id: str, cookie: str, limit: int = 20) -> list[dict]:
+    from f2.apps.douyin.handler import DouyinHandler
+    conf = {
+        "cookie": cookie,
+        "headers": {"User-Agent": _UA, "Referer": "https://www.douyin.com/"},
+        "proxies": {"http://": None, "https://": None},
+    }
+    h = DouyinHandler(conf)
+    h.enable_bark = False
+    comments = []
+    async for c in h.fetch_video_comments(aweme_id=aweme_id):
+        d = c._to_dict()
+        comments.append({
+            "text":    d.get("text") or d.get("content") or "",
+            "likes":   d.get("digg_count") or 0,
+            "author":  d.get("nickname") or "",
+            "replies": d.get("reply_comment_total") or 0,
+        })
+        if len(comments) >= limit:
+            break
+    return sorted(comments, key=lambda x: x["likes"], reverse=True)
+
+
+def fetch_hot_comments(aweme_id: str, limit: int = 10) -> list[dict]:
+    """抓取热门评论（最多 limit 条，按点赞降序）。失败时返回空列表。"""
+    for cookie_fn in (gen_anon_cookie, load_cookie_file):
+        cookie = cookie_fn()
+        if not cookie:
+            continue
+        try:
+            return asyncio.run(_fetch_comments(aweme_id, cookie, limit))
+        except Exception:
+            continue
+    return []
+
+
 def resolve(share_text: str) -> ResolveResult:
     canonical, vid = normalize_douyin_url(share_text)
     if not vid:
@@ -109,6 +145,7 @@ def resolve(share_text: str) -> ResolveResult:
         )
 
     dur = d.get("duration")
+    fans = d.get("fans_count") or d.get("follower_count")
     return ResolveResult(
         ok=True,
         title=d.get("desc"),
@@ -117,7 +154,8 @@ def resolve(share_text: str) -> ResolveResult:
             "name": d.get("nickname"),
             "id": d.get("uid"),
             "sec_uid": d.get("sec_uid"),
-        }.items() if v},
+            "fans_count": fans,
+        }.items() if v is not None},
         video_url=_pick_url(d.get("video_play_addr")),
         duration=(dur / 1000.0) if isinstance(dur, (int, float)) else None,  # ms→s
         aweme_id=str(d.get("aweme_id")),
