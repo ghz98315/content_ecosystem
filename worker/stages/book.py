@@ -61,6 +61,15 @@ def _find_rewrite_text(task_id: str, stage: dict) -> str | None:
     params = stage.get("params") or {}
     raw_idx = params.get("chosen_index")
     idx = raw_idx if raw_idx is not None else rw.get("chosen")
+    if idx is None:
+        # chosen_index is written to rewrite stage params by the frontend
+        db_res = (
+            db.get_client().table("stages").select("params")
+            .eq("task_id", task_id).eq("kind", "rewrite")
+            .limit(1).execute()
+        )
+        if db_res.data:
+            idx = (db_res.data[0].get("params") or {}).get("chosen_index")
     candidates = rw.get("candidates", [])
     if idx is None or not candidates:
         return rw.get("candidates", [""])[0]   # fallback: 第一个候选

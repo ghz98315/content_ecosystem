@@ -1,6 +1,7 @@
 """⑤ 配音 tts：改写选中稿 → edge-tts 合成 → 词级时间戳 JSON + 音频。"""
 from __future__ import annotations
 import asyncio
+import html as _html_lib
 import json
 import os
 import re
@@ -34,6 +35,17 @@ def _add_pauses(text: str) -> str:
     for pat, repl in _PAUSE_RULES:
         text = pat.sub(repl, text)
     return text
+
+
+def _build_ssml(text: str, voice: str) -> str:
+    """构建完整 SSML：先 XML 转义原文，再插入 break 标签，最后套 speak/voice 元素。
+    直接传给 edge-tts，避免 break 标签被当成文本朗读。"""
+    safe = _html_lib.escape(text)
+    safe = _add_pauses(safe)
+    return (
+        '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+        f'xml:lang="zh-CN"><voice name="{voice}">{safe}</voice></speak>'
+    )
 
 
 def _find_rewrite(task_id: str) -> str | None:
@@ -91,7 +103,7 @@ async def _synthesize(text: str, voice: str) -> tuple[bytes, list[dict]]:
     os.close(fd_mp3)
     segs: list[dict] = []
 
-    comm = edge_tts.Communicate(_add_pauses(text), voice)
+    comm = edge_tts.Communicate(_build_ssml(text, voice), voice)
     with open(mp3_path, "wb") as f:
         async for chunk in comm.stream():
             if chunk["type"] == "audio":
