@@ -93,9 +93,17 @@ def main() -> None:
             print("\n退出。")
             break
         except Exception as e:  # noqa: BLE001
-            print("循环异常:", e)
-            # 清除 lru_cache 以便下次重建 Supabase 连接
             db.get_client.cache_clear()
+            err_str = str(e)
+            # WinError 10054 / ConnectionReset: 服务端关闭了空闲连接，属正常现象
+            is_conn_reset = (
+                "10054" in err_str or "ConnectionReset" in err_str
+                or "RemoteDisconnected" in err_str or "ConnectionAborted" in err_str
+            )
+            if is_conn_reset:
+                time.sleep(2)   # 短暂退避后重建连接
+            else:
+                print("循环异常:", e)
             worked = False
         if not worked:
             time.sleep(config.POLL_INTERVAL)
