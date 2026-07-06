@@ -20,6 +20,7 @@ export function CardsTab({ book, selectedText, initialTopic }: Props) {
   const [exporting, setExporting] = useState(false)
   const [error, setError]       = useState('')
   const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  const exportRefs = useRef<(HTMLDivElement | null)[]>([])
 
   const generate = async () => {
     if (!title.trim()) { setError('请填写主标题'); return }
@@ -52,7 +53,8 @@ export function CardsTab({ book, selectedText, initialTopic }: Props) {
       const { saveAs } = await import('file-saver')
 
       const zip = new JSZip()
-      const cards = cardRefs.current.filter(Boolean) as HTMLDivElement[]
+      // 抓隐藏的原始尺寸节点（不受 scale 影响）
+      const cards = exportRefs.current.filter(Boolean) as HTMLDivElement[]
 
       for (let i = 0; i < cards.length; i++) {
         const dataUrl = await toPng(cards[i], { pixelRatio: 2, skipFonts: false })
@@ -161,6 +163,17 @@ export function CardsTab({ book, selectedText, initialTopic }: Props) {
                     cardRef={(el: HTMLDivElement | null) => { cardRefs.current[i] = el }}
                   />
                 </div>
+              ))}
+            </div>
+
+            {/* 隐藏的原始尺寸节点，供 html-to-image 导出用 */}
+            <div style={{ position: 'absolute', left: -9999, top: 0, pointerEvents: 'none' }}>
+              {cards.map((card, i) => (
+                <XhsCard
+                  key={`export-${i}`}
+                  data={card}
+                  cardRef={(el: HTMLDivElement | null) => { exportRefs.current[i] = el }}
+                />
               ))}
             </div>
           </>
