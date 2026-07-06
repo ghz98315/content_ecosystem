@@ -132,8 +132,9 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         })
       }
       if (!res.ok) {
-        const data = await res.json()
-        setError(data.error ?? '创建失败')
+        let msg = '创建失败'
+        try { msg = (await res.json()).error ?? msg } catch { msg = `服务器错误 ${res.status}` }
+        setError(msg)
         return
       }
       onCreated()
