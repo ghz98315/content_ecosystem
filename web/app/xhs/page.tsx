@@ -120,7 +120,8 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       let res: Response
       if (mode === 'pdf' && file) {
         // 直接从客户端上传到 Supabase Storage，绕过 Vercel 4.5MB 限制
-        const path = `xhs/${Date.now()}-${file.name}`
+        // 文件名只保留时间戳（Supabase Storage key 不支持中文等非 ASCII 字符）
+        const path = `xhs/${Date.now()}.pdf`
         const { error: uploadErr } = await supabase.storage
           .from('artifacts')
           .upload(path, file, { contentType: 'application/pdf' })
