@@ -7,7 +7,7 @@ import { STATUS_COLOR } from "@/lib/types";
 
 const TOOLS = [
   { id: "douyin",       label: "抖音带货视频", icon: "🎬", href: "/",    active: true  },
-  { id: "xiaohongshu",  label: "小红书笔记",   icon: "📕", href: "/xhs", active: false },
+  { id: "xiaohongshu",  label: "小红书笔记",   icon: "📕", href: "/xhs", active: true  },
 ];
 
 interface Props {
