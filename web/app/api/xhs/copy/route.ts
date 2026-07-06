@@ -66,9 +66,12 @@ export async function POST(req: NextRequest) {
   const json = await res.json()
   let result: { body: string; comments: Array<{ role: string; content: string }> }
   try {
-    result = JSON.parse(json.choices[0].message.content)
+    // 去掉 DeepSeek 偶尔在 json_object 模式下包裹的 ```json ... ``` markdown 块
+    const raw = json.choices[0].message.content.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim()
+    result = JSON.parse(raw)
   } catch {
-    return NextResponse.json({ error: '解析 LLM 返回失败' }, { status: 500 })
+    const preview = json.choices[0]?.message?.content?.slice(0, 200) ?? '(empty)'
+    return NextResponse.json({ error: `解析 LLM 返回失败: ${preview}` }, { status: 500 })
   }
 
   // 合规检测

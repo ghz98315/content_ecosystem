@@ -52,7 +52,8 @@ export async function POST(req: NextRequest) {
 
   let topics: Array<{ title: string; painPoint: string; logic: string }> = []
   try {
-    const parsed = JSON.parse(completion.choices[0].message.content ?? '{}')
+    const raw = (completion.choices[0].message.content ?? '{}').replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim()
+    const parsed = JSON.parse(raw)
     topics = parsed.topics ?? []
   } catch {
     return NextResponse.json({ error: '解析 LLM 返回失败' }, { status: 500 })
