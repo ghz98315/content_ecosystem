@@ -119,11 +119,19 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     try {
       let res: Response
       if (mode === 'pdf' && file) {
-        const form = new FormData()
-        form.append('title', title)
-        form.append('brand_name', brandName)
-        form.append('file', file)
-        res = await fetch('/api/xhs/books', { method: 'POST', body: form })
+        // 直接从客户端上传到 Supabase Storage，绕过 Vercel 4.5MB 限制
+        const path = `xhs/${Date.now()}-${file.name}`
+        const { error: uploadErr } = await supabase.storage
+          .from('artifacts')
+          .upload(path, file, { contentType: 'application/pdf' })
+        if (uploadErr) { setError(`上传失败：${uploadErr.message}`); return }
+
+        // 只把 storage path 发给 API，不传文件本体
+        res = await fetch('/api/xhs/books', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, brand_name: brandName, file_path: path }),
+        })
       } else {
         res = await fetch('/api/xhs/books', {
           method: 'POST',

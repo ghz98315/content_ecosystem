@@ -18,42 +18,29 @@ export async function GET() {
   return NextResponse.json(data)
 }
 
-/* POST /api/xhs/books — 新建书籍（文字或 PDF）*/
+/* POST /api/xhs/books — 新建书籍（文字 或 PDF via storage path）*/
 export async function POST(req: NextRequest) {
   const sb = getServiceClient()
-  const contentType = req.headers.get('content-type') ?? ''
 
-  let title = '', brandName = '大厂工程爸', rawText = '', fileUrl = ''
+  // 统一走 JSON，PDF 已由客户端直传 Storage，这里只接收 file_path
+  const body = await req.json()
+  let title     = body.title ?? ''
+  let brandName = body.brand_name ?? '大厂工程爸'
+  let rawText   = body.raw_text ?? ''
+  const fileUrl = body.file_path ?? ''
 
-  if (contentType.includes('multipart/form-data')) {
-    // PDF 上传路径
-    const form = await req.formData()
-    title     = String(form.get('title') ?? '')
-    brandName = String(form.get('brand_name') ?? '大厂工程爸')
-    const file = form.get('file') as File | null
+  if (fileUrl) {
+    // 从 Supabase Storage 下载并解析 PDF
+    const { data: fileData, error: dlErr } = await sb.storage
+      .from('artifacts')
+      .download(fileUrl)
+    if (dlErr) return NextResponse.json({ error: `下载 PDF 失败：${dlErr.message}` }, { status: 500 })
 
-    if (file) {
-      // 服务端解析 PDF
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
-      const arrayBuffer = await file.arrayBuffer()
-      const buffer = Buffer.from(arrayBuffer)
-      const parsed = await pdfParse(buffer)
-      rawText = parsed.text
-
-      // 上传原 PDF 到 Supabase Storage
-      const path = `xhs/${Date.now()}-${file.name}`
-      const { error: uploadErr } = await sb.storage
-        .from('artifacts')
-        .upload(path, buffer, { contentType: 'application/pdf' })
-      if (!uploadErr) fileUrl = path
-    }
-  } else {
-    // 纯文字路径
-    const body = await req.json()
-    title     = body.title ?? ''
-    brandName = body.brand_name ?? '大厂工程爸'
-    rawText   = body.raw_text ?? ''
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
+    const buffer = Buffer.from(await fileData.arrayBuffer())
+    const parsed = await pdfParse(buffer)
+    rawText = parsed.text
   }
 
   if (!title.trim()) {
