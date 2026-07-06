@@ -11,6 +11,7 @@ interface Draft {
   id: string
   body: string
   comments: Array<{ role: string; content: string }>
+  banned_word?: string | null
 }
 
 interface Props {
@@ -60,7 +61,7 @@ export function CopyTab({ book, selectedText, initialTopic }: Props) {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const bodyBanned = draft ? BANNED.find(w => draft.body.includes(w)) : null
+  const bodyBanned = draft?.banned_word ?? null
 
   return (
     <div className="flex gap-6 h-full p-8 max-w-6xl mx-auto">

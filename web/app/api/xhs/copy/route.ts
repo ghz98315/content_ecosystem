@@ -74,9 +74,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `解析 LLM 返回失败: ${preview}` }, { status: 500 })
   }
 
-  // 合规检测
+  // 合规检测：软警告，不拦截，返回 banned_word 让前端标红
   const hitWord = BANNED_WORDS.find(w => result.body.includes(w))
-  if (hitWord) return NextResponse.json({ error: `违规词汇：${hitWord}` }, { status: 422 })
 
   // 存库
   const sb = getServiceClient()
@@ -88,5 +87,5 @@ export async function POST(req: NextRequest) {
   }).select().single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+  return NextResponse.json({ ...data, banned_word: hitWord ?? null }, { status: 201 })
 }
