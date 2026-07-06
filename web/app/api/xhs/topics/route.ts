@@ -25,10 +25,13 @@ export async function POST(req: NextRequest) {
     context = (book?.raw_text ?? '').slice(0, 800)
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const openai = new OpenAI({
+    apiKey: process.env.DEEPSEEK_API_KEY,
+    baseURL: 'https://api.deepseek.com',
+  })
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'deepseek-chat',
     response_format: { type: 'json_object' },
     messages: [
       {
