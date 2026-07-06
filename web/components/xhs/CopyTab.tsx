@@ -18,6 +18,7 @@ interface Props {
   book: { id: string }
   selectedText: string
   initialTopic?: Topic | null
+  onGoToCards?: (title: string) => void
 }
 
 const BANNED = ['私信','留言','送资料','链接','加群','求关注','求收藏']
@@ -27,7 +28,7 @@ const STYLES = [
   { value: 'practical', label: '纯干货实操风' },
 ]
 
-export function CopyTab({ book, selectedText, initialTopic }: Props) {
+export function CopyTab({ book, selectedText, initialTopic, onGoToCards }: Props) {
   const [title, setTitle]       = useState(initialTopic?.title ?? '')
   const [knowledge, setKnowledge] = useState(initialTopic?.pain_point ?? '')
   const [style, setStyle]       = useState('engineer')
@@ -139,6 +140,11 @@ export function CopyTab({ book, selectedText, initialTopic }: Props) {
                 <div className="flex items-center gap-2">
                   {bodyBanned && (
                     <span className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded-full">⚠️ 含违规词：{bodyBanned}</span>
+                  )}
+                  {onGoToCards && (
+                    <button onClick={() => onGoToCards(title)} className="xhs-btn-ghost py-1 px-3 text-xs">
+                      🎨 送入卡片工厂
+                    </button>
                   )}
                   <button onClick={() => copy(draft.body, 'body')} className="xhs-btn-ghost py-1 px-3 text-xs">
                     {copied === 'body' ? '✓ 已复制' : '复制'}

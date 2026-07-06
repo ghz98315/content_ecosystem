@@ -99,31 +99,32 @@ export default function XhsBookPage() {
         </div>
       </div>
 
-      {/* Tab 内容 */}
+      {/* Tab 内容：用 display 隐藏而非卸载，保留各 tab 的 state */}
       <div className="flex-1 overflow-y-auto bg-gray-50">
-        {tab === 'topics' && (
+        <div style={{ display: tab === 'topics' ? undefined : 'none' }}>
           <TopicsTab
             book={book}
             selectedText={selectedText}
             onGoToCopy={goToCopy}
             onGoToCards={goToCards}
           />
-        )}
-        {tab === 'copy' && (
+        </div>
+        <div style={{ display: tab === 'copy' ? undefined : 'none' }}>
           <CopyTab
             book={book}
             selectedText={selectedText}
             initialTopic={copyTopic}
+            onGoToCards={(title: string) => { setCardTopic({ id: '', title, pain_point: '', logic: '' }); setTab('cards') }}
           />
-        )}
-        {tab === 'cards' && (
+        </div>
+        <div style={{ display: tab === 'cards' ? undefined : 'none' }}>
           <CardsTab
             book={book}
             selectedText={selectedText}
             initialTopic={cardTopic}
           />
-        )}
-        {tab === 'settings' && (
+        </div>
+        <div style={{ display: tab === 'settings' ? undefined : 'none' }}>
           <SettingsTab
             book={book}
             paras={paras}
@@ -131,7 +132,7 @@ export default function XhsBookPage() {
             onSelectionChange={setSelectedParas}
             onBookUpdate={setBook}
           />
-        )}
+        </div>
       </div>
     </div>
   )
