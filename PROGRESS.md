@@ -1,6 +1,6 @@
 # AI图书带货视频创作台 — 开发进度
 
-最后更新：2026-07-04
+最后更新：2026-07-07
 
 ## 部署
 
@@ -87,6 +87,14 @@ SUPABASE_SERVICE_KEY=    # 非 NEXT_PUBLIC_，仅 API route 使用
 | `06b4047` | rewrite short-circuit 时 `chosen` 字段不回写 JSON | 下载 → 更新 chosen → 重新上传 |
 | `7e9861a` | ImageDetail 读错数据结构（`d.images` 不存在） | 改为读 `images_index.json` 数组，批量获取 signed URL |
 | `de58b3d` | WinError 10054 连接重置污染日志 | 识别连接类错误静默 + 2s 退避 |
+| `5ece063` | PDF 上传报 413（Vercel 4.5MB 限制） | 客户端直传 Supabase Storage，API 只接收 `file_path` |
+| `d6977b7` | 中文文件名导致 Storage key 非法 | 上传时只用 `Date.now().pdf` 作为文件名 |
+| `4a62a36` | 生成选题报 500（OpenAI key 欠费） | topics route 切换为 DeepSeek |
+| `d9cd5f3` | "解析 LLM 返回失败" | 剥除 DeepSeek 偶发的 markdown 代码块包裹再 `JSON.parse` |
+| `466875f` | 生成文案报 422（合规硬拦截） | 改为软警告：返回 `banned_word` 字段，前端标红不阻断 |
+| `77c39ac` | 导出 ZIP 失败（截图被 `scale(0.6)` 缩放节点） | 添加隐藏原始尺寸节点，`html-to-image` 截图该节点 |
+| `d11c0d5` | 切 tab 清空文案/卡片 state | 改用 `display:none` 隐藏 tab 而非卸载组件 |
+| `d11c0d5` | 文案生成后无法直接进卡片工厂 | 正文右上角加「🎨 送入卡片工厂」按钮 |
 
 ---
 
@@ -104,6 +112,7 @@ SUPABASE_SERVICE_KEY=    # 非 NEXT_PUBLIC_，仅 API route 使用
   - 视觉卡片工厂（Cover/Body/Tail 三类卡片，品牌名可配置）
   - ZIP 批量导出（html-to-image × 2倍像素 + JSZip）
   - 自定义域名：`content.socra.cn` 绑定 Vercel
+  - **测试阶段全流程修复**（2026-07-07）：413/非法key/500/解析/422/ZIP/tab-state/卡片关联，共8个bug全部修复
 
 ---
 
@@ -111,11 +120,12 @@ SUPABASE_SERVICE_KEY=    # 非 NEXT_PUBLIC_，仅 API route 使用
 
 | 优先级 | 方向 | 说明 |
 |--------|------|------|
-| P0 | **XHS 端对端测试** | 跑完整流程：新建书籍 → 选题 → 文案 → 卡片 → 导出 ZIP |
-| P0 | **Prompt 质量优化** | 跑 3-5 条真实视频，根据输出调整 `prompts/rewrite.txt`、`prompts/clean.txt` |
+| P0 | **确认 `/api/xhs/cards` 使用的 LLM** | 检查是否仍用 OpenAI key（欠费），如是切换 DeepSeek |
+| P0 | **XHS 端对端验收** | PDF 上传 → 选题 → 文案 → 卡片工厂 → 导出 ZIP 完整跑通 |
+| P1 | **Prompt 质量优化** | 跑 3-5 条真实视频，根据输出调整 `prompts/rewrite.txt`、`prompts/clean.txt` |
 | P1 | **XHS 卡片样式优化** | 根据实际导出效果调整字体大小、间距、高亮样式 |
-| P1 | **渲染模板优化** | `worker/stages/render.py` 字幕样式、字体、9:16 布局深度定制 |
-| P2 | **批量任务** | 一次提交多链接，自动队列 |
+| P2 | **渲染模板优化** | `worker/stages/render.py` 字幕样式、字体、9:16 布局深度定制 |
+| P3 | **批量任务** | 一次提交多链接，自动队列 |
 | P3 | **数据反馈** | 记录候选选择频率，用于 prompt A/B 测试 |
 
 ---
