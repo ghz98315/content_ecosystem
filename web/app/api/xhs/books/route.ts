@@ -22,35 +22,14 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const sb = getServiceClient()
 
-  // 统一走 JSON，PDF 已由客户端直传 Storage，这里只接收 file_path
+  // PDF 已由客户端解析成文字，这里统一接收 JSON
   const body = await req.json()
-  let title     = body.title ?? ''
-  let brandName = body.brand_name ?? '大厂工程爸'
-  let rawText   = body.raw_text ?? ''
-  const fileUrl = body.file_path ?? ''
+  const title     = (body.title ?? '').trim()
+  const brandName = body.brand_name ?? '大厂工程爸'
+  const rawText   = body.raw_text ?? ''
+  const fileUrl   = body.file_path ?? ''
 
-  if (fileUrl) {
-    // 从 Supabase Storage 下载并解析 PDF
-    const { data: fileData, error: dlErr } = await sb.storage
-      .from('artifacts')
-      .download(fileUrl)
-    if (dlErr) return NextResponse.json({ error: `下载 PDF 失败：${dlErr.message}` }, { status: 500 })
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
-    const buffer = Buffer.from(await fileData.arrayBuffer())
-    let parsed: { text: string }
-    try {
-      parsed = await pdfParse(buffer)
-    } catch (e) {
-      return NextResponse.json({ error: `PDF 解析失败：${(e as Error).message}` }, { status: 500 })
-    }
-    rawText = parsed.text
-  }
-
-  if (!title.trim()) {
-    return NextResponse.json({ error: '书名不能为空' }, { status: 400 })
-  }
+  if (!title) return NextResponse.json({ error: '书名不能为空' }, { status: 400 })
 
   const { data, error } = await sb
     .from('xhs_books')

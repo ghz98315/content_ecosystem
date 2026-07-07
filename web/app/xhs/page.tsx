@@ -108,6 +108,7 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [rawText, setRawText] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('')
   const [error, setError] = useState('')
 
   const submit = async () => {
@@ -119,19 +120,35 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     try {
       let res: Response
       if (mode === 'pdf' && file) {
-        // 直接从客户端上传到 Supabase Storage，绕过 Vercel 4.5MB 限制
-        // 文件名只保留时间戳（Supabase Storage key 不支持中文等非 ASCII 字符）
+        // 1. 客户端解析 PDF 文字（避免 Vercel serverless 无原生 canvas 的问题）
+        setStatus('解析 PDF…')
+        const arrayBuffer = await file.arrayBuffer()
+        const pdfjsLib = await import('pdfjs-dist')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+        const parts: string[] = []
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const content = await page.getTextContent()
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          parts.push(content.items.map((item: any) => ('str' in item ? item.str : '')).join(' '))
+        }
+        const extractedText = parts.join('\n\n')
+
+        // 2. 上传 PDF 到 Supabase Storage
+        setStatus('上传 PDF…')
         const path = `xhs/${Date.now()}.pdf`
         const { error: uploadErr } = await supabase.storage
           .from('artifacts')
           .upload(path, file, { contentType: 'application/pdf' })
         if (uploadErr) { setError(`上传失败：${uploadErr.message}`); return }
 
-        // 只把 storage path 发给 API，不传文件本体
+        // 3. 把文字 + Storage 路径一起发给 API（服务端不再解析 PDF）
+        setStatus('创建书籍…')
         res = await fetch('/api/xhs/books', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, brand_name: brandName, file_path: path }),
+          body: JSON.stringify({ title, brand_name: brandName, raw_text: extractedText, file_path: path }),
         })
       } else {
         res = await fetch('/api/xhs/books', {
@@ -147,10 +164,11 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         return
       }
       onCreated()
-    } catch {
-      setError('网络错误，请重试')
+    } catch (e) {
+      setError(`错误：${(e as Error).message}`)
     } finally {
       setLoading(false)
+      setStatus('')
     }
   }
 
@@ -247,7 +265,7 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button onClick={onClose} className="xhs-btn-ghost" disabled={loading}>取消</button>
           <button onClick={submit} className="xhs-btn-primary flex items-center gap-2" disabled={loading}>
             {loading ? (
-              <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />处理中…</>
+              <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />{status || '处理中…'}</>
             ) : '创建'}
           </button>
         </div>
