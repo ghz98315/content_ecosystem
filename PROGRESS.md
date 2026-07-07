@@ -95,6 +95,8 @@ SUPABASE_SERVICE_KEY=    # 非 NEXT_PUBLIC_，仅 API route 使用
 | `77c39ac` | 导出 ZIP 失败（截图被 `scale(0.6)` 缩放节点） | 添加隐藏原始尺寸节点，`html-to-image` 截图该节点 |
 | `d11c0d5` | 切 tab 清空文案/卡片 state | 改用 `display:none` 隐藏 tab 而非卸载组件 |
 | `d11c0d5` | 文案生成后无法直接进卡片工厂 | 正文右上角加「🎨 送入卡片工厂」按钮 |
+| `5067972` | PDF 服务端解析报 500（@napi-rs/canvas 缺失） | `next.config.js` 加 `serverExternalPackages: ['pdf-parse']` |
+| `39b344c` | `DOMMatrix is not defined`（pdfjs-dist 需要浏览器环境） | 将 PDF 解析完全移至客户端（pdfjs-dist 浏览器版），服务端只存数据 |
 
 ---
 
@@ -111,7 +113,7 @@ SUPABASE_SERVICE_KEY=    # 非 NEXT_PUBLIC_，仅 API route 使用
   - 文案生成室（DeepSeek，三种文风，正文+评论剧本，一键复制）
   - 视觉卡片工厂（Cover/Body/Tail 三类卡片，品牌名可配置）
   - ZIP 批量导出（html-to-image × 2倍像素 + JSZip）
-  - 自定义域名：`content.socra.cn` 绑定 Vercel
+  - 自定义域名：`content-ecosystem.socra.cn` 绑定 Vercel
   - **测试阶段全流程修复**（2026-07-07）：413/非法key/500/解析/422/ZIP/tab-state/卡片关联，共8个bug全部修复
 
 ---
