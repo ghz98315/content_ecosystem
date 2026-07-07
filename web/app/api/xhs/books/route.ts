@@ -39,7 +39,12 @@ export async function POST(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
     const buffer = Buffer.from(await fileData.arrayBuffer())
-    const parsed = await pdfParse(buffer)
+    let parsed: { text: string }
+    try {
+      parsed = await pdfParse(buffer)
+    } catch (e) {
+      return NextResponse.json({ error: `PDF 解析失败：${(e as Error).message}` }, { status: 500 })
+    }
     rawText = parsed.text
   }
 
