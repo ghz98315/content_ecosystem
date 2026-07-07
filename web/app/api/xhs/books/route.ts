@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     if (dlErr) return NextResponse.json({ error: `下载 PDF 失败：${dlErr.message}` }, { status: 500 })
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>
+    const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>
     const buffer = Buffer.from(await fileData.arrayBuffer())
     const parsed = await pdfParse(buffer)
     rawText = parsed.text
