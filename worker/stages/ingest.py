@@ -98,7 +98,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "aweme_id": res.aweme_id,
             "duration": res.duration,
             "video_url": res.video_url,
-            "hot_comments": comments,
+            "hot_comments": self_resolver.select_hot_comments(comments),
             "purchase_intent_comments": self_resolver.select_purchase_intent_comments(comments),
             **res.raw,
         })

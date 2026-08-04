@@ -93,6 +93,8 @@ def _get_chosen_text(task_id: str, stage: dict) -> str | None:
             os.remove(local)
         except OSError:
             pass
+    if rw.get("final_text"):
+        return str(rw["final_text"])
     params = stage.get("params") or {}
     raw_idx = params.get("chosen_index")
     if raw_idx is None:

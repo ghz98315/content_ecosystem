@@ -2,7 +2,14 @@
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 
-interface IndexEntry { index: number; path: string; sentence: string; }
+interface IndexEntry {
+  index: number;
+  path: string;
+  sentence: string;
+  char_count?: number;
+  estimated_duration?: number;
+  motion?: string;
+}
 
 export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [entries, setEntries] = useState<IndexEntry[]>([]);
@@ -47,22 +54,30 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
                   onClick={() => url && setBig(url)}
                   title={e.sentence}
                   style={{
-                    aspectRatio: "4 / 3", borderRadius: "var(--radius-md)",
+                    borderRadius: "var(--radius-md)",
                     border: "1px solid var(--border)",
                     background: "var(--bg-hover)",
                     overflow: "hidden", cursor: url ? "zoom-in" : "default",
                     transition: "opacity 0.12s ease",
                   }}
                 >
-                  {url
-                    ? <img src={url} alt={`图片${e.index + 1}`}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    : <div style={{
-                        width: "100%", height: "100%",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 11, color: "var(--text-disabled)",
-                      }}>加载中…</div>
-                  }
+                  <div style={{ aspectRatio: "4 / 3", overflow: "hidden" }}>
+                    {url
+                      ? <img src={url} alt={`图片${e.index + 1}`}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <div style={{
+                          width: "100%", height: "100%",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 11, color: "var(--text-disabled)",
+                        }}>加载中…</div>
+                    }
+                  </div>
+                  <div style={{ padding: "7px 9px", borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3 }}>
+                      分镜 {String(e.index + 1).padStart(2, "0")} · {e.char_count ?? "—"} 字 · 约 {e.estimated_duration?.toFixed(1) ?? "—"} 秒
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-disabled)" }}>缓慢放大 · 叠化</div>
+                  </div>
                 </div>
               );
             })}

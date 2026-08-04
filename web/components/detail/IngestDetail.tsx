@@ -58,6 +58,9 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   }, [stage?.output_ref, taskId]);
 
   const author = task.author as Record<string, string> | null;
+  const purchaseComments = meta?.purchase_intent_comments || [];
+  const purchaseTexts = new Set(purchaseComments.map(c => c.text.trim()));
+  const hotComments = (meta?.hot_comments || []).filter(c => !purchaseTexts.has(c.text.trim()));
 
   return (
     <DetailShell title="采集" stage={stage} onRerun={onRerun}>
@@ -85,13 +88,11 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         </div>
       </section>
 
-      <section style={{ marginBottom: 24 }}>
-        <Label>购买意向评论</Label>
-        {!meta?.purchase_intent_comments?.length ? (
-          <p style={{ fontSize: 13, color: "var(--text-disabled)" }}>暂未发现明确购买需求</p>
-        ) : (
+      {purchaseComments.length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <Label>购买意向评论</Label>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {meta.purchase_intent_comments.map((c, i) => (
+            {purchaseComments.map((c, i) => (
               <div key={i} style={{ padding: "10px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--bg-page)" }}>
                 <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 6, lineHeight: 1.6 }}>{c.text}</div>
                 <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--text-disabled)" }}>
@@ -100,17 +101,17 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
               </div>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* 热门评论 */}
       <section>
-        <Label>热门评论</Label>
-        {!meta?.hot_comments?.length ? (
+        <Label>{purchaseComments.length ? "热门评论" : "热门评论（暂无明确购买意向）"}</Label>
+        {!hotComments.length ? (
           <p style={{ fontSize: 13, color: "var(--text-disabled)" }}>暂无评论数据</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {meta.hot_comments.map((c, i) => (
+            {hotComments.map((c, i) => (
               <div key={i} style={{
                 padding: "10px 14px",
                 border: "1px solid var(--border)",

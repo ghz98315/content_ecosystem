@@ -129,7 +129,7 @@ async def _fetch_comments(aweme_id: str, cookie: str, limit: int = 20) -> list[d
         })
         if len(comments) >= limit:
             break
-    return sorted(comments, key=lambda x: x["likes"], reverse=True)
+    return comments
 
 
 _PURCHASE_PATTERNS = (
@@ -173,6 +173,25 @@ def select_purchase_intent_comments(comments: list[dict], limit: int = 10) -> li
         key=lambda c: (c.get("purchase_intent_score", 0), c.get("likes", 0)),
         reverse=True,
     )[:limit]
+
+
+def select_hot_comments(comments: list[dict], limit: int = 10) -> list[dict]:
+    """Rank public comments using both likes and discussion depth."""
+    seen: set[str] = set()
+    ranked: list[dict] = []
+    for comment in sorted(
+        comments,
+        key=lambda c: (c.get("likes", 0) + c.get("replies", 0) * 5, c.get("likes", 0)),
+        reverse=True,
+    ):
+        text = re.sub(r"\s+", "", comment.get("text") or "")
+        if not text or text in seen or not re.search(r"[\w\u4e00-\u9fff]", text):
+            continue
+        seen.add(text)
+        ranked.append(comment)
+        if len(ranked) >= limit:
+            break
+    return ranked
 
 
 def resolve(share_text: str) -> ResolveResult:

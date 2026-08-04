@@ -63,7 +63,9 @@ export default function TaskDetail() {
     const stage = stages.find(s => s.id === stageId);
     const params = { ...(stage?.params ?? {}) };
     delete params.chosen_index;
+    delete params.final_text;
     delete params.manual_book_name;
+    delete params.book_confirmed;
     await supabase.from("stages").update({ status: "pending", error: null, params }).eq("id", stageId);
   };
 

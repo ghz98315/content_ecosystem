@@ -58,6 +58,8 @@ def _find_rewrite_text(task_id: str, stage: dict) -> str | None:
     finally:
         try: os.remove(local)
         except OSError: pass
+    if rw.get("final_text"):
+        return str(rw["final_text"])
     params = stage.get("params") or {}
     raw_idx = params.get("chosen_index")
     idx = raw_idx if raw_idx is not None else rw.get("chosen")

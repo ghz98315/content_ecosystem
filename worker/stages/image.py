@@ -40,12 +40,82 @@ def _medical_safe(sentence: str) -> str:
             break
     return desc
 
-# ── 文案切句 ───────────────────────────────────────────────────────────────
-_SPLIT_RE = re.compile(r"(?<=[。！？.!?…])\s*")
+# ── 语义分镜 ───────────────────────────────────────────────────────────────
+_MAJOR_BREAKS = set("。！？!?…")
+_MINOR_BREAKS = set("，,；;：:")
 
-def _split_sentences(text: str) -> list[str]:
-    sents = [s.strip() for s in _SPLIT_RE.split(text) if s.strip()]
-    return sents or [text]
+
+def _char_count(text: str) -> int:
+    return len(re.sub(r"\s+", "", text or ""))
+
+
+def _preferred_cut(text: str, min_chars: int, target_chars: int, max_chars: int) -> int:
+    upper = min(max_chars, len(text))
+    candidates: list[tuple[int, int]] = []
+    for cut in range(min_chars, upper + 1):
+        char = text[cut - 1]
+        if char in _MAJOR_BREAKS:
+            candidates.append((0, cut))
+        elif char in _MINOR_BREAKS:
+            candidates.append((1, cut))
+    if candidates:
+        _, cut = min(candidates, key=lambda item: (item[0], abs(item[1] - target_chars)))
+        return cut
+
+    cut = min(target_chars, upper)
+    # Avoid splitting a book title when a nearby closing bracket fits the range.
+    left = text.rfind("《", 0, cut)
+    right = text.find("》", cut)
+    if left >= 0 and right >= cut:
+        after_title = right + 1
+        if after_title <= upper:
+            cut = after_title
+        elif left >= min_chars:
+            cut = left
+    return max(1, cut)
+
+
+def _split_storyboard(
+    text: str,
+    min_chars: int = 24,
+    target_chars: int = 28,
+    max_chars: int = 32,
+) -> list[dict]:
+    """Split narration into semantic shots averaging about eight seconds."""
+    remaining = re.sub(r"\s+", "", text or "").strip()
+    if not remaining:
+        return []
+    parts: list[str] = []
+    while len(remaining) > max_chars:
+        cut = _preferred_cut(remaining, min_chars, target_chars, max_chars)
+        parts.append(remaining[:cut])
+        remaining = remaining[cut:]
+    if remaining:
+        if parts and len(remaining) < min_chars:
+            combined = parts[-1] + remaining
+            if len(combined) <= max_chars + 2:
+                parts[-1] = combined
+            elif len(combined) >= min_chars * 2:
+                split_at = len(combined) // 2
+                parts[-1] = combined[:split_at]
+                parts.append(combined[split_at:])
+            else:
+                parts.append(remaining)
+        else:
+            parts.append(remaining)
+
+    return [
+        {
+            "index": i,
+            "text": part,
+            "char_count": _char_count(part),
+            "estimated_duration": round(max(1.0, _char_count(part) / 3.5), 2),
+            "motion": "zoom_in",
+            "transition": "dissolve",
+            "transition_duration": 0.5,
+        }
+        for i, part in enumerate(parts)
+    ]
 
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
 _GRID = 3   # 3×3 = 9
@@ -109,6 +179,8 @@ def _find_chosen_text(task_id: str, stage: dict) -> str | None:
     finally:
         try: os.remove(local)
         except OSError: pass
+    if rw.get("final_text"):
+        return str(rw["final_text"])
     params = stage.get("params") or {}
     raw_idx = params.get("chosen_index")
     if raw_idx is None:
@@ -137,13 +209,17 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "failed", None
 
     client, image_model = config.image_client()
-    sentences = _split_sentences(text)
+    storyboard = _split_storyboard(text)
+    if not storyboard:
+        db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
+        return "failed", None
+    scenes = [shot["text"] for shot in storyboard]
     image_paths: list[str] = []
     meta_list: list[dict] = []
 
-    # 按9句一批生成
-    for batch_start in range(0, len(sentences), _GRID * _GRID):
-        batch = sentences[batch_start: batch_start + _GRID * _GRID]
+    # 按9个分镜一批生成
+    for batch_start in range(0, len(scenes), _GRID * _GRID):
+        batch = scenes[batch_start: batch_start + _GRID * _GRID]
         prompt = _build_grid_prompt(batch)
 
         resp = client.images.generate(
@@ -166,13 +242,17 @@ def run(stage: dict) -> tuple[str, str | None]:
             idx = batch_start + i
             sp = f"{task_id}/img_{idx:03d}.png"
             storage.upload_bytes(sp, piece_bytes, "image/png")
+            shot = storyboard[idx]
             storage.add_artifact(task_id, "image", "image", sp, meta={
-                "sentence": sentences[idx],
+                "sentence": shot["text"],
                 "index": idx,
                 "batch": batch_start // (_GRID * _GRID),
+                "char_count": shot["char_count"],
+                "estimated_duration": shot["estimated_duration"],
+                "motion": shot["motion"],
             })
             image_paths.append(sp)
-            meta_list.append({"index": idx, "path": sp, "sentence": sentences[idx]})
+            meta_list.append({**shot, "path": sp, "sentence": shot["text"]})
 
     # 存索引文件
     sp_idx = f"{task_id}/images_index.json"
