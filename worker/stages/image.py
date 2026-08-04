@@ -75,6 +75,11 @@ def _split_grid(img_bytes: bytes, n: int) -> list[bytes]:
                 break
             box = (c * cw, r * ch, (c + 1) * cw, (r + 1) * ch)
             piece = img.crop(box)
+            # The generated grid is square; center-crop each tile to 4:3 for video.
+            target_h = max(1, round(piece.width * 3 / 4))
+            if piece.height > target_h:
+                top = (piece.height - target_h) // 2
+                piece = piece.crop((0, top, piece.width, top + target_h))
             buf = io.BytesIO()
             piece.save(buf, format="PNG")
             pieces.append(buf.getvalue())

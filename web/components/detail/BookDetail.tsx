@@ -34,7 +34,8 @@ export function BookDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) 
     setBusy(true);
     const params = { ...(stage.params || {}) };
     if (bookName) params.manual_book_name = bookName;
-    await supabase.from("stages").update({ status: "done", params }).eq("id", stage.id);
+    params.book_confirmed = true;
+    await supabase.from("stages").update({ status: "pending", error: null, params }).eq("id", stage.id);
     setBusy(false);
     setEditing(false);
   };

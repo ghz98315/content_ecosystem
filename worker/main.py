@@ -16,7 +16,7 @@ from stages import REAL_HANDLERS
 
 def process_fake(stage: dict) -> None:
     """M0 假处理：sleep 一下模拟重活（还没接真实处理器的阶段用）。"""
-    print(f"  [{stage['kind']}] 处理中…（模拟）")
+    print(f"  [{stage['kind']}] processing (mock)")
     time.sleep(2)
 
 
@@ -27,7 +27,7 @@ def maybe_finish_task(task_id: str) -> None:
     statuses = [r["status"] for r in res.data]
     if statuses and all(s in ("done", "cancelled") for s in statuses):
         db.set_task_status(task_id, "done")
-        print(f"  ✅ task {task_id[:8]} 全部完成")
+        print(f"  [OK] task {task_id[:8]} complete")
     elif any(s == "needs_review" for s in statuses):
         db.set_task_status(task_id, "needs_review")
     else:
@@ -48,7 +48,7 @@ def tick() -> bool:
     task_res = db.get_client().table("tasks").select("status").eq("id", task_id).single().execute()
     if task_res.data and task_res.data.get("status") == "cancelled":
         db.set_stage(stage["id"], "cancelled")
-        print(f"  ⊘  {kind} 跳过（任务已取消）")
+        print(f"  [SKIP] {kind} skipped (task cancelled)")
         return True
 
     try:
@@ -58,26 +58,26 @@ def tick() -> bool:
             status, output_ref = handler(stage)
             if status == "needs_review":
                 # 处理器内部已 set 过 stage，这里只打印
-                print(f"  ⏸  {kind} 进入评审门 needs_review")
+                print(f"  [REVIEW] {kind} needs_review")
             elif status == "done":
                 db.set_stage(stage["id"], "done", output_ref=output_ref)
-                print(f"  ✔  {kind} done → {output_ref}")
+                print(f"  [OK] {kind} done -> {output_ref}")
             else:
                 # failed：处理器内部已 set_stage，这里只打印
-                print(f"  ✖  {kind} failed（handler 已记录错误）")
+                print(f"  [FAIL] {kind} failed (handler recorded error)")
         else:
             # 还没接真实处理器的阶段：M0 假处理 + 评审门
             process_fake(stage)
             if kind in config.REVIEW_GATES:
                 db.set_stage(stage["id"], "needs_review",
                              output_ref=f"m0-fake://{kind}")
-                print(f"  ⏸  {kind} 进入评审门 needs_review（等前端确认）")
+                print(f"  [REVIEW] {kind} needs_review (awaiting frontend approval)")
             else:
                 db.set_stage(stage["id"], "done", output_ref=f"m0-fake://{kind}")
-                print(f"  ✔  {kind} done")
+                print(f"  [OK] {kind} done")
     except Exception as e:  # noqa: BLE001
         db.set_stage(stage["id"], "failed", error=str(e))
-        print(f"  ✖  {kind} failed: {e}")
+        print(f"  [FAIL] {kind} failed: {e}")
 
     maybe_finish_task(task_id)
     return True

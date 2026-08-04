@@ -47,7 +47,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
                   onClick={() => url && setBig(url)}
                   title={e.sentence}
                   style={{
-                    aspectRatio: "1", borderRadius: "var(--radius-md)",
+                    aspectRatio: "4 / 3", borderRadius: "var(--radius-md)",
                     border: "1px solid var(--border)",
                     background: "var(--bg-hover)",
                     overflow: "hidden", cursor: url ? "zoom-in" : "default",

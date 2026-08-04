@@ -11,6 +11,7 @@ cookie 策略（双保险，默认不用手动导出）：
 from __future__ import annotations
 import asyncio
 import os
+import re
 
 from . import ResolveResult, normalize_douyin_url
 
@@ -68,6 +69,20 @@ def _pick_url(play_addr) -> str | None:
     return play_addr or None
 
 
+def _stat(data: dict, name: str):
+    """Read flat f2 fields and the nested statistics shape used by some versions."""
+    value = data.get(name)
+    if value is not None:
+        return value
+    stats = data.get("statistics")
+    if isinstance(stats, dict):
+        return stats.get(name)
+    detail = data.get("aweme_detail")
+    if isinstance(detail, dict) and isinstance(detail.get("statistics"), dict):
+        return detail["statistics"].get(name)
+    return None
+
+
 async def _fetch(aweme_id: str, cookie: str) -> dict:
     from f2.apps.douyin.handler import DouyinHandler
 
@@ -104,15 +119,38 @@ async def _fetch_comments(aweme_id: str, cookie: str, limit: int = 20) -> list[d
     comments = []
     async for c in h.fetch_video_comments(aweme_id=aweme_id):
         d = c._to_dict()
+        text = d.get("text") or d.get("content") or ""
         comments.append({
-            "text":    d.get("text") or d.get("content") or "",
+            "text":    text,
             "likes":   d.get("digg_count") or 0,
             "author":  d.get("nickname") or "",
             "replies": d.get("reply_comment_total") or 0,
+            **purchase_intent(text),
         })
         if len(comments) >= limit:
             break
     return sorted(comments, key=lambda x: x["likes"], reverse=True)
+
+
+_PURCHASE_PATTERNS = (
+    ("在哪里买", 3), ("哪里买", 3), ("怎么买", 3), ("怎么购买", 3),
+    ("如何购买", 3), ("怎么买到", 3), ("求链接", 3), ("购买链接", 3),
+    ("有链接吗", 3), ("哪里有卖", 3), ("在哪买", 3), ("在哪儿买", 3),
+    ("多少钱", 2), ("什么价格", 2), ("价格多少", 2), ("有官网吗", 2),
+    ("渠道", 2), ("药店", 2), ("下单", 2), ("想买", 2), ("可以买到", 2),
+)
+
+
+def purchase_intent(text: str) -> dict:
+    """Classify public comments that express a concrete purchase/discovery need."""
+    normalized = re.sub(r"\s+", "", text or "").lower()
+    matches = [phrase for phrase, _ in _PURCHASE_PATTERNS if phrase in normalized]
+    score = sum(weight for phrase, weight in _PURCHASE_PATTERNS if phrase in normalized)
+    return {
+        "purchase_intent": score >= 2,
+        "purchase_intent_score": score,
+        "purchase_intent_phrases": matches,
+    }
 
 
 def fetch_hot_comments(aweme_id: str, limit: int = 10) -> list[dict]:
@@ -126,6 +164,15 @@ def fetch_hot_comments(aweme_id: str, limit: int = 10) -> list[dict]:
         except Exception:
             continue
     return []
+
+
+def select_purchase_intent_comments(comments: list[dict], limit: int = 10) -> list[dict]:
+    """Prefer purchase-intent comments, then sort by likes for stable display."""
+    return sorted(
+        [c for c in comments if c.get("purchase_intent")],
+        key=lambda c: (c.get("purchase_intent_score", 0), c.get("likes", 0)),
+        reverse=True,
+    )[:limit]
 
 
 def resolve(share_text: str) -> ResolveResult:
@@ -149,7 +196,7 @@ def resolve(share_text: str) -> ResolveResult:
     return ResolveResult(
         ok=True,
         title=d.get("desc"),
-        play_count=d.get("digg_count"),   # 抖音无播放量，存点赞数（选题按点赞筛）
+        play_count=_stat(d, "digg_count"),   # 抖音无播放量，存点赞数（选题按点赞筛）
         author={k: v for k, v in {
             "name": d.get("nickname"),
             "id": d.get("uid"),
@@ -160,9 +207,9 @@ def resolve(share_text: str) -> ResolveResult:
         duration=(dur / 1000.0) if isinstance(dur, (int, float)) else None,  # ms→s
         aweme_id=str(d.get("aweme_id")),
         raw={
-            "digg_count": d.get("digg_count"),
-            "comment_count": d.get("comment_count"),
-            "share_count": d.get("share_count"),
-            "collect_count": d.get("collect_count"),
+            "digg_count": _stat(d, "digg_count"),
+            "comment_count": _stat(d, "comment_count"),
+            "share_count": _stat(d, "share_count"),
+            "collect_count": _stat(d, "collect_count"),
         },
     )

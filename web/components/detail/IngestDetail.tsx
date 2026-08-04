@@ -11,6 +11,7 @@ interface Meta {
   collect_count?: number;
   duration?: number;
   hot_comments?: { text: string; likes: number; author: string; replies: number }[];
+  purchase_intent_comments?: { text: string; likes: number; author: string; replies: number; purchase_intent_phrases?: string[] }[];
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -82,6 +83,24 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
           <StatCard label="分享数" value={fmt(meta?.share_count)} />
           <StatCard label="收藏数" value={fmt(meta?.collect_count)} />
         </div>
+      </section>
+
+      <section style={{ marginBottom: 24 }}>
+        <Label>购买意向评论</Label>
+        {!meta?.purchase_intent_comments?.length ? (
+          <p style={{ fontSize: 13, color: "var(--text-disabled)" }}>暂未发现明确购买需求</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {meta.purchase_intent_comments.map((c, i) => (
+              <div key={i} style={{ padding: "10px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--bg-page)" }}>
+                <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 6, lineHeight: 1.6 }}>{c.text}</div>
+                <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--text-disabled)" }}>
+                  <span>@{c.author}</span><span>赞 {fmt(c.likes)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* 热门评论 */}

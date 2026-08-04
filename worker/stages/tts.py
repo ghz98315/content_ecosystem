@@ -14,6 +14,26 @@ import storage
 # 默认音色，可通过 env 覆盖
 _VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
 
+
+def _clean_tts_text(text: str) -> str:
+    """Keep narration text only; remove timeline, separators, and screenplay labels."""
+    if not text:
+        return ""
+    lines: list[str] = []
+    for raw in str(text).replace("\r\n", "\n").split("\n"):
+        line = raw.strip()
+        if not line or re.fullmatch(r"[-_=*~]{3,}", line):
+            continue
+        if re.fullmatch(r"(?:\[?\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-~]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s*\]?)", line):
+            continue
+        line = re.sub(r"^\s*\[?\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-~]\s*\d{1,2}:\d{2}(?::\d{2})?)?\]?\s*", "", line)
+        line = re.sub(r"^\s*[【\[]?(?:字幕|旁白|画面|时间|镜头|场景)[】\]]?\s*[:：-]\s*", "", line)
+        line = re.sub(r"^\s*(?:旁白|画外音)\s*[:：]\s*", "", line)
+        line = re.sub(r"^\s*(?:[-_=*~]){2,}\s*", "", line).strip()
+        if line and not re.fullmatch(r"[\d\s:：,，.。-]+", line):
+            lines.append(line)
+    return "\n".join(lines).strip()
+
 # 标点停顿规则（长模式优先）
 _PAUSE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r'……'),    '<break time="900ms"/>'),
@@ -153,7 +173,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "failed", None
 
     # 追加 CTA（book 阶段已在 tts 之前完成）
-    cta = _get_cta(task_id)
+    rewrite_text = _clean_tts_text(rewrite_text)
+    cta = _clean_tts_text(_get_cta(task_id) or "")
     text = rewrite_text + ("\n\n" + cta if cta else "")
 
     voice = stage.get("params", {}).get("voice") or _VOICE

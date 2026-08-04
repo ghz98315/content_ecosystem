@@ -133,10 +133,10 @@ def run(stage: dict) -> tuple[str, str | None]:
     })
 
     # confidence=low → 评审门，让用户手动确认书名
-    if info.get("confidence") == "low" and not manual_book:
+    if not params.get("book_confirmed"):
         db.set_stage(stage["id"], "needs_review",
                      output_ref=sp,
-                     error=f"书名识别不确定（{info.get('book_name')}），请在前端确认后继续")
+                     error="请在前端确认书名和作者信息后继续")
         return "needs_review", sp
 
     return "done", sp

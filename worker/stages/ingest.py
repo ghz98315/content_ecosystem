@@ -83,7 +83,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     comments = []
     if res.aweme_id:
         try:
-            comments = self_resolver.fetch_hot_comments(res.aweme_id, limit=10)
+            comments = self_resolver.fetch_hot_comments(res.aweme_id, limit=50)
         except Exception:
             pass
 
@@ -99,6 +99,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "duration": res.duration,
             "video_url": res.video_url,
             "hot_comments": comments,
+            "purchase_intent_comments": self_resolver.select_purchase_intent_comments(comments),
             **res.raw,
         })
     finally:
