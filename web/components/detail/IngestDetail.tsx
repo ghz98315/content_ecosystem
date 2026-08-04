@@ -47,7 +47,8 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       .from("artifacts")
       .select("meta")
       .eq("task_id", taskId)
-      .eq("type", "ingest")
+      .eq("stage_kind", "ingest")
+      .eq("type", "audio")
       .order("created_at", { ascending: false })
       .limit(1)
       .then(({ data }) => {
