@@ -1,0 +1,91 @@
+{
+  "provider": "edge-tts",
+  "edge_tts_version": "7.2.8",
+  "locale": "zh-CN",
+  "default_voice": "zh-CN-XiaoxiaoNeural",
+  "updated_at": "2026-08-05",
+  "voices": [
+    {
+      "id": "zh-CN-XiaoxiaoNeural",
+      "name": "晓晓",
+      "gender": "female",
+      "styles": ["news", "novel"],
+      "traits": ["warm"],
+      "label": "温暖自然女声",
+      "recommended_for": ["健康", "知识", "图书口播"],
+      "is_default": true
+    },
+    {
+      "id": "zh-CN-XiaoyiNeural",
+      "name": "晓伊",
+      "gender": "female",
+      "styles": ["cartoon", "novel"],
+      "traits": ["lively"],
+      "label": "年轻活泼女声",
+      "recommended_for": ["轻松内容", "年轻受众"],
+      "is_default": false
+    },
+    {
+      "id": "zh-CN-YunjianNeural",
+      "name": "云健",
+      "gender": "male",
+      "styles": ["sports", "novel"],
+      "traits": ["passion"],
+      "label": "稳重有力男声",
+      "recommended_for": ["观点", "历史", "励志"],
+      "is_default": false
+    },
+    {
+      "id": "zh-CN-YunxiNeural",
+      "name": "云希",
+      "gender": "male",
+      "styles": ["novel"],
+      "traits": ["lively", "sunshine"],
+      "label": "自然阳光男声",
+      "recommended_for": ["故事", "社科", "自然口播"],
+      "is_default": false
+    },
+    {
+      "id": "zh-CN-YunxiaNeural",
+      "name": "云夏",
+      "gender": "male",
+      "styles": ["cartoon", "novel"],
+      "traits": ["cute"],
+      "label": "年轻轻快男声",
+      "recommended_for": ["轻松内容", "年轻受众"],
+      "is_default": false
+    },
+    {
+      "id": "zh-CN-YunyangNeural",
+      "name": "云扬",
+      "gender": "male",
+      "styles": ["news"],
+      "traits": ["professional", "reliable"],
+      "label": "专业可靠男声",
+      "recommended_for": ["知识", "新闻", "严肃内容"],
+      "is_default": false
+    },
+    {
+      "id": "zh-CN-liaoning-XiaobeiNeural",
+      "name": "晓北",
+      "gender": "female",
+      "region": "辽宁",
+      "styles": ["dialect"],
+      "traits": ["humorous"],
+      "label": "幽默东北女声",
+      "recommended_for": ["方言", "轻松内容"],
+      "is_default": false
+    },
+    {
+      "id": "zh-CN-shaanxi-XiaoniNeural",
+      "name": "晓妮",
+      "gender": "female",
+      "region": "陕西",
+      "styles": ["dialect"],
+      "traits": ["bright"],
+      "label": "明亮陕西女声",
+      "recommended_for": ["方言", "地域内容"],
+      "is_default": false
+    }
+  ]
+}
