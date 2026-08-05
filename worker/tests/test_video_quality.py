@@ -7,7 +7,14 @@ from unittest.mock import patch
 
 import db
 from compliance import check_text, scan_text
-from prompt_profiles import derive_keyword, load_compliance_rules, load_prompt, normalize_category, protected_terms
+from prompt_profiles import (
+    derive_keyword,
+    load_compliance_rules,
+    load_prompt,
+    normalize_category,
+    protected_terms,
+    rewrite_prompt_kind,
+)
 from resolvers.self_resolver import select_hot_comments
 from stages.image import _split_storyboard
 from stages.render import _allocate_durations, TRANSITION_DUR
@@ -38,7 +45,11 @@ class RewriteQualityTests(unittest.TestCase):
 
 class PromptProfileTests(unittest.TestCase):
     def test_health_prompts_are_loaded_and_reserved_profiles_are_rejected(self):
-        self.assertIn("健康类书籍", load_prompt("health", "rewrite"))
+        self.assertIn("首次去重", load_prompt("health", "initial_dedup"))
+        self.assertIn("二次发布", load_prompt("health", "repost_dedup"))
+        self.assertEqual("initial_dedup", rewrite_prompt_kind("initial_dedup"))
+        self.assertEqual("repost_dedup", rewrite_prompt_kind("repost_dedup"))
+        self.assertIn("首次去重", load_prompt("health", "rewrite"))
         self.assertIn("疗效和安全承诺", load_compliance_rules("health"))
         with self.assertRaisesRegex(ValueError, "尚未开放"):
             normalize_category("social_science")

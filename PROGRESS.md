@@ -2,11 +2,37 @@
 
 最后更新：2026-08-05
 
-## 最新恢复检查点（2026-08-05）
+## 最新恢复检查点（人工二次发布流程，2026-08-05）
+
+### 本轮已实现（仅本地，未部署）
+
+- 明确两次去重语义：`promote-2` = 首次去重，生成首发 V1；`promote-3` = 首发稿验证为爆款后，人工触发的二次去重，生成独立 V2。
+- 健康类提示词新增 `worker/prompts/categories/health/initial_dedup.txt` 和 `repost_dedup.txt`；旧 `rewrite.txt` 保留为首次去重兼容别名。
+- V2 不读取原始清洗稿，Worker 强制读取 V1 rewrite artifact 中的 `final_text`，再运行 `repost_dedup`。
+- 新增任务版本字段和父子关系：`rewrite_mode`、`source_task_id`、`version_no`；V2 自动取消 ingest/transcribe/clean，独立运行 rewrite→image→book→tts→render。
+- 新增 `create_repost_task(uuid)` 安全函数，只有当前用户的 render 阶段完成后才能创建 V2；重复点击会返回现有未取消/未失败的 V2。
+- V1 成片详情增加人工确认按钮“生成二次发布版本”，确认后跳转到独立 V2 任务；不会覆盖 V1 的文案或视频。
+
+### 本轮验证
+
+- Worker 单元测试：19 项通过。
+- Python 编译：通过。
+- Next.js 生产构建：通过。
+- 数据库迁移尚未在 Supabase 执行；新增 `0004_stage_cancelled.sql`、`0005_repost_tasks.sql`，其中 0005 对尚未执行 0003 的环境做了 `content_category` 兼容补充。
+- 当前状态：`待验证`，尚未部署、尚未执行真实 V1→人工确认→V2 端到端流程。
+
+### 下一步
+
+1. 在 Supabase SQL Editor 按顺序执行 0003、0004、0005（或至少确认 0005 所需字段和 `cancelled` 枚举已存在）。
+2. 部署前端和 Worker 新代码；不要直接重启当前旧 Worker，先复核 pending 阶段并采用受控启动。
+3. 完成一条 V1 全流程，确认 render 完成后人工点击“生成二次发布版本”。
+4. 验证 V2 的前三阶段为 cancelled、rewrite 输入确实来自 V1 `final_text`，并验证 V2 生成独立图片、配音和 final.mp4。
+
+## 上一恢复检查点（基础链路，2026-08-05）
 
 ### 当前节点
 
-- 主阶段：发布后的全新链路验收；用户下一步将新建一个“健康类”任务，从头测试视频生成流程。
+- 主阶段：人工二次发布流程开发完成，等待迁移、部署和 V1→V2 验收。
 - 当前功能实现基线：`5a7bfd8 improve health rewrite compliance and tts reliability`。
 - `master` 与 `origin/master` 已对齐到 `5a7bfd8fc177db8f8312f7c8e164ccaac5e64b2f`，已触发 Vercel 自动部署。
 - 生产首页及既有任务页已返回 HTTP 200；用户已确认部署完成。

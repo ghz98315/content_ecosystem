@@ -83,25 +83,28 @@ def retry(operation: Callable[[], T], attempts: int = 4) -> T:
 
 def get_task_prompt_context(task_id: str) -> dict:
     """Read prompt context while remaining compatible before migration 0003 runs."""
-    try:
-        result = retry(
-            lambda: get_client().table("tasks")
-            .select("title,author,content_category")
-            .eq("id", task_id)
-            .single()
-            .execute()
-        )
-    except Exception as exc:  # noqa: BLE001
-        if "42703" not in str(exc) or "content_category" not in str(exc):
-            raise
-        result = retry(
-            lambda: get_client().table("tasks")
-            .select("title,author")
-            .eq("id", task_id)
-            .single()
-            .execute()
-        )
-    return result.data or {}
+    # Keep first-publication tasks readable before optional migrations are applied.
+    selects = (
+        "title,author,content_category,rewrite_mode,source_task_id,version_no",
+        "title,author,content_category",
+        "title,author",
+    )
+    last_error: Exception | None = None
+    for fields in selects:
+        try:
+            result = retry(
+                lambda fields=fields: get_client().table("tasks")
+                .select(fields)
+                .eq("id", task_id)
+                .single()
+                .execute()
+            )
+            return result.data or {}
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if "42703" not in str(exc):
+                raise
+    raise last_error or RuntimeError("读取任务上下文失败")
 
 
 def claim_next_stage() -> dict | None:

@@ -27,6 +27,9 @@ export interface Task {
   play_count: number | null;
   author: Record<string, unknown> | null;
   content_category?: "health" | "social_science" | "education";
+  rewrite_mode?: "initial_dedup" | "repost_dedup";
+  source_task_id?: string | null;
+  version_no?: number;
   status: string;
   created_at: string;
   updated_at: string;

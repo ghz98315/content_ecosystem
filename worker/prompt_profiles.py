@@ -31,6 +31,11 @@ def load_prompt(category: str, kind: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def rewrite_prompt_kind(mode: object) -> str:
+    """Map task mode to an explicit first- or second-publication prompt."""
+    return "repost_dedup" if str(mode or "initial_dedup") == "repost_dedup" else "initial_dedup"
+
+
 def load_compliance_rules(category: str) -> str:
     category = normalize_category(category)
     if category != "health":

@@ -10,7 +10,14 @@ import config
 import compliance
 import db
 import storage
-from prompt_profiles import author_name, derive_keyword, load_prompt, normalize_category, protected_terms
+from prompt_profiles import (
+    author_name,
+    derive_keyword,
+    load_prompt,
+    normalize_category,
+    protected_terms,
+    rewrite_prompt_kind,
+)
 
 _CAND_RE = re.compile(r"【候选[ABC]】\s*(.*?)(?=【候选[ABC]】|$)", re.DOTALL)
 _client = None
@@ -54,7 +61,12 @@ def _parse_candidates(raw: str) -> list[str]:
     return matches if matches else []
 
 
-def _candidate_issues(candidates: list[str], source: str, finish_reason: str | None) -> list[str]:
+def _candidate_issues(
+    candidates: list[str],
+    source: str,
+    finish_reason: str | None,
+    mode: str = "initial_dedup",
+) -> list[str]:
     issues: list[str] = []
     if finish_reason == "length":
         issues.append("模型输出达到长度上限")
@@ -63,8 +75,9 @@ def _candidate_issues(candidates: list[str], source: str, finish_reason: str | N
         return issues
 
     source_len = _text_len(source)
-    min_len = max(40, round(source_len * 0.88))
-    max_len = max(min_len + 20, round(source_len * 1.12))
+    tolerance = 0.08 if mode == "repost_dedup" else 0.12
+    min_len = max(40, round(source_len * (1 - tolerance)))
+    max_len = max(min_len + 20, round(source_len * (1 + tolerance)))
     for i, text in enumerate(candidates):
         length = _text_len(text)
         if length < min_len:
@@ -87,9 +100,16 @@ def _candidate_issues(candidates: list[str], source: str, finish_reason: str | N
     return issues
 
 
-def _generate_candidates(source: str, context: dict[str, str], rewrite_notes: str = "") -> tuple[list[str], list[int]]:
+def _generate_candidates(
+    source: str,
+    context: dict[str, str],
+    rewrite_notes: str = "",
+    mode: str = "initial_dedup",
+) -> tuple[list[str], list[int]]:
     source_len = _text_len(source)
-    prompt = load_prompt(context["category"], "rewrite")
+    prompt = load_prompt(context["category"], rewrite_prompt_kind(mode))
+    source_label = "首发版本最终确认稿" if mode == "repost_dedup" else "已清洗正文"
+    tolerance_label = "8%" if mode == "repost_dedup" else "12%"
     terms = "、".join(protected_terms(source)) or "无额外词语"
     last_issues: list[str] = []
     for attempt in range(2):
@@ -108,18 +128,20 @@ def _generate_candidates(source: str, context: dict[str, str], rewrite_notes: st
                         f"原作者标识：{context['author']}\n"
                         f"补充要求：{rewrite_notes or '无'}\n"
                         f"必须原样保留的词：{terms}\n"
-                        f"原文有效字数约 {source_len} 字。目标差异控制在 8% 以内。"
-                        f"{correction}\n\n待改写的已清洗正文：\n{source}"
+                        f"原文有效字数约 {source_len} 字。目标差异控制在 {tolerance_label} 以内。"
+                        f"{correction}\n\n待处理的{source_label}：\n{source}"
                     ),
                 },
             ],
-            temperature=0.7,
+            temperature=0.35 if mode == "repost_dedup" else 0.7,
             response_format={"type": "json_object"},
         )
         choice = resp.choices[0]
         raw = (choice.message.content or "").strip()
         candidates = _parse_candidates(raw)
-        last_issues = _candidate_issues(candidates, source, getattr(choice, "finish_reason", None))
+        last_issues = _candidate_issues(
+            candidates, source, getattr(choice, "finish_reason", None), mode
+        )
         if not last_issues:
             return candidates, [_text_len(text) for text in candidates]
     raise ValueError("改写稿完整性检查失败：" + "；".join(last_issues))
@@ -162,7 +184,32 @@ def _task_context(task_id: str, source: str) -> dict[str, str]:
         "title": title,
         "author": author_name(task.get("author")),
         "keyword": derive_keyword(title, source),
+        "rewrite_mode": str(task.get("rewrite_mode") or "initial_dedup"),
+        "source_task_id": str(task.get("source_task_id") or ""),
     }
+
+
+def _load_final_text(task_id: str) -> str:
+    res = (
+        db.get_client().table("artifacts")
+        .select("storage_path")
+        .eq("task_id", task_id)
+        .eq("type", "rewrite")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return ""
+    local = storage.download_artifact(res.data[0]["storage_path"], ".json")
+    try:
+        payload = json.load(open(local, encoding="utf-8"))
+        return str(payload.get("final_text") or "").strip()
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
 
 
 def _upload_rewrite(path: str, payload: dict) -> None:
@@ -177,11 +224,15 @@ def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
     chosen = params.get("chosen_index")
-    cleaned_text = _load_clean_text(task_id)
-    if not cleaned_text:
-        db.set_stage(stage["id"], "failed", error="未找到清洗产物（clean 未完成？）")
+    task_context = db.get_task_prompt_context(task_id)
+    mode = str(task_context.get("rewrite_mode") or params.get("rewrite_mode") or "initial_dedup")
+    source_task_id = str(task_context.get("source_task_id") or params.get("source_task_id") or "")
+    source = _load_final_text(source_task_id) if mode == "repost_dedup" else _load_clean_text(task_id)
+    if not source:
+        message = "未找到首发最终文案（源任务改写阶段未完成）" if mode == "repost_dedup" else "未找到清洗产物（clean 未完成？）"
+        db.set_stage(stage["id"], "failed", error=message)
         return "failed", None
-    context = _task_context(task_id, cleaned_text)
+    context = _task_context(task_id, source)
 
     if chosen is not None:
         res = (
@@ -227,22 +278,25 @@ def run(stage: dict) -> tuple[str, str | None]:
             return "done", sp
 
     candidates, lengths = _generate_candidates(
-        cleaned_text,
+        source,
         context,
         str(params.get("rewrite_notes") or "").strip(),
+        mode,
     )
     report = compliance.check_text(
         _llm(), config.REWRITE_MODEL, context["category"], candidates[0], context
     )
     payload = {
         "candidates": candidates,
-        "styles": ["light_rewrite"],
+        "styles": [mode],
         "candidate_lengths": lengths,
-        "source_length": _text_len(cleaned_text),
+        "source_length": _text_len(source),
         "complete": True,
         "chosen": None,
         "final_text": None,
         "content_category": context["category"],
+        "rewrite_mode": mode,
+        "source_task_id": source_task_id or None,
         "compliance": report,
     }
     sp = f"{task_id}/rewrite.json"
@@ -251,6 +305,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         "candidate_count": len(candidates),
         "candidate_lengths": lengths,
         "source_length": payload["source_length"],
+        "rewrite_mode": mode,
+        "source_task_id": source_task_id or None,
         "model": config.REWRITE_MODEL,
         "complete": True,
         "content_category": context["category"],

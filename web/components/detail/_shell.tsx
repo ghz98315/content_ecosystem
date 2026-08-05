@@ -1,5 +1,5 @@
 "use client";
-import { Stage } from "@/lib/types";
+import { Stage, Task } from "@/lib/types";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "等待中", processing: "处理中", done: "完成",
@@ -14,6 +14,7 @@ const STATUS_COLOR: Record<string, string> = {
 export interface DetailCommon {
   stage: Stage | undefined;
   taskId: string;
+  task: Task;
   onRerun: (id: string) => void;
   onApprove: (id: string, kind: string) => void;
 }
