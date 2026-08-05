@@ -1,14 +1,13 @@
-"""③ 清洗 clean：原始逐字稿 → OpenAI 修错字/断句/数字转中文/删引导/换书名。"""
+"""③ 清洗 clean：按书籍分类修复 ASR 并删除非正文噪声。"""
 from __future__ import annotations
 import json
 import os
-from pathlib import Path
 
 import config
 import db
 import storage
+from prompt_profiles import author_name, derive_keyword, load_prompt, normalize_category
 
-_PROMPT = (Path(__file__).parent.parent / "prompts" / "clean.txt").read_text(encoding="utf-8")
 _client = None
 
 def _llm():
@@ -29,6 +28,18 @@ def _find_transcript(task_id: str) -> str | None:
         .execute()
     )
     return res.data[0]["storage_path"] if res.data else None
+
+
+def _task_context(task_id: str, raw_text: str) -> dict[str, str]:
+    task = db.get_task_prompt_context(task_id)
+    category = normalize_category(task.get("content_category"))
+    title = str(task.get("title") or "")
+    return {
+        "category": category,
+        "title": title,
+        "author": author_name(task.get("author")),
+        "keyword": derive_keyword(title, raw_text),
+    }
 
 
 def run(stage: dict) -> tuple[str, str | None]:
@@ -52,18 +63,27 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error="逐字稿正文为空")
         return "failed", None
 
+    context = _task_context(task_id, raw_text)
+    prompt = load_prompt(context["category"], "clean")
+    user_prompt = (
+        f"主题关键词：{context['keyword']}\n"
+        f"原视频标题：{context['title']}\n"
+        f"原作者标识：{context['author']}\n\n"
+        f"请基于下面的原始逐字稿，返回修复清洗后的正文：\n{raw_text}"
+    )
+
     resp = _llm().chat.completions.create(
         model=config.CLEAN_MODEL,
         messages=[
-            {"role": "system", "content": _PROMPT},
-            {"role": "user", "content": raw_text},
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_prompt},
         ],
         temperature=0.2,
     )
     cleaned = resp.choices[0].message.content.strip()
 
     data = json.dumps(
-        {"raw": raw_text, "cleaned": cleaned},
+        {"raw": raw_text, "cleaned": cleaned, "context": context},
         ensure_ascii=False,
         indent=2,
     ).encode("utf-8")
@@ -73,5 +93,6 @@ def run(stage: dict) -> tuple[str, str | None]:
         "raw_chars": len(raw_text),
         "clean_chars": len(cleaned),
         "model": config.CLEAN_MODEL,
+        "content_category": context["category"],
     })
     return "done", sp

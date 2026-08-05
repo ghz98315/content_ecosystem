@@ -1,0 +1,4 @@
+interface:
+  display_name: "视频号书籍内容合规"
+  short_description: "检查健康类书籍短视频文案的红线、违禁表达与风险等级"
+  default_prompt: "Use $wechat-video-book-compliance to review this health-book video script and return a risk-ranked compliance report."

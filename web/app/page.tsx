@@ -16,6 +16,11 @@ export default function HomePage() {
   const [msg,      setMsg]      = useState<{ text: string; ok: boolean } | null>(null);
   const [showForm, setShowForm] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const categories = [
+    { value: "health", label: "健康类", available: true },
+    { value: "social_science", label: "社科类", available: false },
+    { value: "education", label: "教育类", available: false },
+  ] as const;
 
   useEffect(() => {
     if (!userId) return;
@@ -40,7 +45,9 @@ export default function HomePage() {
     if (!url.trim() || !userId) return;
     setCreating(true); setMsg(null);
     const { error } = await supabase.from("tasks").insert({
-      owner: userId, source_url: url.trim(), status: "pending",
+      owner: userId,
+      source_url: url.trim(),
+      status: "pending",
     });
     setCreating(false);
     if (error) {
@@ -99,6 +106,29 @@ export default function HomePage() {
             {showForm ? (
               <>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>新建任务</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6, marginBottom: 12 }}>
+                  {categories.map(category => (
+                    <button
+                      key={category.value}
+                      type="button"
+                      disabled={!category.available}
+                      title={category.available ? category.label : `${category.label}待开发`}
+                      style={{
+                        minHeight: 38,
+                        padding: "6px 8px",
+                        border: `1px solid ${category.available ? "#111827" : "var(--border)"}`,
+                        borderRadius: "var(--radius-md)",
+                        background: category.available ? "#111827" : "var(--bg-hover)",
+                        color: category.available ? "#fff" : "var(--text-disabled)",
+                        fontSize: 12,
+                        cursor: category.available ? "default" : "not-allowed",
+                      }}
+                    >
+                      <span style={{ display: "block", fontWeight: 600 }}>{category.label}</span>
+                      {!category.available && <span style={{ display: "block", marginTop: 1, fontSize: 10 }}>待开发</span>}
+                    </button>
+                  ))}
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input
                     ref={inputRef}

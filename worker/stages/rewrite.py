@@ -5,13 +5,13 @@ import json
 import os
 import re
 from difflib import SequenceMatcher
-from pathlib import Path
 
 import config
+import compliance
 import db
 import storage
+from prompt_profiles import author_name, derive_keyword, load_prompt, normalize_category, protected_terms
 
-_PROMPT = (Path(__file__).parent.parent / "prompts" / "rewrite.txt").read_text(encoding="utf-8")
 _CAND_RE = re.compile(r"【候选[ABC]】\s*(.*?)(?=【候选[ABC]】|$)", re.DOTALL)
 _client = None
 
@@ -63,8 +63,8 @@ def _candidate_issues(candidates: list[str], source: str, finish_reason: str | N
         return issues
 
     source_len = _text_len(source)
-    min_len = max(40, round(source_len * 0.85))
-    max_len = max(min_len + 20, round(source_len * 1.15))
+    min_len = max(40, round(source_len * 0.88))
+    max_len = max(min_len + 20, round(source_len * 1.12))
     for i, text in enumerate(candidates):
         length = _text_len(text)
         if length < min_len:
@@ -87,8 +87,10 @@ def _candidate_issues(candidates: list[str], source: str, finish_reason: str | N
     return issues
 
 
-def _generate_candidates(source: str) -> tuple[list[str], list[int]]:
+def _generate_candidates(source: str, context: dict[str, str], rewrite_notes: str = "") -> tuple[list[str], list[int]]:
     source_len = _text_len(source)
+    prompt = load_prompt(context["category"], "rewrite")
+    terms = "、".join(protected_terms(source)) or "无额外词语"
     last_issues: list[str] = []
     for attempt in range(2):
         correction = ""
@@ -97,13 +99,21 @@ def _generate_candidates(source: str) -> tuple[list[str], list[int]]:
         resp = _llm().chat.completions.create(
             model=config.REWRITE_MODEL,
             messages=[
-                {"role": "system", "content": _PROMPT},
+                {"role": "system", "content": prompt},
                 {
                     "role": "user",
-                    "content": f"原文有效字数约 {source_len} 字。请只做轻度改写，严格保留开头钩子、主体内容和结尾。{correction}\n\n{source}",
+                    "content": (
+                        f"主题关键词：{context['keyword']}\n"
+                        f"原视频标题：{context['title']}\n"
+                        f"原作者标识：{context['author']}\n"
+                        f"补充要求：{rewrite_notes or '无'}\n"
+                        f"必须原样保留的词：{terms}\n"
+                        f"原文有效字数约 {source_len} 字。目标差异控制在 8% 以内。"
+                        f"{correction}\n\n待改写的已清洗正文：\n{source}"
+                    ),
                 },
             ],
-            temperature=0.8,
+            temperature=0.7,
             response_format={"type": "json_object"},
         )
         choice = resp.choices[0]
@@ -128,10 +138,50 @@ def _find_clean(task_id: str) -> str | None:
     return res.data[0]["storage_path"] if res.data else None
 
 
+def _load_clean_text(task_id: str) -> str:
+    cl_path = _find_clean(task_id)
+    if not cl_path:
+        return ""
+    local = storage.download_artifact(cl_path, ".json")
+    try:
+        cleaned = json.load(open(local, encoding="utf-8"))
+        return str(cleaned.get("cleaned") or cleaned.get("raw", "")).strip()
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
+
+
+def _task_context(task_id: str, source: str) -> dict[str, str]:
+    task = db.get_task_prompt_context(task_id)
+    category = normalize_category(task.get("content_category"))
+    title = str(task.get("title") or "")
+    return {
+        "category": category,
+        "title": title,
+        "author": author_name(task.get("author")),
+        "keyword": derive_keyword(title, source),
+    }
+
+
+def _upload_rewrite(path: str, payload: dict) -> None:
+    storage.upload_bytes(
+        path,
+        json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+        "application/json",
+    )
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
     chosen = params.get("chosen_index")
+    cleaned_text = _load_clean_text(task_id)
+    if not cleaned_text:
+        db.set_stage(stage["id"], "failed", error="未找到清洗产物（clean 未完成？）")
+        return "failed", None
+    context = _task_context(task_id, cleaned_text)
 
     if chosen is not None:
         res = (
@@ -155,42 +205,35 @@ def run(stage: dict) -> tuple[str, str | None]:
                 final_text = str(params.get("final_text") or candidates[idx]).strip()
                 if not final_text:
                     raise ValueError("最终文案不能为空")
+                report = compliance.check_text(
+                    _llm(), config.REWRITE_MODEL, context["category"], final_text, context
+                )
                 rw.update({
                     "chosen": idx,
                     "final_text": final_text,
                     "final_length": _text_len(final_text),
+                    "compliance": report,
                 })
-                storage.upload_bytes(
-                    sp,
-                    json.dumps(rw, ensure_ascii=False, indent=2).encode("utf-8"),
-                    "application/json",
-                )
+                _upload_rewrite(sp, rw)
             finally:
                 try:
                     os.remove(local)
                 except OSError:
                     pass
+            if report["status"] == "blocked":
+                db.set_stage(stage["id"], "needs_review", output_ref=sp, error="存在高风险合规项，请修改后重新确认")
+                return "needs_review", sp
+            db.get_client().table("stages").update({"error": None}).eq("id", stage["id"]).execute()
             return "done", sp
 
-    cl_path = _find_clean(task_id)
-    if not cl_path:
-        db.set_stage(stage["id"], "failed", error="未找到清洗产物（clean 未完成？）")
-        return "failed", None
-
-    local = storage.download_artifact(cl_path, ".json")
-    try:
-        cleaned = json.load(open(local, encoding="utf-8"))
-        cleaned_text = str(cleaned.get("cleaned") or cleaned.get("raw", "")).strip()
-    finally:
-        try:
-            os.remove(local)
-        except OSError:
-            pass
-    if not cleaned_text:
-        db.set_stage(stage["id"], "failed", error="清洗后的文案为空")
-        return "failed", None
-
-    candidates, lengths = _generate_candidates(cleaned_text)
+    candidates, lengths = _generate_candidates(
+        cleaned_text,
+        context,
+        str(params.get("rewrite_notes") or "").strip(),
+    )
+    report = compliance.check_text(
+        _llm(), config.REWRITE_MODEL, context["category"], candidates[0], context
+    )
     payload = {
         "candidates": candidates,
         "styles": ["light_rewrite"],
@@ -199,19 +242,23 @@ def run(stage: dict) -> tuple[str, str | None]:
         "complete": True,
         "chosen": None,
         "final_text": None,
+        "content_category": context["category"],
+        "compliance": report,
     }
     sp = f"{task_id}/rewrite.json"
-    storage.upload_bytes(
-        sp,
-        json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
-        "application/json",
-    )
+    _upload_rewrite(sp, payload)
     storage.add_artifact(task_id, "rewrite", "rewrite", sp, meta={
         "candidate_count": len(candidates),
         "candidate_lengths": lengths,
         "source_length": payload["source_length"],
         "model": config.REWRITE_MODEL,
         "complete": True,
+        "content_category": context["category"],
+        "compliance_status": report["status"],
     })
-    db.set_stage(stage["id"], "needs_review", output_ref=sp)
+    db.get_client().table("stages").update({
+        "status": "needs_review",
+        "output_ref": sp,
+        "error": "存在高风险合规项，请修改后重新确认" if report["status"] == "blocked" else None,
+    }).eq("id", stage["id"]).execute()
     return "needs_review", sp

@@ -11,6 +11,22 @@ interface RewriteData {
   complete?: boolean;
   chosen: number | null;
   final_text?: string | null;
+  content_category?: string;
+  compliance?: ComplianceReport;
+}
+
+interface ComplianceIssue {
+  level: "high" | "medium" | "low";
+  category: string;
+  text: string;
+  reason: string;
+  suggestion: string;
+}
+
+interface ComplianceReport {
+  status: "pass" | "warning" | "blocked";
+  issues: ComplianceIssue[];
+  semantic_complete?: boolean;
 }
 
 const LEGACY_STYLE_NAMES = ["A · 痛点共鸣", "B · 故事叙述", "C · 知识科普"];
@@ -43,7 +59,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
         else if (d.candidates?.length === 1) setSelected(0);
       })
       .catch(() => setErr("改写稿加载失败，请刷新后重试"));
-  }, [stage?.output_ref]);
+  }, [stage?.output_ref, stage?.updated_at]);
 
   const confirm = async () => {
     if (selected == null || !stage) return;
@@ -65,6 +81,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
 
   const isReview = stage?.status === "needs_review";
   const isDone = stage?.status === "done";
+  const report = data?.compliance;
   const actions = isReview ? (
     <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null}>
       {busy ? "提交中…" : "确认改写稿 →"}
@@ -79,6 +96,43 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
             <span>原文 {data.source_length ?? "—"} 字</span>
             <span>{data.complete ? "改写稿已通过完整性检查" : "历史改写稿，确认前请检查全文"}</span>
           </div>
+
+          {report && (
+            <section style={{
+              marginBottom: 16,
+              padding: "12px 14px",
+              border: `1px solid ${report.status === "blocked" ? "#fecaca" : report.status === "warning" ? "#fde68a" : "#bbf7d0"}`,
+              borderRadius: "var(--radius-md)",
+              background: report.status === "blocked" ? "#fff5f5" : report.status === "warning" ? "#fffbeb" : "#f0fdf4",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: report.issues.length ? 10 : 0 }}>
+                <strong style={{ fontSize: 12 }}>
+                  {report.status === "blocked" ? "合规检查：需要修改" : report.status === "warning" ? "合规检查：建议复核" : "合规检查：通过"}
+                </strong>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  {report.issues.length ? `${report.issues.length} 项` : "未发现风险项"}
+                </span>
+              </div>
+              {report.issues.map((issue, index) => (
+                <div
+                  key={`${issue.category}-${issue.text}-${index}`}
+                  style={{
+                    padding: "9px 0",
+                    borderTop: index ? "1px solid rgba(0,0,0,0.08)" : "none",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                    <strong>{issue.level === "high" ? "高风险" : issue.level === "medium" ? "需复核" : "提醒"} · {issue.category}</strong>
+                    {issue.text && <span style={{ color: "var(--status-failed)" }}>“{issue.text}”</span>}
+                  </div>
+                  <div style={{ color: "var(--text-secondary)" }}>{issue.reason}</div>
+                  <div>{issue.suggestion}</div>
+                </div>
+              ))}
+            </section>
+          )}
 
           {data.candidates.map((original, i) => {
             const isSelected = selected === i;

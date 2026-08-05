@@ -7,6 +7,10 @@ interface TtsData {
   duration?: number;
   segment_count?: number;
   text?: string;
+  narration_text?: string;
+  cta_text?: string;
+  input_format?: string;
+  synthesis_batches?: number;
 }
 
 export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
@@ -50,6 +54,8 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
               { label: "音色",   value: data.voice || "—" },
               { label: "时长",   value: fmtDur(data.duration) },
               { label: "片段数", value: String(data.segment_count ?? "—") },
+              { label: "合成批次", value: String(data.synthesis_batches ?? "—") },
+              { label: "输入格式", value: data.input_format === "plain_text_v2" ? "纯文本" : "历史格式" },
             ].map(({ label, value }) => (
               <div key={label} style={{ fontSize: 13 }}>
                 <span style={{ color: "var(--text-secondary)" }}>{label}  </span>
@@ -58,13 +64,13 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
             ))}
           </div>
 
-          {data.text && (
+          {(data.narration_text || data.text) && (
             <>
               <div style={{
                 fontSize: 11, fontWeight: 600, color: "var(--text-disabled)",
                 letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8,
               }}>
-                合成文案
+                配音正文
               </div>
               <pre style={{
                 whiteSpace: "pre-wrap", lineHeight: 1.8, fontSize: 13,
@@ -72,7 +78,26 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
                 background: "var(--bg-hover)", padding: 16,
                 borderRadius: "var(--radius-lg)", maxHeight: 320, overflowY: "auto",
               }}>
-                {data.text}
+                {data.narration_text || data.text}
+              </pre>
+            </>
+          )}
+
+          {data.cta_text && (
+            <>
+              <div style={{
+                fontSize: 11, fontWeight: 600, color: "var(--text-disabled)",
+                letterSpacing: "0.06em", margin: "16px 0 8px",
+              }}>
+                收尾 CTA
+              </div>
+              <pre style={{
+                whiteSpace: "pre-wrap", lineHeight: 1.8, fontSize: 13,
+                color: "var(--text-primary)", fontFamily: "var(--font)",
+                background: "var(--bg-hover)", padding: 16,
+                borderRadius: "var(--radius-lg)", maxHeight: 180, overflowY: "auto",
+              }}>
+                {data.cta_text}
               </pre>
             </>
           )}

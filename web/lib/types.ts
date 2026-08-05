@@ -26,6 +26,7 @@ export interface Task {
   title: string | null;
   play_count: number | null;
   author: Record<string, unknown> | null;
+  content_category?: "health" | "social_science" | "education";
   status: string;
   created_at: string;
   updated_at: string;

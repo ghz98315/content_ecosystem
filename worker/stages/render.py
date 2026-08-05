@@ -27,8 +27,8 @@ def ff() -> str:
 
 
 def _load_json_artifact(task_id: str, artifact_type: str) -> dict | list | None:
-    res = (
-        db.get_client().table("artifacts")
+    res = db.retry(
+        lambda: db.get_client().table("artifacts")
         .select("storage_path")
         .eq("task_id", task_id)
         .eq("type", artifact_type)
@@ -49,8 +49,8 @@ def _load_json_artifact(task_id: str, artifact_type: str) -> dict | list | None:
 
 
 def _load_audio(task_id: str) -> str | None:
-    res = (
-        db.get_client().table("artifacts")
+    res = db.retry(
+        lambda: db.get_client().table("artifacts")
         .select("storage_path")
         .eq("task_id", task_id)
         .eq("stage_kind", "tts")

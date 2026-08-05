@@ -22,8 +22,9 @@ def process_fake(stage: dict) -> None:
 
 def maybe_finish_task(task_id: str) -> None:
     """若该 task 的 8 个 stage 都 done，则 task 置 done。"""
-    sb = db.get_client()
-    res = sb.table("stages").select("status").eq("task_id", task_id).execute()
+    res = db.retry(
+        lambda: db.get_client().table("stages").select("status").eq("task_id", task_id).execute()
+    )
     statuses = [r["status"] for r in res.data]
     if statuses and all(s in ("done", "cancelled") for s in statuses):
         db.set_task_status(task_id, "done")
@@ -55,7 +56,7 @@ def tick() -> bool:
         handler = REAL_HANDLERS.get(kind)
         if handler:
             # 真实处理器：自己决定 status/output_ref（可能 done 或 needs_review）
-            status, output_ref = handler(stage)
+            status, output_ref = db.retry(lambda: handler(stage), attempts=3)
             if status == "needs_review":
                 # 处理器内部已 set 过 stage，这里只打印
                 print(f"  [REVIEW] {kind} needs_review")
@@ -93,14 +94,8 @@ def main() -> None:
             print("\n退出。")
             break
         except Exception as e:  # noqa: BLE001
-            db.get_client.cache_clear()
-            err_str = str(e)
-            # WinError 10054 / ConnectionReset: 服务端关闭了空闲连接，属正常现象
-            is_conn_reset = (
-                "10054" in err_str or "ConnectionReset" in err_str
-                or "RemoteDisconnected" in err_str or "ConnectionAborted" in err_str
-            )
-            if is_conn_reset:
+            if db.is_transient_error(e):
+                db.reset_client()
                 time.sleep(2)   # 短暂退避后重建连接
             else:
                 print("循环异常:", e)

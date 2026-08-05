@@ -59,8 +59,9 @@ def download(url: str, suffix: str = ".mp4", referer: str = "https://www.douyin.
 
 def download_artifact(storage_path: str, suffix: str = "") -> str:
     """从 Storage 下载到临时文件，返回本地路径。"""
-    sb = db.get_client()
-    data = sb.storage.from_(BUCKET).download(storage_path)
+    data = db.retry(
+        lambda: db.get_client().storage.from_(BUCKET).download(storage_path)
+    )
     fd, path = tempfile.mkstemp(suffix=suffix or os.path.splitext(storage_path)[1])
     with os.fdopen(fd, "wb") as f:
         f.write(data)
@@ -69,30 +70,51 @@ def download_artifact(storage_path: str, suffix: str = "") -> str:
 
 def upload(storage_path: str, local_file: str, content_type: str = "video/mp4") -> str:
     """上传本地文件到 Storage，返回 storage_path。覆盖同名。"""
-    sb = db.get_client()
     with open(local_file, "rb") as f:
         data = f.read()
-    sb.storage.from_(BUCKET).upload(
-        storage_path, data,
-        {"content-type": content_type, "upsert": "true"},
+    db.retry(
+        lambda: db.get_client().storage.from_(BUCKET).upload(
+            storage_path, data,
+            {"content-type": content_type, "upsert": "true"},
+        )
     )
     return storage_path
 
 
 def upload_bytes(storage_path: str, data: bytes, content_type: str) -> str:
     """直接上传字节（用于 JSON 等动态内容）。覆盖同名。"""
-    db.get_client().storage.from_(BUCKET).upload(
-        storage_path, data, {"content-type": content_type, "upsert": "true"},
+    db.retry(
+        lambda: db.get_client().storage.from_(BUCKET).upload(
+            storage_path, data, {"content-type": content_type, "upsert": "true"},
+        )
     )
     return storage_path
 
 
 def add_artifact(task_id: str, stage_kind: str, type_: str,
                  storage_path: str, meta: dict | None = None) -> None:
-    db.get_client().table("artifacts").insert({
-        "task_id": task_id,
-        "stage_kind": stage_kind,
-        "type": type_,
-        "storage_path": storage_path,
-        "meta": meta or {},
-    }).execute()
+    def _add() -> None:
+        sb = db.get_client()
+        existing = (
+            sb.table("artifacts").select("id")
+            .eq("task_id", task_id)
+            .eq("type", type_)
+            .eq("storage_path", storage_path)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            sb.table("artifacts").update({
+                "stage_kind": stage_kind,
+                "meta": meta or {},
+            }).eq("id", existing.data[0]["id"]).execute()
+            return
+        sb.table("artifacts").insert({
+            "task_id": task_id,
+            "stage_kind": stage_kind,
+            "type": type_,
+            "storage_path": storage_path,
+            "meta": meta or {},
+        }).execute()
+
+    db.retry(_add)
