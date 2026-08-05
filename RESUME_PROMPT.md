@@ -1,28 +1,32 @@
 # 重启会话提示词
 
-每次开启新对话时，把下方内容粘贴给 Kiro，即可快速恢复上下文。
+每次开启新对话时，可直接发送下方内容恢复到最新节点。
 
 ---
 
 ## 📋 模板（直接复制粘贴）
 
 ```
-项目：AI图书带货视频创作台 / 小红书图文生成器
+项目：AI图书带货视频创作台
 路径：D:\github\content_ecosystem
-进度文件：PROGRESS.md（请先读取）
+进度文件：PROGRESS.md（先读取“最新恢复检查点（2026-08-05）”）
 
 背景：
-- 8阶段视频流水线已全部完工（ingest→transcribe→clean→rewrite→image→book→tts→render）
-- 前端 Notion 风格重构完毕，部署在 content-ecosystem-neon.vercel.app
-- Worker 本地运行：python worker/main.py
-- 存储：Supabase 私有 bucket artifacts
+- 当前功能实现基线为 5a7bfd8，Vercel 已部署
+- 当前只验收健康类图书视频；社科类/教育类仅预留，XHS 暂不测试
+- 新版健康类提示词、合规检查、8秒分镜、4:3图片、Zoom In+叠化、书名/作者/免责声明已实现
+- TTS 当前仍为 edge-tts，已修复朗读格式化内容的问题；Index-TTS 尚未接入
+- 既有任务 36b9ff99-55c8-4b62-a919-8388138c4e7d 的新版 TTS/render 已单独重跑成功
+- Supabase content_category 迁移尚未执行，代码会回退为健康类
+- 全局 Worker 上次确认仍是旧进程，且有 13 个 pending；不要直接重启
 
-当前任务：[在此填写你想做的事，例如：]
-- 继续开发小红书图文生成流程
-- 调试 XXX 阶段的问题
-- 优化 XXX 功能
+当前任务：
+- 用户将新建一个健康类任务，进行全新视频生成链路测试
+- 先获取新任务 ID，再复核 Worker PID、pending 数量和任务阶段状态
+- 设计受控启动新版 Worker 的方式，避免批量消费历史 pending
+- 重点验收：改写完整性、约8秒/24-32字分镜、4:3图片、纯正文配音、书名/作者/免责声明、Zoom In和叠化
 
-请先读取 PROGRESS.md 了解最新进度，然后我们继续。
+请先只读检查仓库和运行状态，不要直接重启 Worker，也不要先部署。然后从全新健康类任务测试继续。
 ```
 
 ---
