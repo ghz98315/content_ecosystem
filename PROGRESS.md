@@ -4,6 +4,15 @@
 
 ## 最新恢复检查点（人工二次发布流程，2026-08-05）
 
+### 当前本地状态
+
+- 远端实现基线：`3745849 feat: isolate worker to a test task`，人工 V2 流程、数据库迁移兼容和 Worker 指定任务隔离均已推送。
+- 本地未推送提交：`fb47fbb chore: save edge tts voice catalog`；`master` 比 `origin/master` 超前 1 个提交。
+- `worker/tts_voices.json` 已保存 edge-tts 7.2.8 当前返回的 8 个 `zh-CN` 音色，默认仍为 `zh-CN-XiaoxiaoNeural`。
+- 旧 Worker PID `7480` 已停止；当前没有启动全局 Worker，历史队列不会继续被消费。
+- 数据库最后只读核验：13 个历史 pending，另有 4 个更新时间停留在 7 月的遗留 processing。
+- 下一操作：用户在生产首页新建健康类 V1 任务并提供任务 ID；使用 `WORKER_TASK_ID=<新任务ID>` 启动新版 Worker，只处理该任务。
+
 ### 本轮已实现（已部署，待端到端验收）
 
 - 明确两次去重语义：`promote-2` = 首次去重，生成首发 V1；`promote-3` = 首发稿验证为爆款后，人工触发的二次去重，生成独立 V2。
@@ -15,7 +24,7 @@
 
 ### 本轮验证
 
-- Worker 单元测试：19 项通过。
+- Worker 单元测试：20 项通过（包含指定任务隔离测试）。
 - Python 编译：通过。
 - Next.js 生产构建：通过。
 - 数据库迁移 `0003`、`0004`、`0005` 已由用户确认在 Supabase 执行成功；其中 0005 对尚未执行 0003 的环境做了 `content_category` 兼容补充。
@@ -24,9 +33,10 @@
 
 ### 下一步
 
-1. 当前有 13 个历史 pending 和 4 个 7 月遗留 processing；使用新增 `WORKER_TASK_ID` 过滤器受控启动新版 Worker，不处理历史队列。
-2. 完成一条 V1 全流程，确认 render 完成后人工点击“生成二次发布版本”。
-3. 验证 V2 的前三阶段为 cancelled、rewrite 输入确实来自 V1 `final_text`，并验证 V2 生成独立图片、配音和 final.mp4。
+1. 等待用户提供新建健康类 V1 的任务 ID；不要在没有任务 ID 时启动 Worker。
+2. 使用新增 `WORKER_TASK_ID` 过滤器受控启动新版 Worker，不处理历史队列。
+3. 完成 V1 全流程，确认 render 完成后人工点击“生成二次发布版本”。
+4. 切换过滤器到 V2 任务 ID，验证前三阶段为 cancelled、rewrite 输入确实来自 V1 `final_text`，并验证 V2 生成独立图片、配音和 final.mp4。
 
 ## 上一恢复检查点（基础链路，2026-08-05）
 
