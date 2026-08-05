@@ -37,7 +37,7 @@ def maybe_finish_task(task_id: str) -> None:
 
 def tick() -> bool:
     """处理一个 stage。返回是否处理了任务。"""
-    stage = db.claim_next_stage()
+    stage = db.claim_next_stage(config.WORKER_TASK_ID)
     if not stage:
         return False
 
@@ -87,6 +87,8 @@ def tick() -> bool:
 def main() -> None:
     config.require_config()
     print("worker 启动。轮询间隔", config.POLL_INTERVAL, "秒。Ctrl+C 退出。")
+    if config.WORKER_TASK_ID:
+        print("测试隔离模式：仅处理任务", config.WORKER_TASK_ID)
     while True:
         try:
             worked = tick()

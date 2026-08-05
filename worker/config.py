@@ -56,6 +56,8 @@ def openai_client(api_key: str = "", base_url: str = ""):
 
 # ---- 轮询 ----
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))
+# Optional safety filter for isolated end-to-end testing.
+WORKER_TASK_ID = os.environ.get("WORKER_TASK_ID", "").strip()
 
 # TTS
 TTS_VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")

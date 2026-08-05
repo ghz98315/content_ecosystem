@@ -107,20 +107,17 @@ def get_task_prompt_context(task_id: str) -> dict:
     raise last_error or RuntimeError("读取任务上下文失败")
 
 
-def claim_next_stage() -> dict | None:
+def claim_next_stage(task_id: str = "") -> dict | None:
     """认领最靠前的一个 pending stage，原子置为 processing。
 
     只认领"前置 stage 全部 done"的任务，确保 needs_review 阶段阻塞后续流程。
     """
     sb = get_client()
     # 取所有 pending stage，按 seq 排列
-    res = (
-        sb.table("stages")
-        .select("*")
-        .eq("status", "pending")
-        .order("seq")
-        .execute()
-    )
+    query = sb.table("stages").select("*").eq("status", "pending")
+    if task_id:
+        query = query.eq("task_id", task_id)
+    res = query.order("seq").execute()
     if not res.data:
         return None
 

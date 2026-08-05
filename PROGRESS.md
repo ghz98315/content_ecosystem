@@ -24,7 +24,7 @@
 
 ### 下一步
 
-1. 不要直接重启当前旧 Worker，先复核 pending 阶段并采用受控启动新版 Worker。
+1. 当前有 13 个历史 pending 和 4 个 7 月遗留 processing；使用新增 `WORKER_TASK_ID` 过滤器受控启动新版 Worker，不处理历史队列。
 2. 完成一条 V1 全流程，确认 render 完成后人工点击“生成二次发布版本”。
 3. 验证 V2 的前三阶段为 cancelled、rewrite 输入确实来自 V1 `final_text`，并验证 V2 生成独立图片、配音和 final.mp4。
 

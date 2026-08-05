@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import db
 from compliance import check_text, scan_text
@@ -175,6 +175,18 @@ class TtsInputTests(unittest.TestCase):
 
 
 class NetworkRetryTests(unittest.TestCase):
+    def test_claim_next_stage_can_be_limited_to_one_task(self):
+        sb = MagicMock()
+        query = MagicMock()
+        sb.table.return_value.select.return_value = query
+        query.eq.return_value = query
+        query.order.return_value = query
+        query.execute.return_value = type("Response", (), {"data": []})()
+        with patch("db.get_client", return_value=sb):
+            self.assertIsNone(db.claim_next_stage("target-task"))
+        query.eq.assert_any_call("status", "pending")
+        query.eq.assert_any_call("task_id", "target-task")
+
     def test_ssl_eof_is_transient_and_retried(self):
         calls = 0
 
