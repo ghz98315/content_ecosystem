@@ -1,9 +1,10 @@
-"""④ 改写 rewrite：清洗稿 -> 三个完整候选 -> 人工确认唯一 final_text。"""
+"""④ 改写 rewrite：清洗稿 -> 单个轻度改写稿 -> 人工确认 final_text。"""
 from __future__ import annotations
 
 import json
 import os
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import config
@@ -12,7 +13,6 @@ import storage
 
 _PROMPT = (Path(__file__).parent.parent / "prompts" / "rewrite.txt").read_text(encoding="utf-8")
 _CAND_RE = re.compile(r"【候选[ABC]】\s*(.*?)(?=【候选[ABC]】|$)", re.DOTALL)
-_STYLE_KEYS = ("pain", "story", "knowledge")
 _client = None
 
 
@@ -27,44 +27,63 @@ def _text_len(text: str) -> int:
     return len(re.sub(r"\s+", "", text or ""))
 
 
+def _normalized(text: str) -> str:
+    return re.sub(r"[\s，。！？；：、,.!?;:'\"“”‘’（）()《》]+", "", text or "")
+
+
+def _similarity(left: str, right: str) -> float:
+    return SequenceMatcher(None, _normalized(left), _normalized(right)).ratio()
+
+
 def _parse_candidates(raw: str) -> list[str]:
-    """Parse the structured response and retain legacy marker compatibility."""
+    """Parse a new single draft while retaining legacy artifact compatibility."""
     try:
         payload = json.loads(raw)
+        if isinstance(payload, dict) and str(payload.get("text", "")).strip():
+            return [str(payload["text"]).strip()]
         items = payload.get("candidates", []) if isinstance(payload, dict) else []
         parsed = [
             str(item.get("text", "")).strip() if isinstance(item, dict) else str(item).strip()
             for item in items
         ]
-        if len(parsed) == 3 and all(parsed):
+        if parsed and all(parsed):
             return parsed
     except (json.JSONDecodeError, TypeError, ValueError):
         pass
     matches = [m.strip() for m in _CAND_RE.findall(raw)]
-    return matches if len(matches) == 3 else []
+    return matches if matches else []
 
 
 def _candidate_issues(candidates: list[str], source: str, finish_reason: str | None) -> list[str]:
     issues: list[str] = []
     if finish_reason == "length":
         issues.append("模型输出达到长度上限")
-    if len(candidates) != 3:
-        issues.append("未生成三个完整候选")
+    if len(candidates) != 1:
+        issues.append("未生成一个完整改写稿")
         return issues
 
     source_len = _text_len(source)
-    min_len = max(40, round(source_len * 0.7))
-    max_len = max(min_len + 20, round(source_len * 1.35))
+    min_len = max(40, round(source_len * 0.85))
+    max_len = max(min_len + 20, round(source_len * 1.15))
     for i, text in enumerate(candidates):
         length = _text_len(text)
         if length < min_len:
-            issues.append(f"候选 {i + 1} 过短（{length}/{source_len} 字）")
+            issues.append(f"改写稿过短（{length}/{source_len} 字）")
         if length > max_len:
-            issues.append(f"候选 {i + 1} 明显超出原文长度（{length}/{source_len} 字）")
+            issues.append(f"改写稿明显超出原文长度（{length}/{source_len} 字）")
         if re.search(r"(?:未完待续|请继续|继续输出|\.\.\.|……)\s*$", text):
-            issues.append(f"候选 {i + 1} 疑似被截断")
+            issues.append("改写稿疑似被截断")
         if text.rstrip().endswith(("，", ",", "：", ":", "；", ";", "、")):
-            issues.append(f"候选 {i + 1} 结尾不完整")
+            issues.append("改写稿结尾不完整")
+        if _similarity(source, text) < 0.4:
+            issues.append("改写幅度过大，未保持原文主体")
+        if _similarity(source[:50], text[:50]) < 0.35:
+            issues.append("开头钩子改动过大")
+        if _similarity(source[-50:], text[-50:]) < 0.35:
+            issues.append("结尾改动过大")
+        for title in re.findall(r"《([^》]+)》", source):
+            if f"《{title}》" not in text:
+                issues.append(f"未完整保留书名《{title}》")
     return issues
 
 
@@ -81,7 +100,7 @@ def _generate_candidates(source: str) -> tuple[list[str], list[int]]:
                 {"role": "system", "content": _PROMPT},
                 {
                     "role": "user",
-                    "content": f"原文有效字数约 {source_len} 字，请尽量保持相近长度。{correction}\n\n{source}",
+                    "content": f"原文有效字数约 {source_len} 字。请只做轻度改写，严格保留开头钩子、主体内容和结尾。{correction}\n\n{source}",
                 },
             ],
             temperature=0.8,
@@ -132,7 +151,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 candidates = rw.get("candidates", [])
                 idx = int(chosen)
                 if idx < 0 or idx >= len(candidates):
-                    raise ValueError("选中的改写候选不存在")
+                    raise ValueError("改写稿不存在")
                 final_text = str(params.get("final_text") or candidates[idx]).strip()
                 if not final_text:
                     raise ValueError("最终文案不能为空")
@@ -174,7 +193,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     candidates, lengths = _generate_candidates(cleaned_text)
     payload = {
         "candidates": candidates,
-        "styles": list(_STYLE_KEYS),
+        "styles": ["light_rewrite"],
         "candidate_lengths": lengths,
         "source_length": _text_len(cleaned_text),
         "complete": True,

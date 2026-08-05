@@ -10,24 +10,24 @@ from stages.rewrite import _candidate_issues, _parse_candidates
 
 
 class RewriteQualityTests(unittest.TestCase):
-    def test_structured_candidates_are_complete(self):
+    def test_structured_single_draft_is_complete(self):
         source = "这是原文内容。" * 20
-        text = "这是完整候选。" * 20
-        raw = json.dumps({
-            "candidates": [
-                {"style": "pain", "text": text},
-                {"style": "story", "text": text},
-                {"style": "knowledge", "text": text},
-            ]
-        }, ensure_ascii=False)
+        text = "这就是原文内容。" * 20
+        raw = json.dumps({"text": text}, ensure_ascii=False)
         candidates = _parse_candidates(raw)
-        self.assertEqual(3, len(candidates))
+        self.assertEqual(1, len(candidates))
         self.assertEqual([], _candidate_issues(candidates, source, "stop"))
 
     def test_length_finish_is_rejected(self):
         source = "完整原文。" * 20
-        candidates = ["完整候选。" * 20] * 3
+        candidates = ["完整候选。" * 20]
         self.assertIn("模型输出达到长度上限", _candidate_issues(candidates, source, "length"))
+
+    def test_large_rewrite_is_rejected(self):
+        source = "你有没有发现越是着急越容易做错决定？中间讲清楚三个关键方法。最后记住先停下来再行动。" * 3
+        rewritten = "今天分享一些完全不同的新鲜故事和人物经历，内容主题已经发生变化，最后也换成另一套营销引导。" * 3
+        issues = _candidate_issues([rewritten], source, "stop")
+        self.assertIn("改写幅度过大，未保持原文主体", issues)
 
 
 class StoryboardTests(unittest.TestCase):

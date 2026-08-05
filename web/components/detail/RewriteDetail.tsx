@@ -13,8 +13,8 @@ interface RewriteData {
   final_text?: string | null;
 }
 
-const STYLE_NAMES = ["A · 痛点共鸣", "B · 故事叙述", "C · 知识科普"];
-const STYLE_HINTS = [
+const LEGACY_STYLE_NAMES = ["A · 痛点共鸣", "B · 故事叙述", "C · 知识科普"];
+const LEGACY_STYLE_HINTS = [
   "直接切入问题，强化情绪共鸣",
   "通过人物和场景增强代入感",
   "突出观点、方法和信息密度",
@@ -40,6 +40,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
         setData(d);
         setDrafts(d.candidates || []);
         if (d.chosen != null) setSelected(d.chosen);
+        else if (d.candidates?.length === 1) setSelected(0);
       })
       .catch(() => setErr("改写稿加载失败，请刷新后重试"));
   }, [stage?.output_ref]);
@@ -66,7 +67,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
   const isDone = stage?.status === "done";
   const actions = isReview ? (
     <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null}>
-      {busy ? "提交中…" : "确认完整文案 →"}
+      {busy ? "提交中…" : "确认改写稿 →"}
     </TextBtn>
   ) : undefined;
 
@@ -76,7 +77,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
         <>
           <div style={{ display: "flex", gap: 16, marginBottom: 14, fontSize: 12, color: "var(--text-secondary)" }}>
             <span>原文 {data.source_length ?? "—"} 字</span>
-            <span>{data.complete ? "三个候选均已通过完整性检查" : "历史改写稿，确认前请检查全文"}</span>
+            <span>{data.complete ? "改写稿已通过完整性检查" : "历史改写稿，确认前请检查全文"}</span>
           </div>
 
           {data.candidates.map((original, i) => {
@@ -84,6 +85,11 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
             const text = drafts[i] ?? original;
             const length = textLength(text);
             const estimatedSeconds = Math.max(1, Math.round(length / 3.5));
+            const isSingleDraft = data.candidates.length === 1;
+            const styleName = isSingleDraft ? "轻度改写稿" : (LEGACY_STYLE_NAMES[i] ?? `候选 ${i + 1}`);
+            const styleHint = isSingleDraft
+              ? "保留原文钩子、主体结构和结尾，仅调整少量措辞"
+              : LEGACY_STYLE_HINTS[i];
             return (
               <section
                 key={i}
@@ -99,8 +105,8 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
                 }}
               >
                 <header style={{ padding: "10px 14px 8px", display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-                  <strong style={{ fontSize: 12 }}>{STYLE_NAMES[i] ?? `候选 ${i + 1}`}</strong>
-                  <span style={{ fontSize: 11, color: "var(--text-disabled)" }}>{STYLE_HINTS[i]}</span>
+                  <strong style={{ fontSize: 12 }}>{styleName}</strong>
+                  <span style={{ fontSize: 11, color: "var(--text-disabled)" }}>{styleHint}</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-secondary)" }}>
                     {length} 字 · 预计 {Math.floor(estimatedSeconds / 60)}:{String(estimatedSeconds % 60).padStart(2, "0")}
                   </span>
@@ -111,7 +117,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
                     value={text}
                     onClick={e => e.stopPropagation()}
                     onChange={e => setDrafts(prev => prev.map((item, idx) => idx === i ? e.target.value : item))}
-                    aria-label={`${STYLE_NAMES[i]}完整文案`}
+                    aria-label={`${styleName}完整文案`}
                     style={{
                       display: "block", width: "calc(100% - 28px)", minHeight: 240,
                       margin: "0 14px 14px", padding: 12, resize: "vertical",
