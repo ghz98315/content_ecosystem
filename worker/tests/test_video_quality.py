@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import db
+import main as worker_main
 from compliance import check_text, scan_text
 from prompt_profiles import (
     derive_keyword,
@@ -175,6 +176,23 @@ class TtsInputTests(unittest.TestCase):
 
 
 class NetworkRetryTests(unittest.TestCase):
+    def test_cancelled_task_is_not_reactivated_after_stage_finishes(self):
+        response = type("Response", (), {"data": {"status": "cancelled"}})()
+        query = MagicMock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.single.return_value = query
+        query.execute.return_value = response
+        client = MagicMock()
+        client.table.return_value = query
+
+        with patch("main.db.get_client", return_value=client), patch(
+            "main.db.set_task_status"
+        ) as set_task_status:
+            worker_main.maybe_finish_task("cancelled-task")
+
+        set_task_status.assert_not_called()
+
     def test_claim_next_stage_can_be_limited_to_one_task(self):
         sb = MagicMock()
         query = MagicMock()

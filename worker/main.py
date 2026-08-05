@@ -22,6 +22,12 @@ def process_fake(stage: dict) -> None:
 
 def maybe_finish_task(task_id: str) -> None:
     """若该 task 的 8 个 stage 都 done，则 task 置 done。"""
+    task = db.retry(
+        lambda: db.get_client().table("tasks").select("status").eq("id", task_id).single().execute()
+    )
+    if task.data and task.data.get("status") == "cancelled":
+        return
+
     res = db.retry(
         lambda: db.get_client().table("stages").select("status").eq("task_id", task_id).execute()
     )
