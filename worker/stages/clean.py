@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import os
+from difflib import SequenceMatcher
 
 import config
 import db
@@ -9,6 +10,37 @@ import storage
 from prompt_profiles import author_name, derive_keyword, load_prompt, normalize_category
 
 _client = None
+
+
+def _summarize_changes(raw: str, cleaned: str, limit: int = 24) -> dict:
+    """Keep a compact, reviewable record of deleted/replaced source spans."""
+    segments = []
+    removed_chars = 0
+    matcher = SequenceMatcher(None, raw or "", cleaned or "", autojunk=True)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        before = (raw or "")[i1:i2].strip()
+        after = (cleaned or "")[j1:j2].strip()
+        if not before:
+            continue
+        removed_chars += max(0, len(before) - len(after))
+        if len(segments) < limit:
+            segments.append({
+                "kind": "delete" if not after else "replace",
+                "before": before[:240],
+                "after": after[:240],
+            })
+    raw_chars = len(raw or "")
+    clean_chars = len(cleaned or "")
+    return {
+        "raw_chars": raw_chars,
+        "clean_chars": clean_chars,
+        "removed_chars": removed_chars,
+        "removed_ratio": round(max(0, raw_chars - clean_chars) / raw_chars, 4) if raw_chars else 0,
+        "segments": segments,
+        "segments_truncated": len(segments) >= limit,
+    }
 
 def _llm():
     global _client
@@ -83,7 +115,12 @@ def run(stage: dict) -> tuple[str, str | None]:
     cleaned = resp.choices[0].message.content.strip()
 
     data = json.dumps(
-        {"raw": raw_text, "cleaned": cleaned, "context": context},
+        {
+            "raw": raw_text,
+            "cleaned": cleaned,
+            "context": context,
+            "change_summary": _summarize_changes(raw_text, cleaned),
+        },
         ensure_ascii=False,
         indent=2,
     ).encode("utf-8")

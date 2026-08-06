@@ -26,6 +26,9 @@ IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")   # openai | doubao
 IMAGE_API_KEY  = os.environ.get("IMAGE_API_KEY",  "")   # 留空则复用 OPENAI_API_KEY
 IMAGE_BASE_URL = os.environ.get("IMAGE_BASE_URL", "")   # 留空则复用 OPENAI_BASE_URL
 IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "dall-e-3")
+# Grid source size. gpt-image-2 supports a 3:2 landscape canvas; each 3x3
+# cell is then cropped deterministically to the required 4:3 video still.
+IMAGE_GRID_SIZE = os.environ.get("IMAGE_GRID_SIZE", "1536x1024")
 
 # doubao（豆包）生图
 DOUBAO_API_KEY     = os.environ.get("DOUBAO_API_KEY", "")

@@ -119,37 +119,73 @@ def _split_storyboard(
 
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
 _GRID = 3   # 3×3 = 9
-_IMG_SIZE = "1024x1024"   # gpt-image 支持的方形尺寸
+_CELL_RATIO = 4 / 3
+_GRID_SIZE = config.IMAGE_GRID_SIZE
 
 def _build_grid_prompt(scenes: list[str]) -> str:
     """构建9宫格提示词：1张图包含3×3=9个独立场景，从左到右从上到下编号。"""
-    numbered = "\n".join(f"{i+1}. {_medical_safe(s)}" for i, s in enumerate(scenes))
+    padded = list(scenes[:_GRID * _GRID])
+    while len(padded) < _GRID * _GRID:
+        padded.append("安静明亮的书房或自然生活空镜，主体居中，画面简洁")
+    numbered = "\n".join(f"{i+1}. {_medical_safe(s)}" for i, s in enumerate(padded))
     return (
-        "请生成一张图片，将画面平均分为3×3共9个等大的格子，从左到右从上到下编号1-9。"
+        "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
         "每个格子描绘对应的独立场景，画面风格统一、写意温暖、适合图书养生内容带货。"
-        "格子之间无边框无文字，每格仅含画面。\n\n"
+        "每格按4:3画面构图，主体完整并保持在格子中央安全区域；格子之间只允许极细分隔线，禁止宽白边、拼贴边框和文字。\n\n"
         f"各格场景描述：\n{numbered}"
     )
 
+def _grid_bounds(length: int) -> list[tuple[int, int]]:
+    """Return exact 3-way pixel bounds, distributing remainder pixels safely."""
+    return [(round(i * length / _GRID), round((i + 1) * length / _GRID)) for i in range(_GRID)]
+
+
+def _validate_grid_source(width: int, height: int) -> None:
+    """Fail closed when the provider returns a canvas with an unexpected ratio."""
+    try:
+        expected_width, expected_height = (int(value) for value in _GRID_SIZE.lower().split("x", 1))
+    except (TypeError, ValueError):
+        raise ValueError(f"无效的 IMAGE_GRID_SIZE 配置：{_GRID_SIZE}") from None
+    expected_ratio = expected_width / expected_height
+    actual_ratio = width / height if height else 0
+    if width < _GRID or height < _GRID or abs(actual_ratio - expected_ratio) > 0.02:
+        raise ValueError(
+            f"九宫格源图尺寸异常：实际 {width}x{height}，期望比例来自 {_GRID_SIZE}；"
+            "已停止切图以避免错误图片进入自动剪辑"
+        )
+
+
+def _crop_to_cell_ratio(piece, ratio: float = _CELL_RATIO):
+    """Center-crop one source cell to 4:3 without changing its pixel geometry."""
+    width, height = piece.size
+    current = width / height
+    if abs(current - ratio) < 0.005:
+        return piece
+    if current > ratio:
+        target_width = max(1, round(height * ratio))
+        left = max(0, (width - target_width) // 2)
+        return piece.crop((left, 0, left + target_width, height))
+    target_height = max(1, round(width / ratio))
+    top = max(0, (height - target_height) // 2)
+    return piece.crop((0, top, width, top + target_height))
+
+
 def _split_grid(img_bytes: bytes, n: int) -> list[bytes]:
-    """把大图切成 n 张（最多9张），返回 PNG bytes 列表。"""
+    """切成 n 张4:3小图；边界使用同一组精确像素坐标，避免累计误差。"""
     from PIL import Image
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     w, h = img.size
-    cols = rows = _GRID
-    cw, ch = w // cols, h // rows
+    _validate_grid_source(w, h)
+    x_bounds = _grid_bounds(w)
+    y_bounds = _grid_bounds(h)
     pieces = []
-    for r in range(rows):
-        for c in range(cols):
+    for r in range(_GRID):
+        for c in range(_GRID):
             if len(pieces) >= n:
                 break
-            box = (c * cw, r * ch, (c + 1) * cw, (r + 1) * ch)
-            piece = img.crop(box)
-            # The generated grid is square; center-crop each tile to 4:3 for video.
-            target_h = max(1, round(piece.width * 3 / 4))
-            if piece.height > target_h:
-                top = (piece.height - target_h) // 2
-                piece = piece.crop((0, top, piece.width, top + target_h))
+            x0, x1 = x_bounds[c]
+            y0, y1 = y_bounds[r]
+            piece = _crop_to_cell_ratio(img.crop((x0, y0, x1, y1)))
             buf = io.BytesIO()
             piece.save(buf, format="PNG")
             pieces.append(buf.getvalue())
@@ -226,7 +262,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             model=image_model,
             prompt=prompt,
             n=1,
-            size=_IMG_SIZE,
+            size=_GRID_SIZE,
             # response_format 不硬编码：gpt-image-* 默认 b64_json，dall-e-3 默认 url
         )
         # gpt-image-2 返回 b64_json；doubao / dall-e-3 返回 url
@@ -236,6 +272,22 @@ def run(stage: dict) -> tuple[str, str | None]:
             raw = base64.b64decode(item.b64_json)
         else:
             raw = _download_image(item.url)
+
+        # Keep the original grid for audit/debugging and to prove the cut source.
+        grid_path = f"{task_id}/grid_{batch_start // (_GRID * _GRID):03d}.png"
+        storage.upload_bytes(grid_path, raw, "image/png")
+        from PIL import Image
+        with Image.open(io.BytesIO(raw)) as grid_image:
+            grid_size = grid_image.size
+        _validate_grid_source(*grid_size)
+        storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
+            "source_size": list(grid_size),
+            "grid": "3x3",
+            "cell_ratio": "4:3",
+            "cell_bounds_x": _grid_bounds(grid_size[0]),
+            "cell_bounds_y": _grid_bounds(grid_size[1]),
+            "validated": True,
+        })
 
         pieces = _split_grid(raw, len(batch))
         for i, piece_bytes in enumerate(pieces):
@@ -250,9 +302,11 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "char_count": shot["char_count"],
                 "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"],
+                "source_grid": grid_path,
+                "cell_ratio": "4:3",
             })
             image_paths.append(sp)
-            meta_list.append({**shot, "path": sp, "sentence": shot["text"]})
+            meta_list.append({**shot, "path": sp, "sentence": shot["text"], "source_grid": grid_path})
 
     # 存索引文件
     sp_idx = f"{task_id}/images_index.json"

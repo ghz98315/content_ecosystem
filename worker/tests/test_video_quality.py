@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import unittest
 from unittest.mock import MagicMock, patch
@@ -8,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import db
 import main as worker_main
 from compliance import check_text, scan_text
+from stages.clean import _summarize_changes
 from prompt_profiles import (
     derive_keyword,
     load_compliance_rules,
@@ -17,7 +19,7 @@ from prompt_profiles import (
     rewrite_prompt_kind,
 )
 from resolvers.self_resolver import select_hot_comments
-from stages.image import _split_storyboard
+from stages.image import _grid_bounds, _split_grid, _split_storyboard, _validate_grid_source
 from stages.render import _allocate_durations, TRANSITION_DUR
 from stages.rewrite import _candidate_issues, _parse_candidates
 from stages.tts import _clean_tts_text, _split_tts_segments, _synthesize
@@ -42,6 +44,15 @@ class RewriteQualityTests(unittest.TestCase):
         rewritten = "今天分享一些完全不同的新鲜故事和人物经历，内容主题已经发生变化，最后也换成另一套营销引导。" * 3
         issues = _candidate_issues([rewritten], source, "stop")
         self.assertIn("改写幅度过大，未保持原文主体", issues)
+
+
+class CleanSummaryTests(unittest.TestCase):
+    def test_clean_summary_lists_deleted_source_spans(self):
+        summary = _summarize_changes("栏目口号。正文第一句。关注我获取更多。", "正文第一句。")
+        self.assertEqual(19, summary["raw_chars"])
+        self.assertEqual(6, summary["clean_chars"])
+        self.assertGreater(summary["removed_chars"], 0)
+        self.assertTrue(any(item["kind"] == "delete" for item in summary["segments"]))
 
 
 class PromptProfileTests(unittest.TestCase):
@@ -92,6 +103,28 @@ class ComplianceTests(unittest.TestCase):
 
 
 class StoryboardTests(unittest.TestCase):
+    def test_grid_bounds_cover_source_without_gaps(self):
+        bounds = _grid_bounds(1536)
+        self.assertEqual([(0, 512), (512, 1024), (1024, 1536)], bounds)
+        self.assertEqual(1536, bounds[-1][1])
+
+    def test_grid_split_produces_exact_4_3_tiles(self):
+        from PIL import Image
+
+        source = Image.new("RGB", (1536, 1024), (40, 80, 120))
+        buf = io.BytesIO()
+        source.save(buf, format="PNG")
+        pieces = _split_grid(buf.getvalue(), 9)
+        self.assertEqual(9, len(pieces))
+        for piece_bytes in pieces:
+            with Image.open(io.BytesIO(piece_bytes)) as piece:
+                self.assertIn(piece.size, {(455, 341), (456, 342)})
+                self.assertAlmostEqual(4 / 3, piece.width / piece.height, places=2)
+
+    def test_grid_source_rejects_unexpected_square_canvas(self):
+        _validate_grid_source(1536, 1024)
+        with self.assertRaisesRegex(ValueError, "已停止切图"):
+            _validate_grid_source(1024, 1024)
     def test_storyboard_targets_eight_seconds(self):
         source = "这是一个用于测试语义分镜的完整文案，它包含多个观点和自然停顿。" * 12
         shots = _split_storyboard(source)
