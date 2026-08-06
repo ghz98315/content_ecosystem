@@ -1,6 +1,29 @@
 # AI图书带货视频创作台 — 开发进度
 
-最后更新：2026-08-05
+最后更新：2026-08-06
+
+## 最新恢复检查点（发布后等待 V1→V2 验收，2026-08-06）
+
+### 当前状态
+
+- 功能与发布记录已同步 `origin/master`；本检查点之前的发布记录基线为 `9563057 docs: record task cancellation deployment`。
+- 功能发布基线为 `a51f5b1 fix: make pending task cancellation reliable`；两个生产域名和新版前端包已完成线上核验。
+- 当前没有 Python/FFmpeg Worker 进程，不会消费历史队列。
+- Supabase 最新只读核验：0 个 pending 任务；阶段表仍有 13 个历史 pending 和 4 个 7 月遗留 processing。
+- 待处理任务现在可“取消并删除”；运行中任务只取消不删除，Worker 不会把 cancelled 任务重新激活。
+
+### 下一步
+
+1. 用户在生产首页新建健康类 V1，并提供任务 ID。
+2. 仅使用 `WORKER_TASK_ID=<V1任务ID>` 启动 Worker，不启动全局消费。
+3. 完成 V1 后人工点击“生成二次发布版本”创建独立 V2。
+4. 将过滤器切换到 V2 ID，验收前三阶段 cancelled、rewrite 来源为 V1 `final_text`，以及 V2 独立图片、配音和成片。
+
+### 阶段结论
+
+- 主阶段：发布完成，进入端到端验收阶段。
+- 已验证：取消/删除闭环、线上 RLS、生产前端包、Worker 取消状态保护。
+- 待验证：一条真实健康类 V1→人工确认→V2 全流程。
 
 ## 最新修复检查点（待处理任务取消与删除，2026-08-05）
 

@@ -9,11 +9,12 @@
 ```
 项目：AI图书带货视频创作台
 路径：D:\github\content_ecosystem
-进度文件：PROGRESS.md（先读取“人工二次发布流程”检查点）
+进度文件：PROGRESS.md（先读取“发布后等待 V1→V2 验收”检查点）
 
 背景：
-- 远端实现基线为 3745849；人工二次发布和 Worker 指定任务隔离已推送，Vercel 可访问
-- 本地提交 fb47fbb 保存了 8 个 edge-tts 中文音色，尚未推送
+- 功能发布基线为 a51f5b1，发布记录基线为 9563057；最新恢复检查点已同步远端
+- 人工二次发布、Worker 指定任务隔离、待处理任务取消/删除均已推送，Vercel 已核验
+- worker/tts_voices.json 已保存 8 个 edge-tts 中文音色，默认仍为 zh-CN-XiaoxiaoNeural
 - 当前只验收健康类图书视频；社科类/教育类仅预留，XHS 暂不测试
 - `promote-2` 已区分为首次去重，`promote-3` 已区分为爆款后的二次去重
 - 二次发布采用人工按钮创建独立 V2 任务，不覆盖 V1；V2 从 V1 最终确认稿开始
@@ -21,7 +22,7 @@
 - TTS 当前仍为 edge-tts，已修复朗读格式化内容的问题；Index-TTS 尚未接入
 - 既有任务 36b9ff99-55c8-4b62-a919-8388138c4e7d 的新版 TTS/render 已单独重跑成功
 - Supabase 0003、0004、0005 迁移已由用户确认执行成功
-- 旧 Worker PID 7480 已停止；当前有 13 个历史 pending 和 4 个 7 月遗留 processing
+- 当前没有 Worker 进程；数据库有 0 个 pending 任务、13 个历史 pending 阶段和 4 个 7 月遗留 processing
 - 待处理任务的取消/删除和错误反馈已修复并部署；线上 RLS 烟测通过，Worker 不会再把已取消任务重新激活
 
 当前任务：
