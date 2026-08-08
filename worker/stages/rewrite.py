@@ -222,7 +222,16 @@ def _upload_rewrite(path: str, payload: dict) -> None:
 
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
-    params = stage.get("params") or {}
+    # A reviewer can confirm while a worker is polling. Reload the stage
+    # instead of relying on the pre-claim snapshot returned by PostgREST.
+    latest = db.retry(
+        lambda: db.get_client().table("stages")
+        .select("params")
+        .eq("id", stage["id"])
+        .single()
+        .execute()
+    ).data or {}
+    params = latest.get("params") or stage.get("params") or {}
     chosen = params.get("chosen_index")
     task_context = db.get_task_prompt_context(task_id)
     mode = str(task_context.get("rewrite_mode") or params.get("rewrite_mode") or "initial_dedup")

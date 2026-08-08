@@ -40,7 +40,7 @@ function textLength(text: string) {
   return text.replace(/\s/g, "").length;
 }
 
-export function RewriteDetail({ stage, onRerun }: DetailCommon) {
+export function RewriteDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [data, setData] = useState<RewriteData | null>(null);
   const [drafts, setDrafts] = useState<string[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -75,8 +75,18 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
       error: null,
       params: { ...(stage.params || {}), chosen_index: selected, final_text: finalText },
     }).eq("id", stage.id);
+    if (error) {
+      setBusy(false);
+      setErr(error.message);
+      return;
+    }
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .update({ status: "processing" })
+      .eq("id", taskId)
+      .eq("status", "needs_review");
     setBusy(false);
-    if (error) setErr(error.message);
+    if (taskError) setErr(taskError.message);
   };
 
   const isReview = stage?.status === "needs_review";

@@ -59,7 +59,21 @@ export default function TaskDetail() {
 
   const approve = async (stageId: string, kind: string) => {
     const next = kind === "book" ? "done" : "pending";
-    await supabase.from("stages").update({ status: next }).eq("id", stageId);
+    const { error } = await supabase.from("stages").update({ status: next }).eq("id", stageId);
+    if (error) {
+      setActionNotice({ text: error.message, ok: false });
+      return;
+    }
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .update({ status: "processing" })
+      .eq("id", id)
+      .eq("status", "needs_review");
+    if (taskError) {
+      setActionNotice({ text: taskError.message, ok: false });
+      return;
+    }
+    setActionNotice({ text: "已确认，任务继续处理中", ok: true });
   };
 
   const rerun = async (stageId: string) => {
