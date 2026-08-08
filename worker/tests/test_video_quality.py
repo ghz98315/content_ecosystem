@@ -59,6 +59,7 @@ from stages.render import (
 )
 from stages.rewrite import _candidate_issues, _parse_candidates
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize
+from tts_providers import get_tts_provider
 from narration import pause_after_text, split_semantic_units, strip_subtitle_punctuation
 
 
@@ -506,6 +507,13 @@ class TtsInputTests(unittest.TestCase):
 
 
 class NetworkRetryTests(unittest.TestCase):
+    def test_tts_provider_defaults_to_edge(self):
+        self.assertEqual("EdgeTTSProvider", type(get_tts_provider("edge")).__name__)
+
+    def test_unavailable_tts_provider_fails_explicitly(self):
+        with self.assertRaisesRegex(ValueError, "未适配的 TTS Provider"):
+            get_tts_provider("cosyvoice2")
+
     def test_render_ffmpeg_timeout_is_converted_to_render_timeout(self):
         import stages.render as render_module
 

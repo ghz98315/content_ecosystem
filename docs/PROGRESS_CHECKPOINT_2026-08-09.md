@@ -13,9 +13,15 @@
 - `npm.cmd run build`
 - `git diff --check`
 
+## Completed In This Checkpoint
+
+- Added a clean-stage expansion guard with a configurable `CLEAN_MAX_EXPANSION_RATIO` (default 10%). Abnormal output is retained for inspection but marked failed before rewrite/TTS.
+- Added a TTS Provider boundary with Edge TTS as the only production implementation. `TTS_PROVIDER=cosyvoice2` fails explicitly until its independent adapter and listening comparison are complete.
+- Full `worker` video-quality suite passed: 55 tests.
+
 ## Next Task
 
-Add a clean-stage length guard so model cleanup cannot silently expand source text. The guard should preserve valid cleanup, flag abnormal expansion for review, and prevent oversized output from entering rewrite/TTS without an explicit decision.
+Implement an isolated CosyVoice2 adapter and comparison artifact flow. Keep Edge TTS as the fallback and do not replace production audio until duration, pause naturalness, voice quality, and subtitle alignment are verified.
 
 ## Constraints
 

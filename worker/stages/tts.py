@@ -14,6 +14,7 @@ import db
 import storage
 import imageio_ffmpeg
 from narration import clean_tts_text, split_semantic_units, visible_len
+from tts_providers import get_tts_provider
 
 # 默认音色，可通过 env 覆盖
 _VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
@@ -125,39 +126,8 @@ def _probe_audio_duration(path: str) -> float:
 
 
 async def _synthesize_part(text: str, voice: str) -> tuple[bytes, list[dict], float]:
-    """Synthesize one plain-text part and return timestamps plus real duration."""
-    import edge_tts
-    fd_mp3, mp3_path = tempfile.mkstemp(suffix=".mp3")
-    os.close(fd_mp3)
-    segs: list[dict] = []
-
-    try:
-        # edge-tts builds and escapes its own SSML. Passing custom SSML here makes
-        # tags such as <break> audible, so only plain narration is allowed.
-        comm = edge_tts.Communicate(text, voice, boundary="SentenceBoundary")
-        with open(mp3_path, "wb") as f:
-            async for chunk in comm.stream():
-                if chunk["type"] == "audio":
-                    f.write(chunk["data"])
-                elif chunk["type"] in ("SentenceBoundary", "WordBoundary"):
-                    segs.append({
-                        "text": chunk.get("text", ""),
-                        "start": round(chunk["offset"] / 1e7, 3),
-                        "end": round((chunk["offset"] + chunk["duration"]) / 1e7, 3),
-                    })
-        try:
-            duration = _probe_audio_duration(mp3_path)
-        except (subprocess.CalledProcessError, ValueError):
-            # Test doubles and legacy providers may return non-MP3 bytes. Real
-            # streams still use decoded duration so trailing silence is retained.
-            duration = float(segs[-1].get("end", 0.0)) if segs else 0.0
-        with open(mp3_path, "rb") as f:
-            return f.read(), segs, duration
-    finally:
-        try:
-            os.remove(mp3_path)
-        except OSError:
-            pass
+    """Synthesize one part through the selected provider boundary."""
+    return await get_tts_provider(config.TTS_PROVIDER).synthesize(text, voice)
 
 
 async def _synthesize_part_with_retry(text: str, voice: str) -> tuple[bytes, list[dict], float]:

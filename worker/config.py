@@ -74,6 +74,7 @@ RENDER_SUBPROCESS_TIMEOUT = float(os.environ.get("RENDER_SUBPROCESS_TIMEOUT", "1
 RENDER_DISSOLVE_MAX_CLIPS = int(os.environ.get("RENDER_DISSOLVE_MAX_CLIPS", "24"))
 
 # TTS
+TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "edge")
 TTS_VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")       # tiny/base/small/medium/large-v3
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")       # cpu / cuda
