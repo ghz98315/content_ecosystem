@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import db
 import main as worker_main
 from compliance import check_text, scan_text
-from stages.clean import _summarize_changes
+from stages.clean import _clean_output_issue, _summarize_changes
 from prompt_profiles import (
     derive_keyword,
     load_compliance_rules,
@@ -90,6 +90,16 @@ class CleanSummaryTests(unittest.TestCase):
         self.assertEqual(6, summary["clean_chars"])
         self.assertGreater(summary["removed_chars"], 0)
         self.assertTrue(any(item["kind"] == "delete" for item in summary["segments"]))
+
+    def test_clean_output_rejects_abnormal_expansion(self):
+        issue = _clean_output_issue("原文" * 100, "清洗后" * 130)
+        self.assertIn("异常扩写", issue or "")
+
+    def test_clean_output_allows_small_expansion(self):
+        self.assertIsNone(_clean_output_issue("文" * 100, "文" * 105))
+
+    def test_clean_output_rejects_empty_result(self):
+        self.assertIn("空正文", _clean_output_issue("原文", "") or "")
 
 
 class PromptProfileTests(unittest.TestCase):

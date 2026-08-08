@@ -10,6 +10,22 @@ import storage
 from prompt_profiles import author_name, derive_keyword, load_prompt, normalize_category
 
 _client = None
+_MAX_EXPANSION_RATIO = max(0.0, float(os.environ.get("CLEAN_MAX_EXPANSION_RATIO", "0.10")))
+
+
+def _clean_output_issue(raw: str, cleaned: str) -> str | None:
+    """Reject empty output and silent model expansion beyond the review limit."""
+    raw_chars = len((raw or "").strip())
+    clean_chars = len((cleaned or "").strip())
+    if not clean_chars:
+        return "清洗模型返回空正文"
+    if raw_chars and clean_chars > raw_chars * (1 + _MAX_EXPANSION_RATIO):
+        ratio = (clean_chars - raw_chars) / raw_chars
+        return (
+            f"清洗结果异常扩写：原文 {raw_chars} 字，清洗后 {clean_chars} 字，"
+            f"增加 {ratio:.1%}，超过允许上限 {_MAX_EXPANSION_RATIO:.1%}"
+        )
+    return None
 
 
 def _summarize_changes(raw: str, cleaned: str, limit: int = 24) -> dict:
@@ -113,6 +129,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         temperature=0.2,
     )
     cleaned = resp.choices[0].message.content.strip()
+    quality_issue = _clean_output_issue(raw_text, cleaned)
 
     data = json.dumps(
         {
@@ -120,6 +137,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cleaned": cleaned,
             "context": context,
             "change_summary": _summarize_changes(raw_text, cleaned),
+            "quality_issue": quality_issue,
         },
         ensure_ascii=False,
         indent=2,
@@ -131,5 +149,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         "clean_chars": len(cleaned),
         "model": config.CLEAN_MODEL,
         "content_category": context["category"],
+        "quality_issue": quality_issue,
     })
+    if quality_issue:
+        db.set_stage(stage["id"], "failed", output_ref=sp, error=quality_issue)
+        return "failed", sp
     return "done", sp
