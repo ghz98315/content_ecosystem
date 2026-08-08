@@ -18,6 +18,8 @@
 - Added a clean-stage expansion guard with a configurable `CLEAN_MAX_EXPANSION_RATIO` (default 10%). Abnormal output is retained for inspection but marked failed before rewrite/TTS.
 - Added a TTS Provider boundary with Edge TTS as the only production implementation. `TTS_PROVIDER=cosyvoice2` fails explicitly until its independent adapter and listening comparison are complete.
 - Full `worker` video-quality suite passed: 55 tests.
+- Latest local commit is `8a1203a`.
+- Two subsequent remote push attempts failed due to GitHub connection reset/unreachable port 443; deployment remains untriggered.
 
 ## Next Task
 
