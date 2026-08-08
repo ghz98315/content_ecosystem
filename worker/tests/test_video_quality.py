@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import db
@@ -19,10 +22,44 @@ from prompt_profiles import (
     rewrite_prompt_kind,
 )
 from resolvers.self_resolver import select_hot_comments
-from stages.image import _grid_bounds, _split_grid, _split_storyboard, _validate_grid_source
-from stages.render import _allocate_durations, TRANSITION_DUR
+from stages.image import (
+    _build_grid_prompt,
+    _grid_bounds,
+    _split_grid,
+    _split_storyboard,
+    _validate_grid_source,
+    _visual_scene,
+)
+from stages.image import _apimart_result_url
+from quality import EXPECTED_STAGES, evaluate_render_quality
+from stages.render import (
+    _allocate_durations,
+    _build_timeline,
+    _concat_clips_exact,
+    _compose_with_dissolve,
+    _make_cover_clip,
+    _make_image_clip,
+    _timeline_clip_durations,
+    _validate_timeline,
+    _video_duration,
+    H,
+    W,
+    TRANSITION_DUR,
+    ZOOM_AMOUNT,
+    ZOOM_OVERSAMPLE,
+    COVER_FRAMES,
+    INTRO_DUR,
+    _disclaimer_text,
+    _disclaimer_fill,
+    DISCLAIMER_FONT_SIZE,
+    DISCLAIMER_GAP_LINES,
+    DISCLAIMER_OPACITY,
+    RenderTimeout,
+    _run_ffmpeg,
+)
 from stages.rewrite import _candidate_issues, _parse_candidates
-from stages.tts import _clean_tts_text, _split_tts_segments, _synthesize
+from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize
+from narration import pause_after_text, split_semantic_units, strip_subtitle_punctuation
 
 
 class RewriteQualityTests(unittest.TestCase):
@@ -103,6 +140,59 @@ class ComplianceTests(unittest.TestCase):
 
 
 class StoryboardTests(unittest.TestCase):
+    def test_apimart_async_image_result_is_parsed(self):
+        self.assertIsNone(_apimart_result_url({"data": {"status": "processing"}}))
+        self.assertEqual(
+            "https://example.test/image.png",
+            _apimart_result_url({
+                "data": {
+                    "status": "completed",
+                    "result": {"images": [{"url": "https://example.test/image.png"}]},
+                }
+            }),
+        )
+        self.assertEqual(
+            "https://example.test/image.png",
+            _apimart_result_url({
+                "data": {
+                    "status": "completed",
+                    "result": {"images": [{"url": ["https://example.test/image.png"]}]},
+                }
+            }),
+        )
+        with self.assertRaisesRegex(RuntimeError, "failed"):
+            _apimart_result_url({"data": {"status": "failed"}})
+
+    def test_cover_uses_first_image_for_fifteen_frames(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory(prefix="render_cover_test_") as tmpdir:
+            root = Path(tmpdir)
+            image = root / "image.png"
+            layout = root / "layout.png"
+            output = root / "cover.mp4"
+            Image.new("RGB", (800, 600), (220, 30, 30)).save(image)
+            Image.new("RGB", (W, H), (0, 0, 0)).save(layout)
+            _make_cover_clip(str(image), str(layout), INTRO_DUR, str(output))
+            self.assertEqual(15, COVER_FRAMES)
+            self.assertAlmostEqual(0.5, INTRO_DUR, places=3)
+            self.assertAlmostEqual(INTRO_DUR, _video_duration(str(output)), delta=0.08)
+
+    def test_disclaimer_uses_book_title_and_two_requested_lines(self):
+        self.assertEqual(
+            "本视频基于《身体重置》及相关研究资料整理，\n仅用于科普分享，不构成任何建议或行为引导。",
+            _disclaimer_text("《身体重置》"),
+        )
+        self.assertEqual(30, DISCLAIMER_FONT_SIZE)
+        self.assertEqual(4, DISCLAIMER_GAP_LINES)
+        self.assertEqual(0.5, DISCLAIMER_OPACITY)
+        self.assertEqual((114, 117, 122), _disclaimer_fill())
+
+    def test_zoom_uses_oversampling_and_visible_eased_motion(self):
+        self.assertGreaterEqual(ZOOM_OVERSAMPLE, 4)
+        self.assertGreaterEqual(ZOOM_AMOUNT, 0.12)
+        self.assertLessEqual(ZOOM_AMOUNT, 0.18)
+
     def test_grid_bounds_cover_source_without_gaps(self):
         bounds = _grid_bounds(1536)
         self.assertEqual([(0, 512), (512, 1024), (1024, 1536)], bounds)
@@ -118,13 +208,82 @@ class StoryboardTests(unittest.TestCase):
         self.assertEqual(9, len(pieces))
         for piece_bytes in pieces:
             with Image.open(io.BytesIO(piece_bytes)) as piece:
-                self.assertIn(piece.size, {(455, 341), (456, 342)})
+                self.assertGreaterEqual(piece.width, 430)
+                self.assertGreaterEqual(piece.height, 320)
                 self.assertAlmostEqual(4 / 3, piece.width / piece.height, places=2)
+
+    def test_grid_split_removes_provider_separator_lines(self):
+        from PIL import Image, ImageDraw
+
+        source = Image.new("RGB", (1536, 1024), (40, 80, 120))
+        draw = ImageDraw.Draw(source)
+        for x in (512, 1024):
+            draw.rectangle((x - 5, 0, x + 5, 1023), fill=(255, 255, 255))
+        for y in (341, 683):
+            draw.rectangle((0, y - 5, 1535, y + 5), fill=(255, 255, 255))
+        buf = io.BytesIO()
+        source.save(buf, format="PNG")
+
+        for piece_bytes in _split_grid(buf.getvalue(), 9):
+            with Image.open(io.BytesIO(piece_bytes)) as piece:
+                self.assertEqual((40, 80, 120), piece.getpixel((0, 0)))
+                self.assertEqual((40, 80, 120), piece.getpixel((piece.width - 1, piece.height - 1)))
+
+    def test_grid_prompt_forbids_dividers_and_visible_text(self):
+        prompt = _build_grid_prompt(["《身体重置》介绍三个健康方法123"])
+        self.assertNotIn("《身体重置》", prompt)
+        self.assertIn("不要绘制任何分隔线", prompt)
+        self.assertIn("禁止出现中文、外文、字母、数字", prompt)
+        self.assertEqual("一本素色无字封面的书介绍三个健康方法", _visual_scene("《身体重置》介绍三个健康方法123"))
 
     def test_grid_source_rejects_unexpected_square_canvas(self):
         _validate_grid_source(1536, 1024)
         with self.assertRaisesRegex(ValueError, "已停止切图"):
             _validate_grid_source(1024, 1024)
+
+    def test_render_quality_report_passes_expected_technical_checks(self):
+        stages = [
+            {"kind": kind, "status": "processing" if kind == "render" else "done"}
+            for kind in EXPECTED_STAGES
+        ]
+        images = [{"path": "a.png"}, {"path": "b.png"}]
+        timeline = [
+            {"start": 0.0, "end": 2.0, "duration": 2.0},
+            {"start": 2.0, "end": 4.0, "duration": 2.0},
+        ]
+        cues = [
+            {"text": "第一句字幕", "start": 0.0, "end": 2.0},
+            {"text": "第二句字幕", "start": 2.0, "end": 4.0},
+        ]
+        report = evaluate_render_quality(
+            media={
+                "duration": 4.5, "width": 1080, "height": 1920, "fps": 30.0,
+                "has_video": True, "has_audio": True, "file_size": 2_000_000,
+            },
+            black_segments=[], stage_rows=stages, images=images, cues=cues,
+            timeline=timeline, tts_duration=4.0, width=1080, height=1920,
+            fps=30, intro_duration=0.5,
+        )
+        self.assertEqual("passed", report["status"])
+        self.assertEqual(0, report["summary"]["failed"])
+
+    def test_render_quality_report_fails_missing_audio(self):
+        stages = [
+            {"kind": kind, "status": "processing" if kind == "render" else "done"}
+            for kind in EXPECTED_STAGES
+        ]
+        report = evaluate_render_quality(
+            media={
+                "duration": 2.5, "width": 1080, "height": 1920, "fps": 30.0,
+                "has_video": True, "has_audio": False, "file_size": 1_000_000,
+            },
+            black_segments=[], stage_rows=stages, images=[{"path": "a.png"}],
+            cues=[{"text": "字幕正常", "start": 0.0, "end": 2.0}],
+            timeline=[{"start": 0.0, "end": 2.0, "duration": 2.0}],
+            tts_duration=2.0, width=1080, height=1920, fps=30, intro_duration=0.5,
+        )
+        self.assertEqual("failed", report["status"])
+        self.assertEqual("failed", next(check for check in report["checks"] if check["id"] == "audio")["status"])
     def test_storyboard_targets_eight_seconds(self):
         source = "这是一个用于测试语义分镜的完整文案，它包含多个观点和自然停顿。" * 12
         shots = _split_storyboard(source)
@@ -132,6 +291,9 @@ class StoryboardTests(unittest.TestCase):
         self.assertEqual(len(source), sum(shot["char_count"] for shot in shots))
         self.assertTrue(all(24 <= shot["char_count"] <= 32 for shot in shots))
         self.assertTrue(all(shot["motion"] == "zoom_in" for shot in shots))
+        self.assertEqual(0, shots[0]["char_start"])
+        self.assertEqual(shots[-1]["char_end"], sum(shot["char_count"] for shot in shots))
+        self.assertTrue(all(a["char_end"] == b["char_start"] for a, b in zip(shots, shots[1:])))
 
     def test_render_duration_compensates_dissolves(self):
         images = [{"char_count": 28}] * 4
@@ -139,8 +301,133 @@ class StoryboardTests(unittest.TestCase):
         final_duration = sum(durations) - TRANSITION_DUR * (len(images) - 1)
         self.assertAlmostEqual(32.0, final_duration, places=2)
 
+    def test_image_clips_and_exact_concat_preserve_timeline_duration(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory(prefix="render_duration_test_") as tmpdir:
+            root = Path(tmpdir)
+            layout = root / "layout.png"
+            Image.new("RGB", (W, H), (0, 0, 0)).save(layout)
+            clips: list[str] = []
+            durations = [1.2, 1.6]
+            for index, color in enumerate(((220, 30, 30), (30, 220, 30))):
+                image = root / f"image_{index}.png"
+                clip = root / f"clip_{index}.mp4"
+                Image.new("RGB", (800, 600), color).save(image)
+                _make_image_clip(str(image), str(layout), durations[index], str(clip))
+                self.assertAlmostEqual(durations[index], _video_duration(str(clip)), delta=0.08)
+                clips.append(str(clip))
+
+            output = root / "content.mp4"
+            _concat_clips_exact(clips, sum(durations), str(output), tmpdir)
+            self.assertAlmostEqual(sum(durations), _video_duration(str(output)), delta=0.08)
+
+    def test_balanced_dissolves_preserve_long_timeline_math(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory(prefix="render_dissolve_test_") as tmpdir:
+            root = Path(tmpdir)
+            layout = root / "layout.png"
+            Image.new("RGB", (W, H), (0, 0, 0)).save(layout)
+            durations = [0.9, 1.0, 1.1, 0.8]
+            clips: list[str] = []
+            for index, duration in enumerate(durations):
+                image = root / f"image_{index}.png"
+                clip = root / f"clip_{index}.mp4"
+                Image.new("RGB", (800, 600), (40 + index * 45, 80, 160)).save(image)
+                _make_image_clip(str(image), str(layout), duration, str(clip))
+                clips.append(str(clip))
+
+            output = root / "dissolved.mp4"
+            _compose_with_dissolve(clips, durations, str(output))
+            expected = sum(durations) - TRANSITION_DUR * (len(durations) - 1)
+            self.assertAlmostEqual(expected, _video_duration(str(output)), delta=0.08)
+
 
 class TtsInputTests(unittest.TestCase):
+    def test_subtitles_keep_words_compounds_titles_and_units_intact(self):
+        text = (
+            "阿尔茨海默病患者需要长期健康管理和专业人员帮助，"
+            "人工智能技术连续观察14天，再参考《身体重置方法》调整方案。"
+        )
+        units = split_semantic_units(text, max_chars=14)
+        screens = [unit["text"] for unit in units]
+        for protected in (
+            "阿尔茨海默病患者", "健康管理", "专业人员", "人工智能技术",
+            "14天", "身体重置方法",
+        ):
+            self.assertTrue(any(protected in screen for screen in screens), (protected, screens))
+        self.assertTrue(all(unit["char_count"] <= 14 for unit in units))
+        self.assertEqual(strip_subtitle_punctuation(text), "".join(screens))
+
+    def test_subtitle_word_cuts_do_not_leave_two_character_tail(self):
+        text = "保持词语的完整性非常重要，字幕不能把人工智能技术从中间切开。"
+        units = split_semantic_units(text, max_chars=14)
+        self.assertGreaterEqual(units[-1]["char_count"], 4)
+        self.assertTrue(any("人工智能技术" in unit["text"] for unit in units))
+
+    def test_subtitle_rejects_an_unsplittable_overlong_word(self):
+        with self.assertRaisesRegex(ValueError, "无法保持完整的词语"):
+            split_semantic_units("Supercalifragilistic", max_chars=14)
+
+    def test_subtitles_use_semantic_breaks_without_punctuation(self):
+        text = "先把最重要的事情说清楚，然后再解释为什么这样做。最后给出一个可以执行的方法。"
+        units = split_semantic_units(text, max_chars=12)
+        self.assertEqual(strip_subtitle_punctuation(text), "".join(unit["text"] for unit in units))
+        self.assertTrue(all(unit["char_count"] <= 12 for unit in units))
+        self.assertTrue(all(strip_subtitle_punctuation(unit["text"]) == unit["text"] for unit in units))
+        self.assertTrue(any(unit["pause_after"] > 0 for unit in units))
+
+        anchors = [{
+            "text": text,
+            "start": 0.2,
+            "end": 12.2,
+            "char_start": 0,
+            "char_end": len(text),
+        }]
+        cues = _build_subtitle_cues(text, anchors, 12.5)
+        self.assertTrue(all(cue["char_count"] <= 12 for cue in cues))
+        self.assertTrue(all(a["end"] <= b["start"] for a, b in zip(cues, cues[1:])))
+        self.assertEqual(len(text), cues[-1]["char_end"])
+
+    def test_pause_profile_matches_tts_requirement(self):
+        self.assertEqual(0.3, pause_after_text("先说清楚，"))
+        self.assertEqual(0.8, pause_after_text("一句结束。"))
+        self.assertEqual(0.9, pause_after_text("真的吗？"))
+        self.assertEqual(0.7, pause_after_text("这里转折——"))
+        self.assertEqual(0.9, pause_after_text("稍作停顿……"))
+        self.assertEqual(0.45, pause_after_text("分层说明："))
+
+    def test_image_audio_subtitle_timeline_uses_character_boundaries(self):
+        cues = [
+            {"text": "一" * 12, "char_start": 0, "char_end": 12, "start": 0.0, "end": 3.0},
+            {"text": "二" * 12, "char_start": 12, "char_end": 24, "start": 3.0, "end": 6.0},
+            {"text": "三" * 12, "char_start": 24, "char_end": 36, "start": 6.0, "end": 9.0},
+            {"text": "四" * 12, "char_start": 36, "char_end": 48, "start": 9.0, "end": 12.0},
+        ]
+        images = [
+            {"path": "a.png", "char_start": 0, "char_end": 24, "char_count": 24},
+            {"path": "b.png", "char_start": 24, "char_end": 48, "char_count": 24},
+        ]
+        timeline = _build_timeline(images, cues, 14.0)
+        _validate_timeline(timeline, cues, 14.0)
+        self.assertEqual([0.0, 6.0], [item["start"] for item in timeline])
+        self.assertEqual(14.0, timeline[-1]["end"])
+        gross = _timeline_clip_durations(timeline)
+        self.assertAlmostEqual(14.0, sum(gross) - TRANSITION_DUR, places=2)
+
+    def test_render_rejects_punctuated_subtitles(self):
+        timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]
+        with self.assertRaisesRegex(ValueError, "标点"):
+            _validate_timeline(timeline, [{"text": "字幕不要出现。", "start": 0.0, "end": 1.0}], 2.0)
+
+    def test_render_rejects_overlong_or_reversed_subtitles(self):
+        timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]
+        with self.assertRaisesRegex(ValueError, "超过 14"):
+            _validate_timeline(timeline, [{"text": "一" * 15, "start": 0.0, "end": 1.0}], 2.0)
+        with self.assertRaisesRegex(ValueError, "结束时间早于"):
+            _validate_timeline(timeline, [{"text": "字幕正常", "start": 1.0, "end": 0.5}], 2.0)
+
     def test_only_narration_survives_storyboard_formatting(self):
         formatted = """# 分镜脚本
 [00:00-00:08]
@@ -209,6 +496,58 @@ class TtsInputTests(unittest.TestCase):
 
 
 class NetworkRetryTests(unittest.TestCase):
+    def test_render_ffmpeg_timeout_is_converted_to_render_timeout(self):
+        import stages.render as render_module
+
+        original_deadline = render_module._ACTIVE_DEADLINE
+        try:
+            render_module._ACTIVE_DEADLINE = __import__("time").monotonic() + 0.05
+            with patch("stages.render.subprocess.run", side_effect=subprocess.TimeoutExpired("ffmpeg", 0.05)):
+                with self.assertRaises(RenderTimeout):
+                    _run_ffmpeg(["ffmpeg"], check=True)
+        finally:
+            render_module._ACTIVE_DEADLINE = original_deadline
+
+    def test_stage_heartbeat_refreshes_processing_lease(self):
+        with patch("main.db.touch_stage") as touch:
+            heartbeat = worker_main.StageHeartbeat("stage-id", 0.01)
+            heartbeat.interval = 0.01
+            heartbeat.start()
+            import time
+            time.sleep(0.04)
+            heartbeat.stop()
+        self.assertGreaterEqual(touch.call_count, 1)
+
+    def test_worker_startup_recovers_orphaned_stage(self):
+        stale = [{"id": "stage-id", "task_id": "task-id", "kind": "image"}]
+        with patch("main.db.recover_stale_stages", return_value=stale) as recover:
+            self.assertEqual(stale, worker_main.recover_orphaned_stages())
+        recover.assert_called_once_with(
+            worker_main.config.WORKER_TASK_ID,
+            worker_main.config.WORKER_STALE_STAGE_SECONDS,
+        )
+
+    def test_failed_stage_marks_task_failed_instead_of_processing(self):
+        response = type("Response", (), {"data": {"status": "processing"}})()
+        task_query = MagicMock()
+        task_query.select.return_value = task_query
+        task_query.eq.return_value = task_query
+        task_query.single.return_value = task_query
+        task_query.execute.return_value = response
+        stage_query = MagicMock()
+        stage_query.select.return_value = stage_query
+        stage_query.eq.return_value = stage_query
+        stage_query.execute.return_value = type("Response", (), {"data": [{"status": "failed"}, {"status": "pending"}]})()
+        client = MagicMock()
+        client.table.side_effect = [task_query, stage_query]
+
+        with patch("main.db.get_client", return_value=client), patch(
+            "main.db.set_task_status"
+        ) as set_task_status:
+            worker_main.maybe_finish_task("failed-task")
+
+        set_task_status.assert_called_once_with("failed-task", "failed")
+
     def test_cancelled_task_is_not_reactivated_after_stage_finishes(self):
         response = type("Response", (), {"data": {"status": "cancelled"}})()
         query = MagicMock()
@@ -238,6 +577,53 @@ class NetworkRetryTests(unittest.TestCase):
         query.eq.assert_any_call("status", "pending")
         query.eq.assert_any_call("task_id", "target-task")
 
+    def test_claim_skips_stage_when_task_is_failed(self):
+        pending = {"id": "stage-id", "task_id": "task-id", "seq": 1}
+        stages_query = MagicMock()
+        stages_query.select.return_value = stages_query
+        stages_query.eq.return_value = stages_query
+        stages_query.order.return_value = stages_query
+        stages_query.execute.return_value = type("Response", (), {"data": [pending]})()
+        task_query = MagicMock()
+        task_query.select.return_value = task_query
+        task_query.eq.return_value = task_query
+        task_query.single.return_value = task_query
+        task_query.execute.return_value = type("Response", (), {"data": {"status": "failed"}})()
+        sb = MagicMock()
+        sb.table.side_effect = [stages_query, task_query]
+
+        with patch("db.get_client", return_value=sb):
+            self.assertIsNone(db.claim_next_stage())
+        self.assert_not_called_with_status_update(stages_query)
+
+    def test_claim_skips_stage_when_a_prior_stage_failed(self):
+        pending = {"id": "stage-id", "task_id": "task-id", "seq": 3}
+        stages_query = MagicMock()
+        stages_query.select.return_value = stages_query
+        stages_query.eq.return_value = stages_query
+        stages_query.order.return_value = stages_query
+        stages_query.execute.return_value = type("Response", (), {"data": [pending]})()
+        task_query = MagicMock()
+        task_query.select.return_value = task_query
+        task_query.eq.return_value = task_query
+        task_query.single.return_value = task_query
+        task_query.execute.return_value = type("Response", (), {"data": {"status": "processing"}})()
+        prior_query = MagicMock()
+        prior_query.select.return_value = prior_query
+        prior_query.eq.return_value = prior_query
+        prior_query.lt.return_value = prior_query
+        prior_query.execute.return_value = type("Response", (), {"data": [{"status": "done"}, {"status": "failed"}]})()
+        sb = MagicMock()
+        sb.table.side_effect = [stages_query, task_query, prior_query]
+
+        with patch("db.get_client", return_value=sb):
+            self.assertIsNone(db.claim_next_stage())
+        prior_query.execute.assert_called_once()
+
+    @staticmethod
+    def assert_not_called_with_status_update(query):
+        query.update.assert_not_called()
+
     def test_ssl_eof_is_transient_and_retried(self):
         calls = 0
 
@@ -251,6 +637,13 @@ class NetworkRetryTests(unittest.TestCase):
         with patch("db.reset_client"), patch("db.time.sleep"):
             self.assertEqual("ok", db.retry(flaky, attempts=3))
         self.assertEqual(3, calls)
+
+    def test_provider_timeout_is_transient(self):
+        class APITimeoutError(Exception):
+            pass
+
+        self.assertTrue(db.is_transient_error(APITimeoutError()))
+        self.assertTrue(db.is_transient_error(ConnectionError()))
 
     def test_business_error_is_not_retried(self):
         calls = 0

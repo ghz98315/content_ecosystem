@@ -64,12 +64,40 @@ export default function TaskDetail() {
 
   const rerun = async (stageId: string) => {
     const stage = stages.find(s => s.id === stageId);
-    const params = { ...(stage?.params ?? {}) };
-    delete params.chosen_index;
-    delete params.final_text;
-    delete params.manual_book_name;
-    delete params.book_confirmed;
-    await supabase.from("stages").update({ status: "pending", error: null, params }).eq("id", stageId);
+    if (!stage || actionBusy) return;
+    setActionBusy(true);
+    setActionNotice(null);
+
+    // The RPC updates the selected stage and every downstream stage atomically.
+    const { error: rpcError } = await supabase.rpc("rerun_stage", { p_stage_id: stageId });
+    if (rpcError) {
+      // Keep older deployments usable until migration 0006 is applied. This
+      // fallback still invalidates downstream outputs before requeueing.
+      const params = { ...(stage.params ?? {}) };
+      delete params.chosen_index;
+      delete params.final_text;
+      delete params.manual_book_name;
+      delete params.book_confirmed;
+      const { error: stageError } = await supabase
+        .from("stages")
+        .update({ status: "pending", error: null, output_ref: null, params })
+        .eq("task_id", id)
+        .gte("seq", stage.seq)
+        .neq("status", "cancelled");
+      const { error: taskError } = await supabase
+        .from("tasks").update({ status: "processing" }).eq("id", id);
+      if (stageError || taskError) {
+        setActionNotice({
+          text: stageError?.message || taskError?.message || "重跑失败，请刷新后重试。",
+          ok: false,
+        });
+      } else {
+        setActionNotice({ text: "已将当前阶段及下游阶段重新排队。", ok: true });
+      }
+    } else {
+      setActionNotice({ text: "已将当前阶段及下游阶段重新排队。", ok: true });
+    }
+    setActionBusy(false);
   };
 
   const cancelTask = async () => {

@@ -61,6 +61,17 @@ def openai_client(api_key: str = "", base_url: str = ""):
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))
 # Optional safety filter for isolated end-to-end testing.
 WORKER_TASK_ID = os.environ.get("WORKER_TASK_ID", "").strip()
+# A running stage refreshes updated_at on this cadence. A restarted worker
+# requeues processing stages whose heartbeat has expired.
+WORKER_HEARTBEAT_INTERVAL = float(os.environ.get("WORKER_HEARTBEAT_INTERVAL", "20"))
+WORKER_STALE_STAGE_SECONDS = float(os.environ.get("WORKER_STALE_STAGE_SECONDS", "300"))
+IMAGE_REQUEST_TIMEOUT = float(os.environ.get("IMAGE_REQUEST_TIMEOUT", "180"))
+IMAGE_TASK_TIMEOUT = float(os.environ.get("IMAGE_TASK_TIMEOUT", "300"))
+RENDER_TIMEOUT = float(os.environ.get("RENDER_TIMEOUT", "900"))
+RENDER_SUBPROCESS_TIMEOUT = float(os.environ.get("RENDER_SUBPROCESS_TIMEOUT", "180"))
+# Balanced dissolve launches one ffmpeg process per merge. Long timelines use
+# deterministic hard cuts to avoid spending the whole render budget on merges.
+RENDER_DISSOLVE_MAX_CLIPS = int(os.environ.get("RENDER_DISSOLVE_MAX_CLIPS", "24"))
 
 # TTS
 TTS_VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")

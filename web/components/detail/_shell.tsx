@@ -25,9 +25,15 @@ interface ShellProps {
   onRerun: (id: string) => void;
   children?: React.ReactNode;
   actions?: React.ReactNode;
+  showChildrenOnPending?: boolean;
+  errorPosition?: "top" | "bottom";
 }
 
-export function DetailShell({ title, stage, onRerun, children, actions }: ShellProps) {
+export function DetailShell({
+  title, stage, onRerun, children, actions,
+  showChildrenOnPending = false,
+  errorPosition = "top",
+}: ShellProps) {
   const status = stage?.status ?? "pending";
   const color  = STATUS_COLOR[status] ?? "var(--status-pending)";
   const isPending    = status === "pending";
@@ -57,7 +63,7 @@ export function DetailShell({ title, stage, onRerun, children, actions }: ShellP
       </div>
 
       {/* 错误 */}
-      {isFailed && stage?.error && (
+      {errorPosition === "top" && isFailed && stage?.error && (
         <div style={{
           padding: "8px 12px", borderRadius: "var(--radius-md)",
           background: "#fff5f5", border: "1px solid #fecaca",
@@ -76,7 +82,18 @@ export function DetailShell({ title, stage, onRerun, children, actions }: ShellP
       )}
 
       {/* 主内容 */}
-      {!isPending && !isCancelled && children}
+      {(!isCancelled && (!isPending || showChildrenOnPending)) && children}
+
+      {errorPosition === "bottom" && isFailed && stage?.error && (
+        <div style={{
+          padding: "8px 12px", borderRadius: "var(--radius-md)",
+          background: "#fff5f5", border: "1px solid #fecaca",
+          color: "var(--status-failed)", fontSize: 12,
+          fontFamily: "monospace", wordBreak: "break-all", marginTop: 16,
+        }}>
+          {stage.error}
+        </div>
+      )}
     </div>
   );
 }

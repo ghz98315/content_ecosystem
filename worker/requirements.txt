@@ -25,6 +25,8 @@ imageio-ffmpeg>=0.5.1
 
 # TTS 配音（句级时间戳，edge-tts 7.x 中文只给 SentenceBoundary）
 edge-tts>=7.2.0
+# 字幕中文分词（保护词语完整性，避免按固定字数硬切）
+jieba>=0.42.1
 
 # 生图：9宫格切割
 Pillow>=10.0.0

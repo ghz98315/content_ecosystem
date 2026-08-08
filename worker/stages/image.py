@@ -9,11 +9,15 @@ import json
 import math
 import os
 import re
+import time
 import urllib.request
+
+import httpx
 
 import config
 import db
 import storage
+from narration import clean_tts_text
 
 # ── 医疗安全关键词 → 生活隐喻 ──────────────────────────────────────────────
 _MEDICAL_MAP = {
@@ -104,34 +108,52 @@ def _split_storyboard(
         else:
             parts.append(remaining)
 
-    return [
-        {
+    shots: list[dict] = []
+    char_start = 0
+    for i, part in enumerate(parts):
+        char_count = _char_count(part)
+        shots.append({
             "index": i,
             "text": part,
-            "char_count": _char_count(part),
-            "estimated_duration": round(max(1.0, _char_count(part) / 3.5), 2),
+            "char_count": char_count,
+            "char_start": char_start,
+            "char_end": char_start + char_count,
+            "estimated_duration": round(max(1.0, char_count / 3.5), 2),
             "motion": "zoom_in",
             "transition": "dissolve",
             "transition_duration": 0.5,
-        }
-        for i, part in enumerate(parts)
-    ]
+        })
+        char_start += char_count
+    return shots
 
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
 _GRID = 3   # 3×3 = 9
 _CELL_RATIO = 4 / 3
 _GRID_SIZE = config.IMAGE_GRID_SIZE
+_CELL_EDGE_INSET_RATIO = 0.02
+_IMAGE_SPLIT_VERSION = 2
+
+
+def _visual_scene(scene: str) -> str:
+    """Reduce prompt fragments that commonly make image models draw garbled text."""
+    scene = re.sub(r"《[^》]*》", "一本素色无字封面的书", scene or "")
+    scene = re.sub(r"[“”‘’\"']", "", scene)
+    scene = re.sub(r"\d+(?:\.\d+)?", "", scene)
+    return _medical_safe(scene).strip() or "安静明亮的自然生活空镜"
 
 def _build_grid_prompt(scenes: list[str]) -> str:
     """构建9宫格提示词：1张图包含3×3=9个独立场景，从左到右从上到下编号。"""
     padded = list(scenes[:_GRID * _GRID])
     while len(padded) < _GRID * _GRID:
         padded.append("安静明亮的书房或自然生活空镜，主体居中，画面简洁")
-    numbered = "\n".join(f"{i+1}. {_medical_safe(s)}" for i, s in enumerate(padded))
+    numbered = "\n".join(f"场景{i+1}：{_visual_scene(s)}" for i, s in enumerate(padded))
     return (
         "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
         "每个格子描绘对应的独立场景，画面风格统一、写意温暖、适合图书养生内容带货。"
-        "每格按4:3画面构图，主体完整并保持在格子中央安全区域；格子之间只允许极细分隔线，禁止宽白边、拼贴边框和文字。\n\n"
+        "每格按4:3画面构图，主体完整并保持在格子中央安全区域。"
+        "九个画面必须无缝、无间距地铺满画布，格子之间不要绘制任何分隔线、白线、黑线、边框或留白。"
+        "只生成视觉画面，不得把场景描述绘制进图片；所有书籍封面、屏幕、招牌、包装和背景均保持无字。"
+        "整张图禁止出现中文、外文、字母、数字、标点、字幕、标签、徽标、水印和界面文字。\n\n"
         f"各格场景描述：\n{numbered}"
     )
 
@@ -170,6 +192,16 @@ def _crop_to_cell_ratio(piece, ratio: float = _CELL_RATIO):
     return piece.crop((0, top, width, top + target_height))
 
 
+def _trim_cell_edges(piece, inset_ratio: float = _CELL_EDGE_INSET_RATIO):
+    """Remove a small inner border where providers may draw grid separators."""
+    width, height = piece.size
+    inset_x = min(max(1, round(width * inset_ratio)), max(1, width // 4))
+    inset_y = min(max(1, round(height * inset_ratio)), max(1, height // 4))
+    if width - inset_x * 2 < 2 or height - inset_y * 2 < 2:
+        return piece
+    return piece.crop((inset_x, inset_y, width - inset_x, height - inset_y))
+
+
 def _split_grid(img_bytes: bytes, n: int) -> list[bytes]:
     """切成 n 张4:3小图；边界使用同一组精确像素坐标，避免累计误差。"""
     from PIL import Image
@@ -185,7 +217,8 @@ def _split_grid(img_bytes: bytes, n: int) -> list[bytes]:
                 break
             x0, x1 = x_bounds[c]
             y0, y1 = y_bounds[r]
-            piece = _crop_to_cell_ratio(img.crop((x0, y0, x1, y1)))
+            piece = img.crop((x0, y0, x1, y1))
+            piece = _crop_to_cell_ratio(_trim_cell_edges(piece))
             buf = io.BytesIO()
             piece.save(buf, format="PNG")
             pieces.append(buf.getvalue())
@@ -195,6 +228,66 @@ def _download_image(url: str) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=60) as r:
         return r.read()
+
+
+def _apimart_result_url(payload: dict) -> str | None:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return None
+    status = str(data.get("status") or "").lower()
+    if status in ("failed", "error"):
+        raise RuntimeError(f"APIMart image task failed: {data.get('error') or status}")
+    if status not in ("completed", "succeeded"):
+        return None
+    result = data.get("result") or {}
+    images = result.get("images") if isinstance(result, dict) else None
+    first = images[0] if isinstance(images, list) and images else None
+    if isinstance(first, dict) and first.get("url"):
+        url = first["url"]
+        if isinstance(url, list) and url:
+            url = url[0]
+        if isinstance(url, str) and url:
+            return url
+    raise ValueError("APIMart image task completed without an image URL")
+
+
+def _generate_grid_bytes(client, image_model: str, prompt: str) -> bytes:
+    base_url = (config.IMAGE_BASE_URL or config.OPENAI_BASE_URL).rstrip("/")
+    if "api.apimart.ai" in base_url:
+        raw_response = client.with_options(
+            timeout=config.IMAGE_REQUEST_TIMEOUT
+        ).images.with_raw_response.generate(
+            model=image_model, prompt=prompt, n=1, size=_GRID_SIZE,
+        )
+        initial = json.loads(raw_response.text)
+        items = initial.get("data") if isinstance(initial, dict) else None
+        task_id = items[0].get("task_id") if isinstance(items, list) and items else None
+        if not task_id:
+            raise ValueError("APIMart image response did not include task_id")
+        api_key = config.IMAGE_API_KEY or config.OPENAI_API_KEY
+        deadline = time.monotonic() + config.IMAGE_TASK_TIMEOUT
+        with httpx.Client(
+            headers={"Authorization": f"Bearer {api_key}"}, timeout=30.0
+        ) as http:
+            while time.monotonic() < deadline:
+                response = http.get(f"{base_url}/tasks/{task_id}")
+                response.raise_for_status()
+                url = _apimart_result_url(response.json())
+                if url:
+                    return _download_image(url)
+                time.sleep(3)
+        raise TimeoutError("APIMart image task timed out")
+
+    response = client.with_options(timeout=config.IMAGE_REQUEST_TIMEOUT).images.generate(
+        model=image_model, prompt=prompt, n=1, size=_GRID_SIZE,
+    )
+    item = response.data[0]
+    if getattr(item, "b64_json", None):
+        import base64
+        return base64.b64decode(item.b64_json)
+    if getattr(item, "url", None):
+        return _download_image(item.url)
+    raise ValueError("Image provider returned neither b64_json nor url")
 
 # ── Stage ─────────────────────────────────────────────────────────────────
 def _find_chosen_text(task_id: str, stage: dict) -> str | None:
@@ -236,9 +329,23 @@ def _find_chosen_text(task_id: str, stage: dict) -> str | None:
     return candidates[int(raw_idx)] if int(raw_idx) < len(candidates) else None
 
 
-def run(stage: dict) -> tuple[str, str | None]:
+def _existing_image_artifacts(task_id: str) -> dict[str, dict]:
+    rows = db.retry(
+        lambda: db.get_client().table("artifacts")
+        .select("storage_path,meta")
+        .eq("task_id", task_id)
+        .eq("stage_kind", "image")
+        .execute()
+    ).data or []
+    return {
+        str(row["storage_path"]): (row.get("meta") or {})
+        for row in rows if row.get("storage_path")
+    }
+
+
+def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
-    text = _find_chosen_text(task_id, stage)
+    text = clean_tts_text(_find_chosen_text(task_id, stage) or "")
     if not text:
         db.set_stage(stage["id"], "failed",
                      error="未找到选定改写稿（请先完成改写阶段）")
@@ -258,7 +365,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         batch = scenes[batch_start: batch_start + _GRID * _GRID]
         prompt = _build_grid_prompt(batch)
 
-        resp = client.images.generate(
+        resp = client.with_options(timeout=config.IMAGE_REQUEST_TIMEOUT).images.generate(
             model=image_model,
             prompt=prompt,
             n=1,
@@ -286,6 +393,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cell_ratio": "4:3",
             "cell_bounds_x": _grid_bounds(grid_size[0]),
             "cell_bounds_y": _grid_bounds(grid_size[1]),
+            "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
+            "text_policy": "no_visible_text",
             "validated": True,
         })
 
@@ -300,10 +409,14 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "index": idx,
                 "batch": batch_start // (_GRID * _GRID),
                 "char_count": shot["char_count"],
+                "char_start": shot["char_start"],
+                "char_end": shot["char_end"],
                 "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"],
                 "source_grid": grid_path,
                 "cell_ratio": "4:3",
+                "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
+                "split_version": _IMAGE_SPLIT_VERSION,
             })
             image_paths.append(sp)
             meta_list.append({**shot, "path": sp, "sentence": shot["text"], "source_grid": grid_path})
@@ -317,5 +430,99 @@ def run(stage: dict) -> tuple[str, str | None]:
     )
     storage.add_artifact(task_id, "image", "image_index", sp_idx, meta={
         "total": len(image_paths),
+        "narration_char_count": sum(shot["char_count"] for shot in storyboard),
     })
     return "done", sp_idx
+
+
+def run(stage: dict) -> tuple[str, str | None]:
+    """Idempotent image stage: resume completed grids after an interruption."""
+    task_id = stage["task_id"]
+    text = clean_tts_text(_find_chosen_text(task_id, stage) or "")
+    if not text:
+        db.set_stage(stage["id"], "failed", error="未找到选定改写稿")
+        return "failed", None
+
+    client, image_model = config.image_client()
+    storyboard = _split_storyboard(text)
+    if not storyboard:
+        db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
+        return "failed", None
+
+    existing_artifacts = _existing_image_artifacts(task_id)
+    existing_paths = set(existing_artifacts)
+    image_paths: list[str] = []
+    meta_list: list[dict] = []
+    for batch_start in range(0, len(storyboard), _GRID * _GRID):
+        batch = storyboard[batch_start: batch_start + _GRID * _GRID]
+        grid_path = f"{task_id}/grid_{batch_start // (_GRID * _GRID):03d}.png"
+        expected_paths = [f"{task_id}/img_{batch_start + i:03d}.png" for i in range(len(batch))]
+        if all(
+            path in existing_paths
+            and int(existing_artifacts[path].get("split_version") or 0) >= _IMAGE_SPLIT_VERSION
+            for path in expected_paths
+        ):
+            for shot, path in zip(batch, expected_paths):
+                image_paths.append(path)
+                meta_list.append({**shot, "path": path, "sentence": shot["text"]})
+            continue
+
+        raw: bytes | None = None
+        if grid_path in existing_paths:
+            local_grid = storage.download_artifact(grid_path, ".png")
+            try:
+                raw = open(local_grid, "rb").read()
+            finally:
+                try:
+                    os.remove(local_grid)
+                except OSError:
+                    pass
+        else:
+            prompt = _build_grid_prompt([shot["text"] for shot in batch])
+            raw = _generate_grid_bytes(client, image_model, prompt)
+            storage.upload_bytes(grid_path, raw, "image/png")
+            storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
+                "grid": "3x3",
+                "text_policy": "no_visible_text",
+            })
+
+        assert raw is not None
+        from PIL import Image
+        with Image.open(io.BytesIO(raw)) as grid_image:
+            grid_size = grid_image.size
+        _validate_grid_source(*grid_size)
+        storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
+            "source_size": list(grid_size),
+            "grid": "3x3",
+            "cell_ratio": "4:3",
+            "cell_bounds_x": _grid_bounds(grid_size[0]),
+            "cell_bounds_y": _grid_bounds(grid_size[1]),
+            "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
+            "text_policy": "no_visible_text",
+            "validated": True,
+        })
+        for i, piece_bytes in enumerate(_split_grid(raw, len(batch))):
+            idx = batch_start + i
+            path = expected_paths[i]
+            storage.upload_bytes(path, piece_bytes, "image/png")
+            shot = batch[i]
+            storage.add_artifact(task_id, "image", "image", path, meta={
+                "sentence": shot["text"], "index": idx,
+                "batch": batch_start // (_GRID * _GRID),
+                "char_count": shot["char_count"], "char_start": shot["char_start"],
+                "char_end": shot["char_end"], "estimated_duration": shot["estimated_duration"],
+                "motion": shot["motion"], "source_grid": grid_path,
+                "cell_ratio": "4:3",
+                "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
+                "split_version": _IMAGE_SPLIT_VERSION,
+            })
+            image_paths.append(path)
+            meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": grid_path})
+
+    index_path = f"{task_id}/images_index.json"
+    storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+    storage.add_artifact(task_id, "image", "image_index", index_path, meta={
+        "total": len(image_paths),
+        "narration_char_count": sum(shot["char_count"] for shot in storyboard),
+    })
+    return "done", index_path

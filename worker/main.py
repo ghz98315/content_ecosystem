@@ -8,10 +8,46 @@
 
 真正的各阶段处理逻辑在 M1+ 接入 stages/ 下的模块。
 """
+import threading
 import time
 import config
 import db
 from stages import REAL_HANDLERS
+
+
+class StageHeartbeat:
+    def __init__(self, stage_id: str, interval: float) -> None:
+        self.stage_id = stage_id
+        self.interval = max(1.0, interval)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            try:
+                db.touch_stage(self.stage_id)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  [heartbeat] refresh failed: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=min(2.0, self.interval))
+
+
+def recover_orphaned_stages() -> list[dict]:
+    recovered = db.recover_stale_stages(
+        config.WORKER_TASK_ID,
+        config.WORKER_STALE_STAGE_SECONDS,
+    )
+    for stage in recovered:
+        print(
+            f"  [RECOVER] task={stage['task_id'][:8]} kind={stage['kind']} requeued",
+            flush=True,
+        )
+    return recovered
 
 
 def process_fake(stage: dict) -> None:
@@ -35,6 +71,8 @@ def maybe_finish_task(task_id: str) -> None:
     if statuses and all(s in ("done", "cancelled") for s in statuses):
         db.set_task_status(task_id, "done")
         print(f"  [OK] task {task_id[:8]} complete")
+    elif any(s == "failed" for s in statuses):
+        db.set_task_status(task_id, "failed")
     elif any(s == "needs_review" for s in statuses):
         db.set_task_status(task_id, "needs_review")
     else:
@@ -51,14 +89,20 @@ def tick() -> bool:
     task_id = stage["task_id"]
     print(f"认领 stage: task={task_id[:8]} kind={kind} seq={stage['seq']}")
 
-    # 任务已被取消 → 跳过并标记
-    task_res = db.get_client().table("tasks").select("status").eq("id", task_id).single().execute()
-    if task_res.data and task_res.data.get("status") == "cancelled":
-        db.set_stage(stage["id"], "cancelled")
-        print(f"  [SKIP] {kind} skipped (task cancelled)")
-        return True
+    heartbeat = StageHeartbeat(stage["id"], config.WORKER_HEARTBEAT_INTERVAL)
+    heartbeat.start()
 
     try:
+        # 任务已被取消 → 跳过并标记
+        task_res = db.retry(
+            lambda: db.get_client().table("tasks")
+            .select("status").eq("id", task_id).single().execute()
+        )
+        if task_res.data and task_res.data.get("status") == "cancelled":
+            db.set_stage(stage["id"], "cancelled")
+            print(f"  [SKIP] {kind} skipped (task cancelled)")
+            return True
+
         handler = REAL_HANDLERS.get(kind)
         if handler:
             # 真实处理器：自己决定 status/output_ref（可能 done 或 needs_review）
@@ -85,6 +129,8 @@ def tick() -> bool:
     except Exception as e:  # noqa: BLE001
         db.set_stage(stage["id"], "failed", error=str(e))
         print(f"  [FAIL] {kind} failed: {e}")
+    finally:
+        heartbeat.stop()
 
     maybe_finish_task(task_id)
     return True
@@ -95,6 +141,7 @@ def main() -> None:
     print("worker 启动。轮询间隔", config.POLL_INTERVAL, "秒。Ctrl+C 退出。")
     if config.WORKER_TASK_ID:
         print("测试隔离模式：仅处理任务", config.WORKER_TASK_ID)
+    recover_orphaned_stages()
     while True:
         try:
             worked = tick()
@@ -104,6 +151,7 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             if db.is_transient_error(e):
                 db.reset_client()
+                print(f"轮询网络重试: {type(e).__name__}: {str(e)[:180]}")
                 time.sleep(2)   # 短暂退避后重建连接
             else:
                 print("循环异常:", e)

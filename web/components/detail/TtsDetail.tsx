@@ -11,6 +11,18 @@ interface TtsData {
   cta_text?: string;
   input_format?: string;
   synthesis_batches?: number;
+  subtitle_max_chars?: number;
+  segments?: Array<{ text: string; start: number; end: number; char_count?: number }>;
+  batches?: Array<{
+    index: number;
+    text: string;
+    duration: number;
+    start: number;
+    end: number;
+    path: string;
+    status: string;
+    audioUrl?: string;
+  }>;
 }
 
 export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
@@ -23,7 +35,18 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
     const subsPath = stage.output_ref.replace("tts.mp3", "tts_subtitles.json");
     fetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
       .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl))
-      .then(r => r.json()).then(setData).catch(() => {});
+      .then(r => r.json()).then(async (payload: TtsData) => {
+        const batches = await Promise.all((payload.batches ?? []).map(async batch => {
+          try {
+            const response = await fetch(`/api/signed-url?path=${encodeURIComponent(batch.path)}`);
+            const { signedUrl } = await response.json();
+            return { ...batch, audioUrl: signedUrl as string };
+          } catch {
+            return batch;
+          }
+        }));
+        setData({ ...payload, batches });
+      }).catch(() => {});
 
     // 加载音频
     fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
@@ -40,6 +63,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
     <DetailShell title="配音" stage={stage} onRerun={onRerun}>
       {audioUrl && (
         <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>完整配音</div>
           <audio
             controls src={audioUrl}
             style={{ width: "100%", borderRadius: "var(--radius-md)" }}
@@ -55,7 +79,8 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
               { label: "时长",   value: fmtDur(data.duration) },
               { label: "片段数", value: String(data.segment_count ?? "—") },
               { label: "合成批次", value: String(data.synthesis_batches ?? "—") },
-              { label: "输入格式", value: data.input_format === "plain_text_v2" ? "纯文本" : "历史格式" },
+              { label: "字幕上限", value: data.subtitle_max_chars ? `${data.subtitle_max_chars} 字` : "—" },
+              { label: "时间轴", value: data.input_format === "timeline_v3" ? "已对齐" : "历史格式" },
             ].map(({ label, value }) => (
               <div key={label} style={{ fontSize: 13 }}>
                 <span style={{ color: "var(--text-secondary)" }}>{label}  </span>
@@ -63,6 +88,33 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
               </div>
             ))}
           </div>
+
+          {(data.batches ?? []).length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>分段配音</div>
+              <div style={{ borderTop: "1px solid var(--border)" }}>
+                {(data.batches ?? []).map(batch => (
+                  <div
+                    key={batch.index}
+                    style={{
+                      display: "grid", gridTemplateColumns: "72px minmax(0, 1fr)", gap: 12,
+                      padding: "12px 0", borderBottom: "1px solid var(--border)",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.7 }}>
+                      <div>第 {batch.index + 1} 段</div>
+                      <div>{batch.duration.toFixed(1)} 秒</div>
+                      <div style={{ color: "var(--status-done)" }}>{batch.status === "done" ? "已完成" : batch.status}</div>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 8 }}>{batch.text}</div>
+                      {batch.audioUrl && <audio controls src={batch.audioUrl} style={{ width: "100%", height: 32 }} />}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {(data.narration_text || data.text) && (
             <>

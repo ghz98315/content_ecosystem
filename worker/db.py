@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from datetime import datetime, timedelta, timezone
 import ssl
 import time
 from typing import Callable, TypeVar
@@ -64,6 +65,9 @@ def reset_client() -> None:
 def is_transient_error(exc: BaseException) -> bool:
     if isinstance(exc, (ssl.SSLError, httpx.TransportError, httpx.TimeoutException)):
         return True
+    exception_name = type(exc).__name__.lower()
+    if "timeout" in exception_name or "connectionerror" in exception_name:
+        return True
     message = str(exc).lower()
     return any(marker in message for marker in _TRANSIENT_MARKERS)
 
@@ -122,18 +126,27 @@ def claim_next_stage(task_id: str = "") -> dict | None:
         return None
 
     for stage in res.data:
-        task_id = stage["task_id"]
+        stage_task_id = stage["task_id"]
         seq     = stage["seq"]
+        task = (
+            sb.table("tasks")
+            .select("status")
+            .eq("id", stage_task_id)
+            .single()
+            .execute()
+        )
+        if not task.data or task.data.get("status") not in ("pending", "processing"):
+            continue
         # 检查同一任务中 seq 更小的 stage 是否都 done
         if seq > 1:
             prior = (
                 sb.table("stages")
                 .select("status")
-                .eq("task_id", task_id)
+                .eq("task_id", stage_task_id)
                 .lt("seq", seq)
                 .execute()
             )
-            if not all(r["status"] in ("done", "cancelled") for r in prior.data):
+            if not all(r["status"] == "done" for r in prior.data):
                 continue  # 有前置未完成，跳过
 
         # 乐观锁认领
@@ -162,3 +175,47 @@ def set_stage(stage_id: str, status: str, output_ref: str | None = None,
 
 def set_task_status(task_id: str, status: str) -> None:
     retry(lambda: get_client().table("tasks").update({"status": status}).eq("id", task_id).execute())
+
+
+def touch_stage(stage_id: str) -> None:
+    """Refresh the lease timestamp while a handler is still running."""
+    retry(
+        lambda: get_client().table("stages")
+        .update({"status": "processing"})
+        .eq("id", stage_id)
+        .eq("status", "processing")
+        .execute()
+    )
+
+
+def recover_stale_stages(task_id: str = "", stale_seconds: float = 300) -> list[dict]:
+    """Requeue processing stages whose worker heartbeat has expired."""
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(seconds=max(1.0, stale_seconds))
+    ).isoformat()
+    query = (
+        get_client().table("stages")
+        .select("id,task_id,kind,updated_at")
+        .eq("status", "processing")
+        .lt("updated_at", cutoff)
+    )
+    if task_id:
+        query = query.eq("task_id", task_id)
+    stale = retry(query.execute).data or []
+    recovered: list[dict] = []
+    for stage in stale:
+        result = retry(
+            lambda stage_id=stage["id"]: get_client().table("stages")
+            .update({
+                "status": "pending",
+                "error": "Worker heartbeat expired; stage automatically requeued",
+            })
+            .eq("id", stage_id)
+            .eq("status", "processing")
+            .lt("updated_at", cutoff)
+            .execute()
+        )
+        if result.data:
+            recovered.append(stage)
+            set_task_status(stage["task_id"], "processing")
+    return recovered

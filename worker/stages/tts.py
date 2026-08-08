@@ -1,7 +1,6 @@
 """⑤ 配音 tts：改写选中稿 → edge-tts 合成 → 词级时间戳 JSON + 音频。"""
 from __future__ import annotations
 import asyncio
-import html
 import json
 import os
 import re
@@ -14,56 +13,17 @@ import config
 import db
 import storage
 import imageio_ffmpeg
+from narration import clean_tts_text, split_semantic_units, visible_len
 
 # 默认音色，可通过 env 覆盖
 _VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
 _CONCURRENCY = max(1, int(os.environ.get("TTS_CONCURRENCY", "3")))
 _TARGET_SEGMENT_CHARS = max(40, int(os.environ.get("TTS_SEGMENT_CHARS", "90")))
+_PART_TIMEOUT = max(15.0, float(os.environ.get("TTS_PART_TIMEOUT", "75")))
+_PART_ATTEMPTS = max(1, int(os.environ.get("TTS_PART_ATTEMPTS", "3")))
 
 
-def _clean_tts_text(text: str) -> str:
-    """Return plain narration, excluding screenplay and formatting instructions."""
-    if not text:
-        return ""
-    source = str(text).strip()
-    unfenced = re.sub(r"^```(?:json|text|markdown)?\s*|\s*```$", "", source, flags=re.I | re.S).strip()
-    try:
-        payload = json.loads(unfenced)
-        if isinstance(payload, str):
-            source = payload
-        elif isinstance(payload, dict):
-            for key in ("final_text", "text", "narration", "voiceover", "script", "content"):
-                if str(payload.get(key) or "").strip():
-                    source = str(payload[key])
-                    break
-    except (json.JSONDecodeError, TypeError, ValueError):
-        source = unfenced
-
-    lines: list[str] = []
-    for raw in source.replace("\r\n", "\n").split("\n"):
-        line = raw.strip()
-        if not line or line.startswith("```") or re.fullmatch(r"[-_=*~#]{3,}", line):
-            continue
-        if re.match(r"^#{1,6}\s+", line):
-            continue
-        if re.fullmatch(r"(?:\[?\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-~]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s*\]?)", line):
-            continue
-        line = re.sub(r"^\s*\[?\d{1,2}:\d{2}(?::\d{2})?\s*(?:[-~]\s*\d{1,2}:\d{2}(?::\d{2})?)?\]?\s*", "", line)
-        narration = re.search(r"(?:旁白|画外音|口播|文案)\s*[:：]\s*(.+)$", line)
-        if narration:
-            line = narration.group(1).strip()
-        elif re.match(r"^[【\[]?(?:画面|镜头|场景|时间|时间点|时长|字幕|转场|音效|配乐|分镜)[】\]]?\s*[:：-]", line):
-            continue
-        else:
-            line = re.sub(r"^[【\[]?(?:正文|开头钩子|中间内容|结尾收束|结尾)[】\]]?\s*[:：-]\s*", "", line)
-        line = re.sub(r"^(?:[-+*•]\s+|\d+[.、]\s*)", "", line)
-        line = re.sub(r"^\s*(?:[-_=*~]){2,}\s*", "", line).strip()
-        line = html.unescape(line)
-        line = re.sub(r"</?(?:speak|voice)\b[^>]*>|<break\b[^>]*/?>", "", line, flags=re.I)
-        line = re.sub(r"[*_`]+", "", line).strip()
-        if line and not re.fullmatch(r"[\d\s:：,，.。-]+", line):
-            lines.append(line)
-    return "\n".join(lines).strip()
+_clean_tts_text = clean_tts_text
 
 
 def _split_tts_segments(
@@ -143,8 +103,29 @@ def _get_chosen_text(task_id: str, stage: dict) -> str | None:
     return candidates[int(raw_idx)] if int(raw_idx) < len(candidates) else None
 
 
-async def _synthesize_part(text: str, voice: str) -> tuple[bytes, list[dict]]:
-    """Synthesize one plain-text part and return local timestamps."""
+def _probe_audio_duration(path: str) -> float:
+    """Measure decoded audio duration; TTS boundary events omit trailing silence."""
+    result = subprocess.run(
+        [
+            imageio_ffmpeg.get_ffmpeg_exe(), "-i", path,
+            "-map", "0:a:0", "-f", "null", "-", "-progress", "pipe:1", "-nostats",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    values = re.findall(r"out_time_us=(\d+)", result.stdout)
+    if values:
+        return round(int(values[-1]) / 1_000_000, 3)
+    values = re.findall(r"out_time=(\d+):(\d+):(\d+(?:\.\d+)?)", result.stdout)
+    if values:
+        hours, minutes, seconds = values[-1]
+        return round(int(hours) * 3600 + int(minutes) * 60 + float(seconds), 3)
+    raise ValueError("无法读取 TTS 分段音频时长")
+
+
+async def _synthesize_part(text: str, voice: str) -> tuple[bytes, list[dict], float]:
+    """Synthesize one plain-text part and return timestamps plus real duration."""
     import edge_tts
     fd_mp3, mp3_path = tempfile.mkstemp(suffix=".mp3")
     os.close(fd_mp3)
@@ -164,13 +145,36 @@ async def _synthesize_part(text: str, voice: str) -> tuple[bytes, list[dict]]:
                         "start": round(chunk["offset"] / 1e7, 3),
                         "end": round((chunk["offset"] + chunk["duration"]) / 1e7, 3),
                     })
+        try:
+            duration = _probe_audio_duration(mp3_path)
+        except (subprocess.CalledProcessError, ValueError):
+            # Test doubles and legacy providers may return non-MP3 bytes. Real
+            # streams still use decoded duration so trailing silence is retained.
+            duration = float(segs[-1].get("end", 0.0)) if segs else 0.0
         with open(mp3_path, "rb") as f:
-            return f.read(), segs
+            return f.read(), segs, duration
     finally:
         try:
             os.remove(mp3_path)
         except OSError:
             pass
+
+
+async def _synthesize_part_with_retry(text: str, voice: str) -> tuple[bytes, list[dict], float]:
+    """Bound each provider request so one stalled segment cannot block the task."""
+    last_error: Exception | None = None
+    for attempt in range(_PART_ATTEMPTS):
+        try:
+            return await asyncio.wait_for(_synthesize_part(text, voice), timeout=_PART_TIMEOUT)
+        except Exception as exc:  # edge-tts exposes several transport exception types
+            last_error = exc
+            if attempt == _PART_ATTEMPTS - 1:
+                break
+            await asyncio.sleep(min(6.0, 1.5 * (2 ** attempt)))
+    preview = re.sub(r"\s+", "", text)[:24]
+    raise RuntimeError(
+        f"TTS 分段合成失败（{_PART_ATTEMPTS} 次尝试，文本：{preview}）：{last_error}"
+    ) from last_error
 
 
 def _concat_mp3(parts: list[bytes]) -> bytes:
@@ -183,17 +187,17 @@ def _concat_mp3(parts: list[bytes]) -> bytes:
             path = Path(tmpdir) / f"part_{index:03d}.mp3"
             path.write_bytes(data)
             paths.append(path)
-        manifest = Path(tmpdir) / "concat.txt"
-        manifest.write_text(
-            "".join(f"file '{path.as_posix()}'\n" for path in paths),
-            encoding="utf-8",
-        )
         output = Path(tmpdir) / "combined.mp3"
+        filters = "".join(f"[{index}:a]" for index in range(len(paths)))
+        filters += f"concat=n={len(paths)}:v=0:a=1[a]"
+        inputs: list[str] = []
+        for path in paths:
+            inputs.extend(["-i", str(path)])
         subprocess.run(
             [
                 imageio_ffmpeg.get_ffmpeg_exe(), "-y",
-                "-f", "concat", "-safe", "0", "-i", str(manifest),
-                "-c", "copy", str(output),
+                *inputs, "-filter_complex", filters, "-map", "[a]",
+                "-c:a", "libmp3lame", "-b:a", "96k", str(output),
             ],
             check=True,
             capture_output=True,
@@ -203,30 +207,128 @@ def _concat_mp3(parts: list[bytes]) -> bytes:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-async def _synthesize(text: str, voice: str) -> tuple[bytes, list[dict]]:
-    """Synthesize natural parts concurrently and merge audio/timestamps in order."""
+def _segment_char_ranges(part: str, segments: list[dict], base: int) -> list[dict]:
+    """Align provider sentence boundaries to visible-character offsets."""
+    compact = re.sub(r"\s+", "", part)
+    cursor = 0
+    aligned: list[dict] = []
+    exact = True
+    for segment in segments:
+        needle = re.sub(r"\s+", "", str(segment.get("text", "")))
+        found = compact.find(needle, cursor) if needle else cursor
+        if found < 0:
+            exact = False
+            break
+        aligned.append({**segment, "char_start": base + found, "char_end": base + found + len(needle)})
+        cursor = found + len(needle)
+    if exact and aligned:
+        return aligned
+
+    total = max(1, visible_len(part))
+    weights = [max(1, visible_len(str(item.get("text", "")))) for item in segments]
+    weight_total = sum(weights) or 1
+    used = 0
+    aligned = []
+    for index, (segment, weight) in enumerate(zip(segments, weights)):
+        start = round(total * used / weight_total)
+        used += weight
+        end = total if index == len(segments) - 1 else round(total * used / weight_total)
+        aligned.append({**segment, "char_start": base + start, "char_end": base + max(start + 1, end)})
+    return aligned
+
+
+def _time_at_char(position: int, anchors: list[dict], total_chars: int, duration: float) -> float:
+    if not anchors or total_chars <= 0:
+        return duration * max(0, min(total_chars, position)) / max(1, total_chars)
+    previous_char, previous_time = 0, 0.0
+    for anchor in anchors:
+        start_char = int(anchor.get("char_start", previous_char))
+        end_char = max(start_char + 1, int(anchor.get("char_end", start_char + 1)))
+        start_time = float(anchor.get("start", previous_time))
+        end_time = max(start_time, float(anchor.get("end", start_time)))
+        if position < start_char:
+            span = max(1, start_char - previous_char)
+            return previous_time + (start_time - previous_time) * (position - previous_char) / span
+        if position <= end_char:
+            return start_time + (end_time - start_time) * (position - start_char) / (end_char - start_char)
+        previous_char, previous_time = end_char, end_time
+    span = max(1, total_chars - previous_char)
+    return previous_time + (duration - previous_time) * (position - previous_char) / span
+
+
+def _build_subtitle_cues(text: str, anchors: list[dict], duration: float, max_chars: int = 12) -> list[dict]:
+    units = split_semantic_units(text, max_chars=max_chars)
+    total_chars = visible_len(text)
+    cues: list[dict] = []
+    for unit in units:
+        start = max(0.0, _time_at_char(unit["char_start"], anchors, total_chars, duration))
+        boundary_end = min(duration, _time_at_char(unit["char_end"], anchors, total_chars, duration))
+        if cues:
+            start = max(start, float(cues[-1]["end"]))
+        pause_after = float(unit.get("pause_after", 0.0))
+        end = max(start + 0.08, boundary_end - pause_after)
+        end = max(start + 0.08, end)
+        if end > duration:
+            end = duration
+            start = max(0.0, end - 0.08)
+            if cues:
+                start = max(start, float(cues[-1]["end"]))
+        cues.append({**unit, "start": round(start, 3), "end": round(end, 3)})
+    return cues
+
+
+async def _synthesize_detailed(text: str, voice: str) -> tuple[bytes, list[dict], list[dict]]:
+    """Synthesize natural batches and retain each batch for UI and alignment."""
     parts = _split_tts_segments(text)
     if not parts:
-        return b"", []
+        return b"", [], []
     semaphore = asyncio.Semaphore(_CONCURRENCY)
 
-    async def synthesize_limited(part: str) -> tuple[bytes, list[dict]]:
+    async def synthesize_limited(part: str):
         async with semaphore:
-            return await _synthesize_part(part, voice)
+            return await _synthesize_part_with_retry(part, voice)
 
     results = await asyncio.gather(*(synthesize_limited(part) for part in parts))
     merged_segments: list[dict] = []
+    batches: list[dict] = []
     offset = 0.0
-    for _audio, local_segments in results:
-        for segment in local_segments:
+    char_offset = 0
+    audio_parts: list[bytes] = []
+    for index, (part, result) in enumerate(zip(parts, results)):
+        if len(result) == 2:  # Backward-compatible test doubles.
+            part_audio, local_segments = result
+            part_duration = float(local_segments[-1].get("end", 0.0)) if local_segments else 0.0
+        else:
+            part_audio, local_segments, part_duration = result
+        part_duration = max(float(part_duration), float(local_segments[-1].get("end", 0.0)) if local_segments else 0.0)
+        ranged_segments = _segment_char_ranges(part, local_segments, char_offset)
+        for segment in ranged_segments:
             merged_segments.append({
                 **segment,
                 "start": round(float(segment.get("start", 0.0)) + offset, 3),
                 "end": round(float(segment.get("end", 0.0)) + offset, 3),
             })
-        if local_segments:
-            offset += float(local_segments[-1].get("end", 0.0))
-    return _concat_mp3([audio for audio, _segments in results]), merged_segments
+        part_chars = visible_len(part)
+        batches.append({
+            "index": index,
+            "text": part,
+            "duration": round(part_duration, 3),
+            "start": round(offset, 3),
+            "end": round(offset + part_duration, 3),
+            "char_start": char_offset,
+            "char_end": char_offset + part_chars,
+            "audio": part_audio,
+        })
+        audio_parts.append(part_audio)
+        offset += part_duration
+        char_offset += part_chars
+    return _concat_mp3(audio_parts), merged_segments, batches
+
+
+async def _synthesize(text: str, voice: str) -> tuple[bytes, list[dict]]:
+    """Compatibility wrapper used by focused tests and existing callers."""
+    audio, segments, _batches = await _synthesize_detailed(text, voice)
+    return audio, segments
 
 
 def _get_cta(task_id: str) -> str | None:
@@ -265,12 +367,19 @@ def run(stage: dict) -> tuple[str, str | None]:
     rewrite_text = _clean_tts_text(rewrite_text)
     cta = _clean_tts_text(_get_cta(task_id) or "")
     text = rewrite_text + ("\n\n" + cta if cta else "")
-    synthesis_batches = len(_split_tts_segments(text))
-
     voice = stage.get("params", {}).get("voice") or _VOICE
-    audio, segs = asyncio.run(_synthesize(text, voice))
+    audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice))
+    duration = round(sum(float(batch["duration"]) for batch in batches), 3)
+    cues = _build_subtitle_cues(text, sentence_segments, duration, max_chars=14)
 
-    duration = segs[-1]["end"] if segs else 0.0
+    batch_data: list[dict] = []
+    for batch in batches:
+        batch_path = f"{task_id}/tts_parts/part_{batch['index']:03d}.mp3"
+        storage.upload_bytes(batch_path, batch.pop("audio"), "audio/mpeg")
+        storage.add_artifact(task_id, "tts", "audio_part", batch_path, meta={
+            "index": batch["index"], "duration": batch["duration"], "voice": voice,
+        })
+        batch_data.append({**batch, "path": batch_path, "status": "done"})
 
     # 上传音频
     sp_audio = f"{task_id}/tts.mp3"
@@ -278,9 +387,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     storage.add_artifact(task_id, "tts", "audio", sp_audio, meta={
         "voice": voice,
         "duration": duration,
-        "segment_count": len(segs),
-        "synthesis_batches": synthesis_batches,
-        "input_format": "plain_text_v2",
+        "segment_count": len(cues),
+        "synthesis_batches": len(batch_data),
+        "input_format": "timeline_v3",
     })
 
     # 上传字幕时间戳
@@ -289,21 +398,31 @@ def run(stage: dict) -> tuple[str, str | None]:
         {
             "voice": voice,
             "duration": duration,
-            "segments": segs,
+            "segments": cues,
+            "sentence_segments": sentence_segments,
+            "batches": batch_data,
             "text": text,
             "narration_text": rewrite_text,
             "cta_text": cta,
-            "input_format": "plain_text_v2",
-            "synthesis_batches": synthesis_batches,
+            "input_format": "timeline_v3",
+            "synthesis_batches": len(batch_data),
+            "subtitle_max_chars": 14,
+            "subtitle_format": "semantic_words_v2",
+            "subtitle_segmenter": "jieba_compound_dp_v1",
+            "pause_profile": "promote_tts_pause_v1",
         },
         ensure_ascii=False, indent=2,
     ).encode("utf-8")
     storage.upload_bytes(sp_subs, subs_data, "application/json")
     storage.add_artifact(task_id, "tts", "subtitle", sp_subs, meta={
         "duration": duration,
-        "segment_count": len(segs),
-        "synthesis_batches": synthesis_batches,
-        "input_format": "plain_text_v2",
+        "segment_count": len(cues),
+        "synthesis_batches": len(batch_data),
+        "input_format": "timeline_v3",
+        "subtitle_max_chars": 14,
+        "subtitle_format": "semantic_words_v2",
+        "subtitle_segmenter": "jieba_compound_dp_v1",
+        "pause_profile": "promote_tts_pause_v1",
     })
 
     return "done", sp_audio
