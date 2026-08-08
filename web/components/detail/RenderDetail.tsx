@@ -145,6 +145,7 @@ export function RenderDetail({ stage, taskId, task, onRerun }: DetailCommon) {
       onRerun={onRerun}
       showChildrenOnPending
       errorPosition="bottom"
+      errorTone="warning"
       actions={
         <>
           {videoUrl && <TextBtn variant="primary" onClick={download}>下载视频</TextBtn>}

@@ -27,12 +27,14 @@ interface ShellProps {
   actions?: React.ReactNode;
   showChildrenOnPending?: boolean;
   errorPosition?: "top" | "bottom";
+  errorTone?: "error" | "warning";
 }
 
 export function DetailShell({
   title, stage, onRerun, children, actions,
   showChildrenOnPending = false,
   errorPosition = "top",
+  errorTone = "error",
 }: ShellProps) {
   const status = stage?.status ?? "pending";
   const color  = STATUS_COLOR[status] ?? "var(--status-pending)";
@@ -41,6 +43,9 @@ export function DetailShell({
   const isFailed     = status === "failed";
   const isCancelled  = status === "cancelled";
   const canRerun     = stage && !isPending && !isProcessing && !isCancelled;
+  const diagnosticBackground = errorTone === "warning" ? "#fffbeb" : "#fff5f5";
+  const diagnosticBorder = errorTone === "warning" ? "#fde68a" : "#fecaca";
+  const diagnosticColor = errorTone === "warning" ? "#a16207" : "var(--status-failed)";
 
   return (
     <div style={{ maxWidth: 760 }}>
@@ -66,8 +71,8 @@ export function DetailShell({
       {errorPosition === "top" && isFailed && stage?.error && (
         <div style={{
           padding: "8px 12px", borderRadius: "var(--radius-md)",
-          background: "#fff5f5", border: "1px solid #fecaca",
-          color: "var(--status-failed)", fontSize: 12,
+          background: diagnosticBackground, border: `1px solid ${diagnosticBorder}`,
+          color: diagnosticColor, fontSize: 12,
           fontFamily: "monospace", wordBreak: "break-all", marginBottom: 16,
         }}>
           {stage.error}
@@ -87,8 +92,8 @@ export function DetailShell({
       {errorPosition === "bottom" && isFailed && stage?.error && (
         <div style={{
           padding: "8px 12px", borderRadius: "var(--radius-md)",
-          background: "#fff5f5", border: "1px solid #fecaca",
-          color: "var(--status-failed)", fontSize: 12,
+          background: diagnosticBackground, border: `1px solid ${diagnosticBorder}`,
+          color: diagnosticColor, fontSize: 12,
           fontFamily: "monospace", wordBreak: "break-all", marginTop: 16,
         }}>
           {stage.error}
