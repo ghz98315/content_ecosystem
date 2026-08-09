@@ -119,7 +119,7 @@ _NUMBER_UNIT_RE = re.compile(
 _LATIN_NUMBER_RE = re.compile(r"[A-Za-z0-9]+(?:[._%+/-][A-Za-z0-9]+)*")
 
 
-def _protected_boundaries(text: str) -> set[int]:
+def _protected_boundaries(text: str, protected_terms: tuple[str, ...] = ()) -> set[int]:
     protected: set[int] = set()
 
     # Jieba provides the general Chinese word boundaries. Every position inside
@@ -149,7 +149,9 @@ def _protected_boundaries(text: str) -> set[int]:
         if left_nominal and right_nominal and strip_subtitle_punctuation(left_word + right_word):
             protected.add(left_end)
 
-    for word in _NO_BREAK_WORDS:
+    for word in (*_NO_BREAK_WORDS, *protected_terms):
+        if not word:
+            continue
         offset = text.find(word)
         while offset >= 0:
             protected.update(range(offset + 1, offset + len(word)))
@@ -208,9 +210,13 @@ def _split_cost(text: str, start: int, end: int, max_chars: int,
     return cost
 
 
-def _semantic_cuts(text: str, max_chars: int) -> list[tuple[int, str]]:
+def _semantic_cuts(
+    text: str,
+    max_chars: int,
+    protected_terms: tuple[str, ...] = (),
+) -> list[tuple[int, str]]:
     """Choose globally balanced cuts without breaking normal Chinese words."""
-    protected = _protected_boundaries(text)
+    protected = _protected_boundaries(text, protected_terms)
     word_boundaries = _word_boundaries(text)
     size = len(text)
     best: list[tuple[float, list[tuple[int, str]]] | None] = [None] * (size + 1)
@@ -236,7 +242,11 @@ def _semantic_cuts(text: str, max_chars: int) -> list[tuple[int, str]]:
     return best[0][1]
 
 
-def split_semantic_units(text: str, max_chars: int = 14) -> list[dict]:
+def split_semantic_units(
+    text: str,
+    max_chars: int = 14,
+    protected_terms: tuple[str, ...] = (),
+) -> list[dict]:
     """Split at punctuation or Chinese word boundaries, never raw width first."""
     if max_chars < 1:
         raise ValueError("max_chars must be positive")
@@ -246,7 +256,7 @@ def split_semantic_units(text: str, max_chars: int = 14) -> list[dict]:
 
     units: list[dict] = []
     start = 0
-    for cut, kind in _semantic_cuts(compact, max_chars):
+    for cut, kind in _semantic_cuts(compact, max_chars, protected_terms):
         raw = compact[start:cut]
         source_length = visible_len(raw)
         display = strip_subtitle_punctuation(raw)

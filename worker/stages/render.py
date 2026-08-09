@@ -384,9 +384,12 @@ def _validate_timeline(timeline: list[dict], cues: list[dict], tts_duration: flo
             raise ValueError("图片时间轴不连续")
     for cue in cues:
         text = str(cue.get("text", ""))
-        if visible_len(text) > 14:
+        unmarked_text = text.replace("《", "").replace("》", "")
+        if visible_len(unmarked_text) > 14:
             raise ValueError("字幕存在超过 14 字的片段")
-        if text != strip_subtitle_punctuation(text):
+        if text.count("《") != text.count("》"):
+            raise ValueError("字幕中的书名号必须成对出现")
+        if unmarked_text != strip_subtitle_punctuation(text):
             raise ValueError("字幕存在标点符号，必须在标点处断句且不显示标点")
         start = float(cue.get("start", 0.0))
         end = float(cue.get("end", start))

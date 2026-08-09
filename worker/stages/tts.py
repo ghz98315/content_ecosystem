@@ -226,8 +226,28 @@ def _time_at_char(position: int, anchors: list[dict], total_chars: int, duration
     return previous_time + (duration - previous_time) * (position - previous_char) / span
 
 
-def _build_subtitle_cues(text: str, anchors: list[dict], duration: float, max_chars: int = 12) -> list[dict]:
-    units = split_semantic_units(text, max_chars=max_chars)
+def _book_title(book_name: str) -> str:
+    return str(book_name or "").strip().strip("《》").strip()
+
+
+def _format_book_title(text: str, book_name: str) -> str:
+    title = _book_title(book_name)
+    return text.replace(title, f"《{title}》") if title else text
+
+
+def _build_subtitle_cues(
+    text: str,
+    anchors: list[dict],
+    duration: float,
+    max_chars: int = 12,
+    book_name: str = "",
+) -> list[dict]:
+    title = _book_title(book_name)
+    units = split_semantic_units(
+        text,
+        max_chars=max_chars,
+        protected_terms=(title,) if title else (),
+    )
     total_chars = visible_len(text)
     cues: list[dict] = []
     for unit in units:
@@ -243,7 +263,12 @@ def _build_subtitle_cues(text: str, anchors: list[dict], duration: float, max_ch
             start = max(0.0, end - 0.08)
             if cues:
                 start = max(start, float(cues[-1]["end"]))
-        cues.append({**unit, "start": round(start, 3), "end": round(end, 3)})
+        cues.append({
+            **unit,
+            "text": _format_book_title(str(unit["text"]), title),
+            "start": round(start, 3),
+            "end": round(end, 3),
+        })
     return cues
 
 
@@ -325,6 +350,30 @@ def _get_cta(task_id: str) -> str | None:
             pass
 
 
+def _get_book_name(task_id: str) -> str:
+    result = (
+        db.get_client().table("artifacts")
+        .select("storage_path")
+        .eq("task_id", task_id)
+        .eq("type", "book")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        return ""
+    local = storage.download_artifact(result.data[0]["storage_path"], ".json")
+    try:
+        with open(local, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return str(data.get("book_name") or "") if isinstance(data, dict) else ""
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     rewrite_text = _get_chosen_text(task_id, stage)
@@ -336,11 +385,18 @@ def run(stage: dict) -> tuple[str, str | None]:
     # 追加 CTA（book 阶段已在 tts 之前完成）
     rewrite_text = _clean_tts_text(rewrite_text)
     cta = _clean_tts_text(_get_cta(task_id) or "")
+    book_name = _get_book_name(task_id)
     text = rewrite_text + ("\n\n" + cta if cta else "")
     voice = stage.get("params", {}).get("voice") or _VOICE
     audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice))
     duration = round(sum(float(batch["duration"]) for batch in batches), 3)
-    cues = _build_subtitle_cues(text, sentence_segments, duration, max_chars=14)
+    cues = _build_subtitle_cues(
+        text,
+        sentence_segments,
+        duration,
+        max_chars=14,
+        book_name=book_name,
+    )
 
     batch_data: list[dict] = []
     for batch in batches:
