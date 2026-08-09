@@ -76,6 +76,10 @@ RENDER_DISSOLVE_MAX_CLIPS = int(os.environ.get("RENDER_DISSOLVE_MAX_CLIPS", "24"
 # TTS
 TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "edge")
 TTS_VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
+COSYVOICE2_VOICE = (
+    os.environ.get("COSYVOICE2_VOICE", "").strip()
+    or os.environ.get("COSYVOICE_VOICE", "").strip()
+)
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")       # tiny/base/small/medium/large-v3
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")       # cpu / cuda
 WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")    # int8(cpu) / float16(cuda)
