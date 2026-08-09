@@ -5,7 +5,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from stages.image import _generate_grid_bytes
+from stages.image import _download_image, _generate_grid_bytes
 
 
 class APIMartIdempotencyTests(unittest.TestCase):
@@ -90,6 +90,21 @@ class APIMartIdempotencyTests(unittest.TestCase):
             "https://api.apimart.ai/v1/tasks/provider-task-existing"
         )
         self.assertEqual("completed", save_job.call_args.args[2]["status"])
+
+
+class ImageDownloadRetryTests(unittest.TestCase):
+    def test_download_retries_timeout_without_resubmitting_the_image(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = None
+        response.read.return_value = b"image-bytes"
+        with patch("stages.image.urllib.request.urlopen", side_effect=[
+            TimeoutError("The read operation timed out"), response,
+        ]) as urlopen, patch("stages.image.time.sleep") as sleep:
+            self.assertEqual(b"image-bytes", _download_image("https://example.test/image.png"))
+
+        self.assertEqual(2, urlopen.call_count)
+        sleep.assert_called_once_with(2)
 
 
 if __name__ == "__main__":

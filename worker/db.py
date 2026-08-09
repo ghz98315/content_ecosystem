@@ -193,15 +193,20 @@ def recover_stale_stages(task_id: str = "", stale_seconds: float = 300) -> list[
     cutoff = (
         datetime.now(timezone.utc) - timedelta(seconds=max(1.0, stale_seconds))
     ).isoformat()
-    query = (
-        get_client().table("stages")
-        .select("id,task_id,kind,updated_at")
-        .eq("status", "processing")
-        .lt("updated_at", cutoff)
-    )
-    if task_id:
-        query = query.eq("task_id", task_id)
-    stale = retry(query.execute).data or []
+    def fetch_stale():
+        # retry() may rebuild the shared client after a transport failure. Build
+        # the request inside the operation so it never reuses a closed client.
+        query = (
+            get_client().table("stages")
+            .select("id,task_id,kind,updated_at")
+            .eq("status", "processing")
+            .lt("updated_at", cutoff)
+        )
+        if task_id:
+            query = query.eq("task_id", task_id)
+        return query.execute()
+
+    stale = retry(fetch_stale).data or []
     recovered: list[dict] = []
     for stage in stale:
         result = retry(

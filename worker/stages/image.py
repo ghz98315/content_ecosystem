@@ -11,6 +11,7 @@ import math
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 
 import httpx
@@ -226,9 +227,18 @@ def _split_grid(img_bytes: bytes, n: int) -> list[bytes]:
     return pieces
 
 def _download_image(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read()
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=60) as response:
+                return response.read()
+        except (TimeoutError, urllib.error.URLError, OSError) as exc:
+            last_error = exc
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
+    raise last_error or RuntimeError("image download failed")
 
 
 def _apimart_result_url(payload: dict) -> str | None:

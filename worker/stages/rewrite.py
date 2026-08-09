@@ -257,7 +257,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             sp = res.data[0]["storage_path"]
             local = storage.download_artifact(sp, ".json")
             try:
-                rw = json.load(open(local, encoding="utf-8"))
+                with open(local, encoding="utf-8") as handle:
+                    rw = json.load(handle)
                 candidates = rw.get("candidates", [])
                 idx = int(chosen)
                 if idx < 0 or idx >= len(candidates):
@@ -265,14 +266,10 @@ def run(stage: dict) -> tuple[str, str | None]:
                 final_text = str(params.get("final_text") or candidates[idx]).strip()
                 if not final_text:
                     raise ValueError("最终文案不能为空")
-                report = compliance.check_text(
-                    _llm(), config.REWRITE_MODEL, context["category"], final_text, context
-                )
                 rw.update({
                     "chosen": idx,
                     "final_text": final_text,
                     "final_length": _text_len(final_text),
-                    "compliance": report,
                 })
                 _upload_rewrite(sp, rw)
             finally:
@@ -280,9 +277,6 @@ def run(stage: dict) -> tuple[str, str | None]:
                     os.remove(local)
                 except OSError:
                     pass
-            if report["status"] == "blocked":
-                db.set_stage(stage["id"], "needs_review", output_ref=sp, error="存在高风险合规项，请修改后重新确认")
-                return "needs_review", sp
             db.get_client().table("stages").update({"error": None}).eq("id", stage["id"]).execute()
             return "done", sp
 

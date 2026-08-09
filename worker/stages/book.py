@@ -40,6 +40,24 @@ def _generate_cta(client, model: str, rewrite_text: str, book_name: str, author:
     return resp.choices[0].message.content.strip()
 
 
+def _apply_manual_overrides(info: dict, params: dict) -> dict:
+    """Keep reviewer-corrected book metadata authoritative over model output."""
+    overrides = {
+        "manual_book_name": "book_name",
+        "manual_book_author": "author",
+        "manual_book_nationality": "nationality",
+    }
+    applied = False
+    for param_key, info_key in overrides.items():
+        value = str(params.get(param_key) or "").strip()
+        if value:
+            info[info_key] = value
+            applied = True
+    if applied:
+        info["confidence"] = "high"
+    return info
+
+
 def _find_rewrite_text(task_id: str, stage: dict) -> str | None:
     res = (
         db.get_client().table("artifacts")
@@ -83,8 +101,6 @@ def run(stage: dict) -> tuple[str, str | None]:
     params = stage.get("params") or {}
 
     # 若人工已确认书名(从 params 里拿)
-    manual_book = params.get("manual_book_name")
-
     text = _find_rewrite_text(task_id, stage)
     if not text:
         db.set_stage(stage["id"], "failed", error="未找到改写文案")
@@ -110,9 +126,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         info = json.loads(m.group(0)) if m else {}
 
     # 人工覆盖书名
-    if manual_book:
-        info["book_name"] = manual_book
-        info["confidence"] = "high"
+    _apply_manual_overrides(info, params)
 
     # 生成 CTA：呼应改写稿内容 + 引出书名购买行动
     try:
