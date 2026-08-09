@@ -83,31 +83,12 @@ export default function TaskDetail() {
     setActionNotice(null);
 
     // The RPC updates the selected stage and every downstream stage atomically.
-    const { error: rpcError } = await supabase.rpc("rerun_stage", { p_stage_id: stageId });
-    if (rpcError) {
-      // Keep older deployments usable until migration 0006 is applied. This
-      // fallback still invalidates downstream outputs before requeueing.
-      const params = { ...(stage.params ?? {}) };
-      delete params.chosen_index;
-      delete params.final_text;
-      delete params.manual_book_name;
-      delete params.book_confirmed;
-      const { error: stageError } = await supabase
-        .from("stages")
-        .update({ status: "pending", error: null, output_ref: null, params })
-        .eq("task_id", id)
-        .gte("seq", stage.seq)
-        .neq("status", "cancelled");
-      const { error: taskError } = await supabase
-        .from("tasks").update({ status: "processing" }).eq("id", id);
-      if (stageError || taskError) {
-        setActionNotice({
-          text: stageError?.message || taskError?.message || "重跑失败，请刷新后重试。",
-          ok: false,
-        });
-      } else {
-        setActionNotice({ text: "已将当前阶段及下游阶段重新排队。", ok: true });
-      }
+    const { data, error: rpcError } = await supabase.rpc("rerun_stage", { p_stage_id: stageId });
+    if (rpcError || !data?.length) {
+      setActionNotice({
+        text: rpcError?.message || "重跑未更新任何阶段，请确认数据库迁移已完成。",
+        ok: false,
+      });
     } else {
       setActionNotice({ text: "已将当前阶段及下游阶段重新排队。", ok: true });
     }

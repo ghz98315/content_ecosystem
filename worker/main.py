@@ -106,7 +106,9 @@ def tick() -> bool:
         handler = REAL_HANDLERS.get(kind)
         if handler:
             # 真实处理器：自己决定 status/output_ref（可能 done 或 needs_review）
-            status, output_ref = db.retry(lambda: handler(stage), attempts=3)
+            # Handlers may create paid external side effects. Retrying the whole
+            # handler can submit them again; each handler owns its safe retries.
+            status, output_ref = handler(stage)
             if status == "needs_review":
                 # 处理器内部已 set 过 stage，这里只打印
                 print(f"  [REVIEW] {kind} needs_review")

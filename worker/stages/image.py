@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 import io
+import hashlib
 import json
 import math
 import os
@@ -251,32 +252,111 @@ def _apimart_result_url(payload: dict) -> str | None:
     raise ValueError("APIMart image task completed without an image URL")
 
 
-def _generate_grid_bytes(client, image_model: str, prompt: str) -> bytes:
+def _load_image_provider_jobs(stage_id: str) -> dict[str, dict]:
+    result = db.retry(
+        lambda: db.get_client().table("stages")
+        .select("params")
+        .eq("id", stage_id)
+        .single()
+        .execute()
+    )
+    params = (result.data or {}).get("params") or {}
+    jobs = params.get("image_provider_jobs") or {}
+    return jobs if isinstance(jobs, dict) else {}
+
+
+def _save_image_provider_job(stage_id: str, batch_key: str, job: dict) -> None:
+    def save() -> None:
+        client = db.get_client()
+        result = (
+            client.table("stages").select("params")
+            .eq("id", stage_id).single().execute()
+        )
+        params = dict((result.data or {}).get("params") or {})
+        jobs = dict(params.get("image_provider_jobs") or {})
+        jobs[batch_key] = job
+        params["image_provider_jobs"] = jobs
+        client.table("stages").update({"params": params}).eq("id", stage_id).execute()
+
+    db.retry(save)
+
+
+def _generate_grid_bytes(
+    client,
+    image_model: str,
+    prompt: str,
+    *,
+    stage_id: str = "",
+    batch_key: str = "",
+) -> bytes:
     base_url = (config.IMAGE_BASE_URL or config.OPENAI_BASE_URL).rstrip("/")
     if "api.apimart.ai" in base_url:
-        raw_response = client.with_options(
-            timeout=config.IMAGE_REQUEST_TIMEOUT
-        ).images.with_raw_response.generate(
-            model=image_model, prompt=prompt, n=1, size=_GRID_SIZE,
+        if not stage_id or not batch_key:
+            raise ValueError("APIMart image generation requires a persistent stage and batch key")
+        prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        job = _load_image_provider_jobs(stage_id).get(batch_key) or {}
+        reusable = (
+            job.get("provider_task_id")
+            and job.get("prompt_sha256") == prompt_sha256
+            and job.get("model") == image_model
+            and job.get("size") == _GRID_SIZE
         )
-        initial = json.loads(raw_response.text)
-        items = initial.get("data") if isinstance(initial, dict) else None
-        task_id = items[0].get("task_id") if isinstance(items, list) and items else None
-        if not task_id:
-            raise ValueError("APIMart image response did not include task_id")
+        if reusable:
+            provider_task_id = str(job["provider_task_id"])
+        else:
+            idempotency_key = hashlib.sha256(
+                f"{stage_id}:{batch_key}:{prompt_sha256}".encode("utf-8")
+            ).hexdigest()
+            raw_response = client.with_options(
+                timeout=config.IMAGE_REQUEST_TIMEOUT
+            ).images.with_raw_response.generate(
+                model=image_model,
+                prompt=prompt,
+                n=1,
+                size=_GRID_SIZE,
+                extra_headers={"Idempotency-Key": idempotency_key},
+            )
+            initial = json.loads(raw_response.text)
+            items = initial.get("data") if isinstance(initial, dict) else None
+            provider_task_id = items[0].get("task_id") if isinstance(items, list) and items else None
+            if not provider_task_id:
+                raise ValueError("APIMart image response did not include task_id")
+            job = {
+                "provider": "apimart",
+                "provider_task_id": str(provider_task_id),
+                "prompt_sha256": prompt_sha256,
+                "idempotency_key": idempotency_key,
+                "model": image_model,
+                "size": _GRID_SIZE,
+                "status": "submitted",
+            }
+            _save_image_provider_job(stage_id, batch_key, job)
         api_key = config.IMAGE_API_KEY or config.OPENAI_API_KEY
         deadline = time.monotonic() + config.IMAGE_TASK_TIMEOUT
         with httpx.Client(
             headers={"Authorization": f"Bearer {api_key}"}, timeout=30.0
         ) as http:
             while time.monotonic() < deadline:
-                response = http.get(f"{base_url}/tasks/{task_id}")
-                response.raise_for_status()
-                url = _apimart_result_url(response.json())
+                try:
+                    response = http.get(f"{base_url}/tasks/{provider_task_id}")
+                    response.raise_for_status()
+                    url = _apimart_result_url(response.json())
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code < 500:
+                        raise
+                    time.sleep(3)
+                    continue
+                except httpx.TransportError:
+                    time.sleep(3)
+                    continue
                 if url:
+                    _save_image_provider_job(stage_id, batch_key, {**job, "status": "completed"})
                     return _download_image(url)
                 time.sleep(3)
-        raise TimeoutError("APIMart image task timed out")
+        _save_image_provider_job(stage_id, batch_key, {**job, "status": "polling_timeout"})
+        raise TimeoutError(
+            f"APIMart image task {provider_task_id} timed out; retry will resume polling"
+        )
 
     response = client.with_options(timeout=config.IMAGE_REQUEST_TIMEOUT).images.generate(
         model=image_model, prompt=prompt, n=1, size=_GRID_SIZE,
@@ -479,7 +559,13 @@ def run(stage: dict) -> tuple[str, str | None]:
                     pass
         else:
             prompt = _build_grid_prompt([shot["text"] for shot in batch])
-            raw = _generate_grid_bytes(client, image_model, prompt)
+            raw = _generate_grid_bytes(
+                client,
+                image_model,
+                prompt,
+                stage_id=stage["id"],
+                batch_key=f"grid_{batch_start // (_GRID * _GRID):03d}",
+            )
             storage.upload_bytes(grid_path, raw, "image/png")
             storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
                 "grid": "3x3",

@@ -40,7 +40,7 @@ function textLength(text: string) {
   return text.replace(/\s/g, "").length;
 }
 
-export function RewriteDetail({ stage, taskId, onRerun }: DetailCommon) {
+export function RewriteDetail({ stage, onRerun }: DetailCommon) {
   const [data, setData] = useState<RewriteData | null>(null);
   const [drafts, setDrafts] = useState<string[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -70,23 +70,17 @@ export function RewriteDetail({ stage, taskId, onRerun }: DetailCommon) {
     }
     setBusy(true);
     setErr(null);
-    const { error } = await supabase.from("stages").update({
-      status: "pending",
-      error: null,
-      params: { ...(stage.params || {}), chosen_index: selected, final_text: finalText },
-    }).eq("id", stage.id);
-    if (error) {
+    const { data: confirmed, error } = await supabase.rpc("confirm_rewrite", {
+      p_stage_id: stage.id,
+      p_chosen_index: selected,
+      p_final_text: finalText,
+    });
+    if (error || !confirmed) {
       setBusy(false);
-      setErr(error.message);
+      setErr(error?.message || "改写确认未生效，请刷新后重试");
       return;
     }
-    const { error: taskError } = await supabase
-      .from("tasks")
-      .update({ status: "processing" })
-      .eq("id", taskId)
-      .eq("status", "needs_review");
     setBusy(false);
-    if (taskError) setErr(taskError.message);
   };
 
   const isReview = stage?.status === "needs_review";
