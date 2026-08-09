@@ -67,6 +67,14 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
       setError(updateError.message || "书籍信息保存失败，请重试");
       return;
     }
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .update({ status: "processing" })
+      .eq("id", stage.task_id);
+    if (taskError) {
+      setError(taskError.message || "任务状态恢复失败，请刷新后重试");
+      return;
+    }
     setEditing(false);
   };
 
