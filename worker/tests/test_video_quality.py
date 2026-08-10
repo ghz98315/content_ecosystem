@@ -108,6 +108,9 @@ class CleanSummaryTests(unittest.TestCase):
 
 class PromptProfileTests(unittest.TestCase):
     def test_health_prompts_are_loaded_and_reserved_profiles_are_rejected(self):
+        clean_prompt = load_prompt("health", "clean")
+        self.assertIn("长度优先不超过原文", clean_prompt)
+        self.assertIn("禁止借补标点之名添加", clean_prompt)
         self.assertIn("首次去重", load_prompt("health", "initial_dedup"))
         self.assertIn("二次发布", load_prompt("health", "repost_dedup"))
         self.assertEqual("initial_dedup", rewrite_prompt_kind("initial_dedup"))

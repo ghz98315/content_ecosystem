@@ -117,7 +117,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         f"主题关键词：{context['keyword']}\n"
         f"原视频标题：{context['title']}\n"
         f"原作者标识：{context['author']}\n\n"
-        f"请基于下面的原始逐字稿，返回修复清洗后的正文：\n{raw_text}"
+        f"请基于下面的原始逐字稿，返回修复清洗后的正文。硬性长度约束：逐句对应原文，"
+        f"不得新增任何原文没有的语义内容；除必要标点外，清洗稿字符数应不超过原文。\n{raw_text}"
     )
 
     resp = _llm().chat.completions.create(
