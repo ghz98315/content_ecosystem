@@ -117,6 +117,18 @@ textarea:focus-visible, select:focus-visible {
 .book-review-grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(320px, 1.1fr); gap: 24px; align-items: start; }
 .book-info-panel, .book-cta-panel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-sm); }
 .unsaved-notice { margin-bottom: 14px; padding: 9px 12px; border: 1px solid #fde68a; border-radius: var(--radius-md); background: #fffbeb; color: #92400e; font-size: 12px; }
+.image-review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.image-review-card { display: block; width: 100%; padding: 0; overflow: hidden; text-align: left; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-sm); transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+.image-review-card:hover:not(:disabled) { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.image-caption { padding: 9px 10px 11px; border-top: 1px solid var(--border); }
+.image-sentence { margin-top: 5px; color: var(--text-secondary); font-size: 11px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.media-dialog { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 23, 42, .82); }
+.media-dialog img { max-width: min(1100px, 92vw); max-height: 88vh; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); }
+.media-dialog-close { position: fixed; top: 18px; right: 18px; width: 42px; height: 42px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; background: rgba(15,23,42,.55); color: #fff; font-size: 24px; }
+.tts-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
+.tts-metric { padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }
+.tts-text-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, .75fr); gap: 16px; }
+.tts-text-panel { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); }
 
 @media (max-width: 760px) {
   .task-header { min-height: 52px; padding: 0 14px; }
@@ -131,6 +143,14 @@ textarea:focus-visible, select:focus-visible {
   .rewrite-advice { position: static; max-height: none; }
   .book-review-grid { grid-template-columns: 1fr; gap: 12px; }
   .book-info-panel, .book-cta-panel { padding: 14px; }
+  .image-review-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tts-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tts-text-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 420px) {
+  .image-review-grid { grid-template-columns: 1fr; }
+  .tts-summary-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {

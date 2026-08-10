@@ -73,7 +73,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
 
       {data && (
         <>
-          <div style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+          <div className="tts-summary-grid">
             {[
               { label: "音色",   value: data.voice || "—" },
               { label: "时长",   value: fmtDur(data.duration) },
@@ -82,9 +82,9 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
               { label: "字幕上限", value: data.subtitle_max_chars ? `${data.subtitle_max_chars} 字` : "—" },
               { label: "时间轴", value: data.input_format === "timeline_v3" ? "已对齐" : "历史格式" },
             ].map(({ label, value }) => (
-              <div key={label} style={{ fontSize: 13 }}>
-                <span style={{ color: "var(--text-secondary)" }}>{label}  </span>
-                <span style={{ fontWeight: 600 }}>{value}</span>
+              <div key={label} className="tts-metric" style={{ fontSize: 13 }}>
+                <div style={{ color: "var(--text-secondary)", fontSize: 11, marginBottom: 3 }}>{label}</div>
+                <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{value}</div>
               </div>
             ))}
           </div>
@@ -116,8 +116,9 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
             </div>
           )}
 
+          <div className="tts-text-grid">
           {(data.narration_text || data.text) && (
-            <>
+            <section className="tts-text-panel">
               <div style={{
                 fontSize: 11, fontWeight: 600, color: "var(--text-disabled)",
                 letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8,
@@ -132,11 +133,11 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
               }}>
                 {data.narration_text || data.text}
               </pre>
-            </>
+            </section>
           )}
 
           {data.cta_text && (
-            <>
+            <section className="tts-text-panel">
               <div style={{
                 fontSize: 11, fontWeight: 600, color: "var(--text-disabled)",
                 letterSpacing: "0.06em", margin: "16px 0 8px",
@@ -151,8 +152,9 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
               }}>
                 {data.cta_text}
               </pre>
-            </>
+            </section>
           )}
+          </div>
         </>
       )}
     </DetailShell>

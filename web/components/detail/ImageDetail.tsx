@@ -15,6 +15,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [entries, setEntries] = useState<IndexEntry[]>([]);
   const [urls,    setUrls]    = useState<Record<number, string>>({});
   const [big,     setBig]     = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 1. 下载索引 JSON
   useEffect(() => {
@@ -24,7 +25,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
       .then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json())
       .then((d: IndexEntry[]) => Array.isArray(d) && setEntries(d))
-      .catch(() => {});
+      .catch(() => setLoadError("图片索引加载失败，请刷新后重试"));
   }, [stage?.output_ref]);
 
   // 2. 批量获取各图片的 signed URL
@@ -42,43 +43,33 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
     <DetailShell title="生图" stage={stage} onRerun={onRerun}>
       {entries.length > 0 ? (
         <>
-          <div style={{
-            display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 8, marginBottom: 8,
-          }}>
+          <div className="image-review-grid" style={{ marginBottom: 10 }}>
             {entries.map(e => {
               const url = urls[e.index];
               return (
-                <div
+                <button
+                  type="button"
                   key={e.index}
                   onClick={() => url && setBig(url)}
+                  disabled={!url}
                   title={e.sentence}
-                  style={{
-                    borderRadius: "var(--radius-md)",
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-hover)",
-                    overflow: "hidden", cursor: url ? "zoom-in" : "default",
-                    transition: "opacity 0.12s ease",
-                  }}
+                  className="image-review-card"
                 >
                   <div style={{ aspectRatio: "4 / 3", overflow: "hidden" }}>
                     {url
                       ? <img src={url} alt={`图片${e.index + 1}`}
                           style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      : <div style={{
-                          width: "100%", height: "100%",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: 11, color: "var(--text-disabled)",
-                        }}>加载中…</div>
+                      : <div className="skeleton" style={{ width: "100%", height: "100%", borderRadius: 0 }} aria-label="图片加载中" />
                     }
                   </div>
-                  <div style={{ padding: "7px 9px", borderTop: "1px solid var(--border)" }}>
+                  <div className="image-caption">
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3 }}>
                       分镜 {String(e.index + 1).padStart(2, "0")} · {e.char_count ?? "—"} 字 · 约 {e.estimated_duration?.toFixed(1) ?? "—"} 秒
                     </div>
                     <div style={{ fontSize: 10, color: "var(--text-disabled)" }}>缓慢放大 · 叠化</div>
+                    <div className="image-sentence">{e.sentence}</div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -92,15 +83,17 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
         )
       )}
 
+      {loadError && <p role="alert" style={{ color: "var(--status-failed)", fontSize: 12, marginTop: 8 }}>{loadError}</p>}
+
       {big && (
         <div
           onClick={() => setBig(null)}
-          style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 100, cursor: "zoom-out",
-          }}
+          className="media-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label="图片放大预览"
         >
+          <button type="button" className="media-dialog-close" aria-label="关闭图片预览" onClick={() => setBig(null)}>×</button>
           <img src={big} alt="放大" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
         </div>
       )}
