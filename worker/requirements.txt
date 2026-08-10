@@ -19,12 +19,14 @@ yt-dlp>=2026.6.9              # 备用/兜底解析
 # 版本约束：f2 会把这两个降级，需固定到 supabase realtime 可用的范围
 pydantic>=2.11.7
 websockets>=13,<16
+dashscope>=1.26.4
 
 # 音频抽取（自带静态 ffmpeg 二进制，免系统安装；M2 whisper / M8 渲染复用）
 imageio-ffmpeg>=0.5.1
 
 # TTS 配音（句级时间戳，edge-tts 7.x 中文只给 SentenceBoundary）
 edge-tts>=7.2.0
+# CosyVoice2 独立 HTTP 适配器复用 httpx，不增加模型运行时依赖
 # 字幕中文分词（保护词语完整性，避免按固定字数硬切）
 jieba>=0.42.1
 

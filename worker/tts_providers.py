@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import subprocess
@@ -64,6 +65,21 @@ class CosyVoice2Provider:
     """OpenAI-compatible CosyVoice2 HTTP adapter kept outside production by default."""
 
     def __init__(self) -> None:
+        self.dashscope_api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+        self.dashscope_model = os.environ.get("DASHSCOPE_MODEL", "").strip()
+        self.dashscope_voice = os.environ.get("DASHSCOPE_VOICE", "").strip()
+        profile_name = os.environ.get("DASHSCOPE_VOICE_PROFILE", "").strip()
+        profiles_raw = os.environ.get("DASHSCOPE_VOICE_PROFILES_JSON", "").strip()
+        if profile_name and profiles_raw:
+            try:
+                profiles = json.loads(profiles_raw)
+                profile = profiles.get(profile_name)
+                if not isinstance(profile, dict):
+                    raise ValueError(f"unknown voice profile: {profile_name}")
+                self.dashscope_model = str(profile.get("model", "")).strip() or self.dashscope_model
+                self.dashscope_voice = str(profile.get("voice", "")).strip() or self.dashscope_voice
+            except (json.JSONDecodeError, AttributeError) as exc:
+                raise ValueError("DASHSCOPE_VOICE_PROFILES_JSON must be a JSON object") from exc
         base_url = (
             os.environ.get("COSYVOICE2_BASE_URL", "").strip()
             or os.environ.get("COSYVOICE_BASE_URL", "").strip()
@@ -89,6 +105,16 @@ class CosyVoice2Provider:
         )
         self.timeout = max(15.0, float(os.environ.get("COSYVOICE2_TIMEOUT", "120")))
 
+        dashscope_endpoint = os.environ.get("DASHSCOPE_ENDPOINT", "").strip()
+        workspace = os.environ.get("DASHSCOPE_WORKSPACE_ID", "").strip()
+        region = os.environ.get("DASHSCOPE_REGION", "cn-beijing").strip()
+        if not dashscope_endpoint and workspace:
+            dashscope_endpoint = (
+                f"https://{workspace}.{region}.maas.aliyuncs.com"
+                "/api/v1/services/audio/tts/SpeechSynthesizer"
+            )
+        self.dashscope_endpoint = dashscope_endpoint
+
     @staticmethod
     def _decode_json_audio(payload: dict) -> tuple[bytes | None, str | None]:
         value = payload.get("audio_base64") or payload.get("audio")
@@ -105,30 +131,57 @@ class CosyVoice2Provider:
         data = payload.get("data")
         if isinstance(data, dict):
             return CosyVoice2Provider._decode_json_audio(data)
+        output = payload.get("output")
+        if isinstance(output, dict):
+            audio = output.get("audio")
+            if isinstance(audio, dict):
+                return CosyVoice2Provider._decode_json_audio(audio)
         url = payload.get("url") or payload.get("audio_url")
         return None, str(url) if url else None
 
     async def synthesize(self, text: str, voice: str) -> tuple[bytes, list[dict], float]:
-        if not self.endpoint:
+        use_dashscope = bool(
+            self.dashscope_api_key and self.dashscope_model and self.dashscope_endpoint
+        )
+        if not use_dashscope and not self.endpoint:
             raise ValueError(
-                "CosyVoice2 未配置：请设置 COSYVOICE2_BASE_URL 或 COSYVOICE2_ENDPOINT"
+                "CosyVoice2 未配置：请设置 DASHSCOPE_API_KEY/DASHSCOPE_MODEL/DASHSCOPE_ENDPOINT"
             )
-        selected_voice = self.configured_voice or voice
+        selected_voice = self.dashscope_voice or self.configured_voice or voice
         if not selected_voice:
             raise ValueError("CosyVoice2 未配置音色：请设置 COSYVOICE2_VOICE")
 
         headers = {"Accept": "audio/mpeg, application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        request = {
-            "model": self.model,
-            "input": text,
-            "voice": selected_voice,
-            "response_format": "mp3",
-        }
+        if use_dashscope:
+            headers["Authorization"] = f"Bearer {self.dashscope_api_key}"
+            endpoint = self.dashscope_endpoint
+            request = {
+                "model": self.dashscope_model,
+                "input": {
+                    "text": text,
+                    "voice": selected_voice,
+                    "format": "mp3",
+                    "sample_rate": 22050,
+                },
+            }
+        else:
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            endpoint = self.endpoint
+            request = {
+                "model": self.model,
+                "input": text,
+                "voice": selected_voice,
+                "response_format": "mp3",
+            }
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-            response = await client.post(self.endpoint, headers=headers, json=request)
-            response.raise_for_status()
+            response = await client.post(endpoint, headers=headers, json=request)
+            status_code = getattr(response, "status_code", 200)
+            if getattr(response, "is_error", status_code >= 400):
+                detail = response.text[:1000]
+                raise ValueError(
+                    f"DashScope TTS 请求失败 ({status_code}): {detail}"
+                )
             content_type = response.headers.get("content-type", "").lower()
             if "json" in content_type:
                 audio, audio_url = self._decode_json_audio(response.json())

@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import db
 import main as worker_main
 from compliance import check_text, scan_text
@@ -59,6 +61,7 @@ from stages.render import (
 )
 from stages.rewrite import _candidate_issues, _parse_candidates
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize
+from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
 from narration import pause_after_text, split_semantic_units, strip_subtitle_punctuation
 
@@ -510,9 +513,83 @@ class NetworkRetryTests(unittest.TestCase):
     def test_tts_provider_defaults_to_edge(self):
         self.assertEqual("EdgeTTSProvider", type(get_tts_provider("edge")).__name__)
 
-    def test_unavailable_tts_provider_fails_explicitly(self):
-        with self.assertRaisesRegex(ValueError, "未适配的 TTS Provider"):
-            get_tts_provider("cosyvoice2")
+    def test_cosyvoice2_provider_is_isolated_and_requires_configuration(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "尚未通过生产启用门"):
+                get_tts_provider("cosyvoice2")
+            provider = get_tts_provider("cosyvoice2", allow_experimental=True)
+            self.assertEqual("CosyVoice2Provider", type(provider).__name__)
+            with self.assertRaisesRegex(ValueError, "CosyVoice2 未配置"):
+                asyncio.run(provider.synthesize("试听文本", "test-voice"))
+
+    def test_cosyvoice2_openai_compatible_audio_response(self):
+        captured = {}
+
+        class FakeResponse:
+            headers = {"content-type": "audio/mpeg"}
+            content = b"cosy-audio"
+
+            @staticmethod
+            def raise_for_status():
+                return None
+
+        class FakeClient:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def post(self, endpoint, **kwargs):
+                captured["endpoint"] = endpoint
+                captured["request"] = kwargs["json"]
+                return FakeResponse()
+
+        env = {
+            "COSYVOICE2_BASE_URL": "https://tts.example/v1",
+            "COSYVOICE2_MODEL": "cosyvoice-v2",
+            "COSYVOICE2_VOICE": "sample-voice",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "tts_providers.httpx.AsyncClient", FakeClient
+        ), patch("tts_providers._probe_duration", return_value=2.75):
+            audio, boundaries, duration = asyncio.run(
+                get_tts_provider(
+                    "cosyvoice2", allow_experimental=True
+                ).synthesize("试听文本。", "ignored")
+            )
+
+        self.assertEqual(b"cosy-audio", audio)
+        self.assertEqual(2.75, duration)
+        self.assertEqual("试听文本。", boundaries[0]["text"])
+        self.assertEqual("https://tts.example/v1/audio/speech", captured["endpoint"])
+        self.assertEqual("sample-voice", captured["request"]["voice"])
+        self.assertEqual("mp3", captured["request"]["response_format"])
+
+    def test_tts_comparison_writes_isolated_audio_and_report(self):
+        class FakeProvider:
+            def __init__(self, name):
+                self.name = name
+
+            async def synthesize(self, text, _voice):
+                return self.name.encode(), [{"text": text, "start": 0, "end": 1}], 1.0
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "tts_compare.get_tts_provider",
+            side_effect=lambda name, **_kwargs: FakeProvider(name),
+        ):
+            output_dir = Path(tmpdir) / "comparison"
+            report = asyncio.run(generate_comparison(
+                "同一段试听文本。", output_dir, "edge-voice", "cosy-voice"
+            ))
+            saved = json.loads((output_dir / "comparison.json").read_text(encoding="utf-8"))
+
+        self.assertFalse(report["production_audio_replaced"])
+        self.assertEqual(["done", "done"], [item["status"] for item in saved["providers"]])
+        self.assertEqual("pending", saved["providers"][0]["manual_review"]["voice_quality"])
 
     def test_render_ffmpeg_timeout_is_converted_to_render_timeout(self):
         import stages.render as render_module
@@ -655,6 +732,32 @@ class NetworkRetryTests(unittest.TestCase):
         with patch("db.reset_client"), patch("db.time.sleep"):
             self.assertEqual("ok", db.retry(flaky, attempts=3))
         self.assertEqual(3, calls)
+
+    def test_stale_recovery_rebuilds_query_after_client_reset(self):
+        first_query = MagicMock()
+        first_query.select.return_value = first_query
+        first_query.eq.return_value = first_query
+        first_query.lt.return_value = first_query
+        first_query.execute.side_effect = httpx.ReadTimeout("timed out")
+        first_client = MagicMock()
+        first_client.table.return_value = first_query
+
+        second_query = MagicMock()
+        second_query.select.return_value = second_query
+        second_query.eq.return_value = second_query
+        second_query.lt.return_value = second_query
+        second_query.execute.return_value = type("Response", (), {"data": []})()
+        second_client = MagicMock()
+        second_client.table.return_value = second_query
+
+        with patch("db.get_client", side_effect=[first_client, second_client]), patch(
+            "db.reset_client"
+        ) as reset_client, patch("db.time.sleep"):
+            self.assertEqual([], db.recover_stale_stages("task-id"))
+
+        reset_client.assert_called_once()
+        self.assertEqual(1, first_query.execute.call_count)
+        self.assertEqual(1, second_query.execute.call_count)
 
     def test_provider_timeout_is_transient(self):
         class APITimeoutError(Exception):
