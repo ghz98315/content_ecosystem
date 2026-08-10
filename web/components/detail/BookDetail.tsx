@@ -13,12 +13,15 @@ interface BookData {
   cta_text?: string;
 }
 
-export function BookDetail({ stage, onRerun }: DetailCommon) {
+export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [data, setData] = useState<BookData | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<BookData>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coverPath, setCoverPath] = useState<string>("");
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
 
   useEffect(() => {
     if (!stage?.output_ref) return;
@@ -29,6 +32,40 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
       .then(setData)
       .catch(() => setError("书籍信息加载失败，请刷新后重试"));
   }, [stage?.output_ref, stage?.updated_at]);
+
+  useEffect(() => {
+    const path = String((stage?.params || {}).manual_book_cover_path || "");
+    setCoverPath(path);
+    if (!path) { setCoverUrl(null); return; }
+    fetch(`/api/signed-url?path=${encodeURIComponent(path)}`)
+      .then(response => response.json())
+      .then(({ signedUrl }) => setCoverUrl(signedUrl || null))
+      .catch(() => setCoverUrl(null));
+  }, [stage?.params, stage?.updated_at]);
+
+  const uploadCover = async (file: File) => {
+    if (!stage) return;
+    if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) {
+      setError("封面仅支持 5 MB 以内的图片文件");
+      return;
+    }
+    setCoverBusy(true); setError(null);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `${taskId}/book_cover.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("artifacts").upload(path, file, { upsert: true, contentType: file.type });
+      if (uploadError) throw uploadError;
+      const { error: artifactError } = await supabase.from("artifacts").insert({
+        task_id: taskId, stage_kind: "book", type: "book_cover", storage_path: path,
+        meta: { file_name: file.name, content_type: file.type, reference_policy: "provider_capability_required" },
+      });
+      if (artifactError) throw artifactError;
+      setCoverPath(path);
+      setCoverUrl(URL.createObjectURL(file));
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "封面上传失败");
+    } finally { setCoverBusy(false); }
+  };
 
   const isReview = stage?.status === "needs_review";
   const isDone = stage?.status === "done";
@@ -59,6 +96,7 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
       const ctaText = draft.cta_text?.trim();
       if (ctaText) params.manual_cta_text = ctaText;
     }
+    if (coverPath) params.manual_book_cover_path = coverPath;
     params.book_confirmed = true;
     const { error: updateError } = await supabase
       .from("stages")
@@ -100,6 +138,17 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
           )}
           <div className="book-review-grid">
           <section className="book-info-panel">
+            <div className="book-cover-control">
+              {coverUrl ? <img src={coverUrl} alt="书籍封面参考图" /> : <span className="book-cover-placeholder">封面参考图</span>}
+              {isReview && (
+                <label className="book-cover-upload">
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
+                    const file = event.target.files?.[0]; if (file) uploadCover(file);
+                  }} />
+                  {coverBusy ? "上传中…" : coverUrl ? "替换封面" : "上传封面"}
+                </label>
+              )}
+            </div>
             <EditableField
               label="书名"
               value={data.book_name}

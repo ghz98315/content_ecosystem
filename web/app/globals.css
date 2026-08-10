@@ -116,6 +116,11 @@ textarea:focus-visible, select:focus-visible {
 .rewrite-drafts { min-width: 0; }
 .book-review-grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(320px, 1.1fr); gap: 24px; align-items: start; }
 .book-info-panel, .book-cta-panel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-sm); }
+.book-cover-control { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; align-items: center; margin-bottom: 14px; }
+.book-cover-control img, .book-cover-placeholder { width: 62px; height: 84px; object-fit: cover; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-hover); }
+.book-cover-placeholder { display: grid; place-items: center; padding: 6px; color: var(--text-disabled); font-size: 10px; line-height: 1.35; text-align: center; }
+.book-cover-upload { width: max-content; min-height: 32px; padding: 0 10px; display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--radius-md); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.book-cover-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .unsaved-notice { margin-bottom: 14px; padding: 9px 12px; border: 1px solid #fde68a; border-radius: var(--radius-md); background: #fffbeb; color: #92400e; font-size: 12px; }
 .image-review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .image-review-card { display: block; width: 100%; padding: 0; overflow: hidden; text-align: left; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-sm); transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
