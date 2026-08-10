@@ -63,7 +63,7 @@ export default function HomePage() {
     return (
       <div style={{ display: "flex", height: "100vh" }}>
         <Sidebar tasks={[]} />
-        <main style={S.main}>
+        <main className="workspace-main" style={S.main}>
           <p style={{ color: "var(--status-failed)", fontSize: 13 }}>
             登录失败：{authError}
           </p>
@@ -76,7 +76,7 @@ export default function HomePage() {
     return (
       <div style={{ display: "flex", height: "100vh" }}>
         <Sidebar tasks={[]} />
-        <main style={S.main}><p style={{ color: "var(--text-disabled)" }}>连接中…</p></main>
+        <main className="workspace-main" style={S.main}><p style={{ color: "var(--text-disabled)" }}>连接中…</p></main>
       </div>
     );
   }
@@ -85,28 +85,21 @@ export default function HomePage() {
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       <Sidebar tasks={tasks} onCreateTask={openForm} />
 
-      <main style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ maxWidth: 680, margin: "0 auto", padding: "48px 32px" }}>
+      <main className="workspace-main">
+        <div className="home-content">
 
           {/* 标题 */}
-          <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 6 }}>抖音带货视频创作台</h1>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 32 }}>
+          <h1 className="home-title" style={{ fontWeight: 700 }}>抖音带货视频创作台</h1>
+          <p className="home-subtitle" style={{ fontSize: 13, marginBottom: 28 }}>
             粘贴抖音链接 → 8 阶段自动处理 → 导出带字幕竖版成片
           </p>
 
           {/* 新建任务表单 */}
-          <div style={{
-            padding: "20px 24px",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-lg)",
-            background: showForm ? "var(--bg-page)" : "var(--bg-hover)",
-            marginBottom: 32,
-            transition: "background 0.15s ease",
-          }}>
+          <div className="create-panel" style={{ marginBottom: 32, background: showForm ? "var(--bg-surface)" : "var(--bg-hover)" }}>
             {showForm ? (
               <>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>新建任务</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6, marginBottom: 12 }}>
+                <div className="category-grid">
                   {categories.map(category => (
                     <button
                       key={category.value}
@@ -129,17 +122,10 @@ export default function HomePage() {
                     </button>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div className="create-row">
                   <input
                     ref={inputRef}
-                    style={{
-                      flex: 1, padding: "8px 12px",
-                      border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
-                      fontSize: 14, outline: "none", fontFamily: "var(--font)",
-                      transition: "border-color 0.15s ease",
-                    }}
-                    onFocus={e => (e.target.style.borderColor = "var(--border-focus)")}
-                    onBlur={e => (e.target.style.borderColor = "var(--border)")}
+                    className="url-input"
                     placeholder="粘贴抖音分享链接或整段分享文案…"
                     value={url}
                     onChange={e => setUrl(e.target.value)}
@@ -148,24 +134,13 @@ export default function HomePage() {
                   <button
                     onClick={createTask}
                     disabled={creating || !url.trim()}
-                    style={{
-                      padding: "8px 18px",
-                      background: creating || !url.trim() ? "var(--bg-hover)" : "#111827",
-                      color: creating || !url.trim() ? "var(--text-disabled)" : "#fff",
-                      border: "none", borderRadius: "var(--radius-md)",
-                      fontSize: 14, cursor: creating || !url.trim() ? "not-allowed" : "pointer",
-                      transition: "background 0.15s ease",
-                    }}
+                    className="primary-action"
                   >
                     {creating ? "创建中…" : "创建"}
                   </button>
                   <button
                     onClick={() => { setShowForm(false); setUrl(""); }}
-                    style={{
-                      padding: "8px 12px", background: "none",
-                      border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
-                      fontSize: 14, cursor: "pointer", color: "var(--text-secondary)",
-                    }}
+                    className="secondary-action"
                   >
                     取消
                   </button>
@@ -212,7 +187,7 @@ export default function HomePage() {
                 还没有任务，点击上方新建
               </p>
             ) : (
-              <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
+              <div className="task-list">
                 {tasks.map((t, i) => {
                   const dotColor = STATUS_COLOR[t.status as keyof typeof STATUS_COLOR] ?? "var(--status-pending)";
                   const isLast = i === tasks.length - 1;
@@ -220,14 +195,7 @@ export default function HomePage() {
                     <Link
                       key={t.id}
                       href={`/task/${t.id}`}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "11px 16px",
-                        borderBottom: isLast ? "none" : "1px solid var(--border)",
-                        color: "var(--text-primary)", fontSize: 14,
-                        transition: "background 0.12s ease",
-                      }}
-                      className="hoverable"
+                      className="task-row"
                     >
                       <span className="status-dot" style={{ background: dotColor }} />
                       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
