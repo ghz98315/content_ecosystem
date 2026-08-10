@@ -1,17 +1,24 @@
 """下载 + Supabase Storage 封装。"""
 from __future__ import annotations
+import base64
 import os
 import subprocess
 import tempfile
 import urllib.request
 
+import certifi
+import httpx
+
 import db
+import config
 
 BUCKET = os.environ.get("SUPABASE_BUCKET", "artifacts")
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
+_RESUMABLE_THRESHOLD = 40 * 1024 * 1024
+_RESUMABLE_CHUNK_SIZE = 6 * 1024 * 1024
 
 
 def _ffmpeg() -> str:
@@ -70,6 +77,9 @@ def download_artifact(storage_path: str, suffix: str = "") -> str:
 
 def upload(storage_path: str, local_file: str, content_type: str = "video/mp4") -> str:
     """上传本地文件到 Storage，返回 storage_path。覆盖同名。"""
+    file_size = os.path.getsize(local_file)
+    if file_size >= _RESUMABLE_THRESHOLD:
+        return _upload_resumable(storage_path, local_file, content_type, file_size)
     with open(local_file, "rb") as f:
         data = f.read()
     db.retry(
@@ -78,6 +88,63 @@ def upload(storage_path: str, local_file: str, content_type: str = "video/mp4") 
             {"content-type": content_type, "upsert": "true"},
         )
     )
+    return storage_path
+
+
+def _upload_resumable(
+    storage_path: str, local_file: str, content_type: str, file_size: int
+) -> str:
+    """Upload large objects through Supabase Storage's TUS endpoint."""
+    endpoint = config.SUPABASE_URL.rstrip("/") + "/storage/v1/upload/resumable"
+    metadata = {
+        "bucketName": BUCKET,
+        "objectName": storage_path,
+        "contentType": content_type,
+        "cacheControl": "3600",
+    }
+    encoded_metadata = ",".join(
+        f"{key} {base64.b64encode(value.encode('utf-8')).decode('ascii')}"
+        for key, value in metadata.items()
+    )
+    headers = {
+        "Authorization": f"Bearer {config.SUPABASE_SERVICE_KEY}",
+        "apikey": config.SUPABASE_SERVICE_KEY,
+        "Tus-Resumable": "1.0.0",
+        "Upload-Length": str(file_size),
+        "Upload-Metadata": encoded_metadata,
+        "x-upsert": "true",
+    }
+    with httpx.Client(verify=certifi.where(), timeout=httpx.Timeout(120.0, connect=20.0)) as client:
+        response = db.retry(lambda: client.post(endpoint, headers=headers))
+        if response.status_code not in (201, 204):
+            raise RuntimeError(f"Supabase resumable upload init failed: {response.status_code} {response.text[:300]}")
+        location = response.headers.get("location")
+        if not location:
+            raise RuntimeError("Supabase resumable upload did not return a location")
+        if location.startswith("/"):
+            location = config.SUPABASE_URL.rstrip("/") + location
+
+        offset = 0
+        with open(local_file, "rb") as source:
+            while offset < file_size:
+                source.seek(offset)
+                chunk = source.read(min(_RESUMABLE_CHUNK_SIZE, file_size - offset))
+                patch_headers = {
+                    "Authorization": f"Bearer {config.SUPABASE_SERVICE_KEY}",
+                    "apikey": config.SUPABASE_SERVICE_KEY,
+                    "Tus-Resumable": "1.0.0",
+                    "Upload-Offset": str(offset),
+                    "Content-Type": "application/offset+octet-stream",
+                }
+                response = db.retry(
+                    lambda: client.patch(location, headers=patch_headers, content=chunk)
+                )
+                if response.status_code != 204:
+                    raise RuntimeError(f"Supabase resumable upload failed: {response.status_code} {response.text[:300]}")
+                next_offset = int(response.headers.get("Upload-Offset", offset + len(chunk)))
+                if next_offset <= offset:
+                    raise RuntimeError("Supabase resumable upload returned an invalid offset")
+                offset = next_offset
     return storage_path
 
 
