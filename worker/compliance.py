@@ -86,6 +86,8 @@ def _semantic_issues(client: Any, model: str, category: str, text: str, context:
         f"主题关键词：{context.get('keyword', '')}\n"
         f"原视频标题：{context.get('title', '')}\n"
         f"原作者标识：{context.get('author', '')}\n\n"
+        "请逐条返回风险片段、风险等级、原因，以及一个不使用谐音规避、"
+        "不做疗效承诺、可供人工确认的中性替代表达 replacement。\n"
         f"待检查最终文案：\n{text}"
     )
     response = client.chat.completions.create(
@@ -116,6 +118,7 @@ def _semantic_issues(client: Any, model: str, category: str, text: str, context:
             "text": snippet,
             "reason": str(item.get("reason", "需要人工复核")).strip(),
             "suggestion": str(item.get("suggestion", "请做最小幅度修改")).strip(),
+            "replacement": str(item.get("replacement", "")).strip(),
             "source": "semantic",
         })
     return issues

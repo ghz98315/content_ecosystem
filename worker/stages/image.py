@@ -103,11 +103,11 @@ def _preferred_cut(text: str, min_chars: int, target_chars: int, max_chars: int)
 
 def _split_storyboard(
     text: str,
-    min_chars: int = 24,
-    target_chars: int = 28,
-    max_chars: int = 32,
+    min_chars: int = 32,
+    target_chars: int = 36,
+    max_chars: int = 42,
 ) -> list[dict]:
-    """Split narration into semantic shots averaging about eight seconds."""
+    """Split narration into longer semantic shots averaging about ten seconds."""
     remaining = re.sub(r"\s+", "", text or "").strip()
     if not remaining:
         return []
@@ -227,17 +227,18 @@ def _trim_cell_edges(piece, inset_ratio: float = _CELL_EDGE_INSET_RATIO):
     return piece.crop((inset_x, inset_y, width - inset_x, height - inset_y))
 
 
-def _split_grid(img_bytes: bytes, n: int) -> list[bytes]:
+def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None) -> list[bytes]:
     """切成 n 张4:3小图；边界使用同一组精确像素坐标，避免累计误差。"""
     from PIL import Image
+    cells = max(1, int(grid_cells or _GRID))
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     w, h = img.size
     _validate_grid_source(w, h)
-    x_bounds = _grid_bounds(w)
-    y_bounds = _grid_bounds(h)
+    x_bounds = [(round(i * w / cells), round((i + 1) * w / cells)) for i in range(cells)]
+    y_bounds = [(round(i * h / cells), round((i + 1) * h / cells)) for i in range(cells)]
     pieces = []
-    for r in range(_GRID):
-        for c in range(_GRID):
+    for r in range(cells):
+        for c in range(cells):
             if len(pieces) >= n:
                 break
             x0, x1 = x_bounds[c]
@@ -601,7 +602,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             )
             storage.upload_bytes(grid_path, raw, "image/png")
             storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
-                "grid": "3x3",
+                "grid": f"{_GRID}x{_GRID}",
                 "text_policy": "no_visible_text",
             })
 
@@ -620,7 +621,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             "text_policy": "no_visible_text",
             "validated": True,
         })
-        for i, piece_bytes in enumerate(_split_grid(raw, len(batch))):
+        source_meta = existing_artifacts.get(grid_path) or {}
+        source_cells = len(source_meta.get("cell_bounds_x") or []) or _GRID
+        for i, piece_bytes in enumerate(_split_grid(raw, len(batch), source_cells)):
             idx = batch_start + i
             path = expected_paths[i]
             storage.upload_bytes(path, piece_bytes, "image/png")

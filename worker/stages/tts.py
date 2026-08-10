@@ -13,7 +13,7 @@ import config
 import db
 import storage
 import imageio_ffmpeg
-from narration import clean_tts_text, split_semantic_units, visible_len
+from narration import clean_tts_text, normalize_tts_numbers, split_semantic_units, visible_len
 from tts_providers import get_tts_provider
 
 # 默认音色，可通过 env 覆盖
@@ -275,15 +275,16 @@ def _build_subtitle_cues(
 async def _synthesize_detailed(text: str, voice: str) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
     parts = _split_tts_segments(text)
+    spoken_parts = [normalize_tts_numbers(part) for part in parts]
     if not parts:
         return b"", [], []
     semaphore = asyncio.Semaphore(_CONCURRENCY)
 
-    async def synthesize_limited(part: str):
+    async def synthesize_limited(part: str, spoken_part: str):
         async with semaphore:
-            return await _synthesize_part_with_retry(part, voice)
+            return await _synthesize_part_with_retry(spoken_part, voice)
 
-    results = await asyncio.gather(*(synthesize_limited(part) for part in parts))
+    results = await asyncio.gather(*(synthesize_limited(part, spoken) for part, spoken in zip(parts, spoken_parts)))
     merged_segments: list[dict] = []
     batches: list[dict] = []
     offset = 0.0

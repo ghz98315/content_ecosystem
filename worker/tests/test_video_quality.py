@@ -65,6 +65,7 @@ from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
 from narration import (
     has_disallowed_subtitle_punctuation,
+    normalize_tts_numbers,
     pause_after_text,
     split_semantic_units,
     strip_subtitle_punctuation,
@@ -212,8 +213,8 @@ class StoryboardTests(unittest.TestCase):
 
     def test_zoom_uses_oversampling_and_visible_eased_motion(self):
         self.assertGreaterEqual(ZOOM_OVERSAMPLE, 4)
-        self.assertGreaterEqual(ZOOM_AMOUNT, 0.12)
-        self.assertLessEqual(ZOOM_AMOUNT, 0.18)
+        self.assertGreaterEqual(ZOOM_AMOUNT, 0.08)
+        self.assertLessEqual(ZOOM_AMOUNT, 0.12)
 
     def test_grid_bounds_cover_source_without_gaps(self):
         bounds = _grid_bounds(1536)
@@ -322,11 +323,17 @@ class StoryboardTests(unittest.TestCase):
         shots = _split_storyboard(source)
         self.assertTrue(shots)
         self.assertEqual(len(source), sum(shot["char_count"] for shot in shots))
-        self.assertTrue(all(24 <= shot["char_count"] <= 32 for shot in shots))
+        self.assertTrue(all(32 <= shot["char_count"] <= 42 for shot in shots))
         self.assertTrue(all(shot["motion"] == "zoom_in" for shot in shots))
         self.assertEqual(0, shots[0]["char_start"])
         self.assertEqual(shots[-1]["char_end"], sum(shot["char_count"] for shot in shots))
         self.assertTrue(all(a["char_end"] == b["char_start"] for a, b in zip(shots, shots[1:])))
+
+    def test_tts_numbers_use_natural_reading_rules(self):
+        self.assertIn("十天", normalize_tts_numbers("10天"))
+        self.assertIn("百分之十", normalize_tts_numbers("10%"))
+        self.assertIn("三点零", normalize_tts_numbers("3.0"))
+        self.assertIn("二〇二六年", normalize_tts_numbers("2026年"))
 
     def test_render_duration_compensates_dissolves(self):
         images = [{"char_count": 28}] * 4

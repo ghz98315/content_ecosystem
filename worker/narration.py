@@ -75,6 +75,85 @@ def visible_len(text: str) -> int:
     return len(re.sub(r"\s+", "", text or ""))
 
 
+_DIGIT_ZH = "零一二三四五六七八九"
+_NUMBER_UNITS = ("", "十", "百", "千")
+
+
+def _integer_to_zh(value: str) -> str:
+    """Read ordinary Arabic integers naturally for TTS without changing display text."""
+    digits = str(value).lstrip("0") or "0"
+    if len(digits) > 8:
+        return "".join(_DIGIT_ZH[int(char)] for char in value)
+    number = int(digits)
+    if number == 0:
+        return "零"
+    result: list[str] = []
+    zero_pending = False
+    for index, char in enumerate(digits):
+        digit = int(char)
+        position = len(digits) - index - 1
+        if digit == 0:
+            if result:
+                zero_pending = True
+            continue
+        if zero_pending:
+            result.append("零")
+            zero_pending = False
+        if not (digit == 1 and position == 1 and not result):
+            result.append(_DIGIT_ZH[digit])
+        if position:
+            result.append(_NUMBER_UNITS[position])
+    return "".join(result)
+
+
+def normalize_tts_numbers(text: str) -> str:
+    """Convert ordinary numbers for speech while preserving versions and identifiers."""
+    source = str(text or "")
+
+    def version(match: re.Match[str]) -> str:
+        token = match.group(0)
+        return "点".join("".join(_DIGIT_ZH[int(char)] for char in part) for part in token.split("."))
+
+    def percent(match: re.Match[str]) -> str:
+        token = match.group(0)[:-1]
+        return f"百分之{_decimal_to_zh(token)}"
+
+    def year(match: re.Match[str]) -> str:
+        return "".join("〇" if char == "0" else _DIGIT_ZH[int(char)] for char in match.group(0)[:4]) + "年"
+
+    def decimal(match: re.Match[str]) -> str:
+        token = match.group(0)
+        suffix = ""
+        while token and token[-1] in "万亿千百岁元天人次倍":
+            suffix = token[-1] + suffix
+            token = token[:-1]
+        return _decimal_to_zh(token) + suffix
+
+    def integer(match: re.Match[str]) -> str:
+        token = match.group(0)
+        suffix = ""
+        while token and token[-1] in "万亿千百岁元天人次倍个种年月日":
+            suffix = token[-1] + suffix
+            token = token[:-1]
+        return _integer_to_zh(token) + suffix
+
+    def _replace(pattern: str, callback, value: str) -> str:
+        return re.sub(pattern, callback, value)
+
+    source = _replace(r"(?<![A-Za-z])\d+(?:\.\d+)+(?![A-Za-z])", version, source)
+    source = _replace(r"(?<![A-Za-z])\d+(?:\.\d+)?%", percent, source)
+    source = _replace(r"(?<!\d)\d{4}年", year, source)
+    source = _replace(r"(?<![A-Za-z])\d+\.\d+(?:[万亿千百岁元天人次倍])?", decimal, source)
+    return _replace(r"(?<![A-Za-z])\d+(?:[万亿千百岁元天人次倍个种年月日])?", integer, source)
+
+
+def _decimal_to_zh(value: str) -> str:
+    if "." not in value:
+        return _integer_to_zh(value)
+    whole, fraction = value.split(".", 1)
+    return f"{_integer_to_zh(whole)}点{''.join(_DIGIT_ZH[int(char)] for char in fraction)}"
+
+
 def strip_subtitle_punctuation(text: str) -> str:
     """Remove punctuation from on-screen subtitles while retaining words."""
     return re.sub(r"\s+", "", _SUBTITLE_PUNCTUATION_RE.sub("", text or ""))
