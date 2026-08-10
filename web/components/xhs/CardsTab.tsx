@@ -127,7 +127,7 @@ export function CardsTab({ book, selectedText, initialTopic }: Props) {
           <button onClick={generate} disabled={loading} className="xhs-btn-primary w-full flex items-center justify-center gap-2">
             {loading
               ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />生成中…</>
-              : '🎨 AI 智能切分'}
+              : 'AI 智能切分'}
           </button>
 
           {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
@@ -138,7 +138,7 @@ export function CardsTab({ book, selectedText, initialTopic }: Props) {
           <button onClick={exportZip} disabled={exporting} className="xhs-btn-primary w-full flex items-center justify-center gap-2">
             {exporting
               ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />导出中…</>
-              : `⬇️ 导出整套图文 ZIP（${cards.length} 张）`}
+              : `导出整套图文 ZIP（${cards.length} 张）`}
           </button>
         )}
       </div>
@@ -147,7 +147,7 @@ export function CardsTab({ book, selectedText, initialTopic }: Props) {
       <div className="flex-1 min-w-0">
         {cards.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center bg-white rounded-2xl border border-xhs-border">
-            <div className="text-4xl mb-4">🎨</div>
+            <div className="text-xs font-semibold tracking-widest text-xhs-accent mb-4">CARD STUDIO</div>
             <p className="text-sm text-xhs-muted">填写参数后点击「AI 智能切分」生成卡片预览</p>
           </div>
         ) : (

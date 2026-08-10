@@ -35,7 +35,7 @@ export default function XhsPage() {
       {/* 页头 */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-xhs-primary">📚 知识库</h1>
+          <h1 className="text-2xl font-bold text-xhs-primary">知识图文库</h1>
           <p className="text-sm text-xhs-muted mt-1">上传电子资料，AI 自动生成小红书图文内容</p>
         </div>
         <button onClick={() => setShowModal(true)} className="xhs-btn-primary flex items-center gap-2">
@@ -78,7 +78,7 @@ function BookCard({ book }: { book: XhsBook }) {
         </h3>
         <span className="xhs-badge">{book.brand_name}</span>
         <div className="flex items-center gap-4 text-xs text-xhs-muted border-t border-xhs-border pt-3 mt-4">
-          <span>📝 {charCount > 0 ? `${(charCount / 1000).toFixed(1)}K 字` : '暂无内容'}</span>
+          <span>{charCount > 0 ? `${(charCount / 1000).toFixed(1)}K 字` : '暂无内容'}</span>
           <span className="ml-auto">{date}</span>
         </div>
       </div>
@@ -90,7 +90,7 @@ function BookCard({ book }: { book: XhsBook }) {
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-orange-50 flex items-center justify-center text-3xl mb-5">📚</div>
+      <div className="w-16 h-16 rounded-lg bg-xhs-cta flex items-center justify-center text-xl font-semibold text-xhs-accent mb-5">BOOK</div>
       <h3 className="font-semibold text-xhs-primary text-lg mb-2">还没有知识库</h3>
       <p className="text-sm text-xhs-muted mb-6 max-w-xs">上传一本书或粘贴资料内容，AI 将自动分析并生成小红书图文</p>
       <button onClick={onAdd} className="xhs-btn-primary">＋ 新建第一本书</button>
@@ -174,7 +174,7 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg">
         {/* 弹窗头部 */}
         <div className="flex items-center justify-between p-6 pb-4 border-b border-xhs-border">
           <h2 className="text-lg font-semibold text-xhs-primary">新建书籍 / 资料</h2>
@@ -218,7 +218,7 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                       : 'border-xhs-border text-xhs-muted hover:border-xhs-accent/50'
                   }`}
                 >
-                  {m === 'text' ? '📝 粘贴文字' : '📄 上传 PDF'}
+                  {m === 'text' ? '粘贴文字' : '上传 PDF'}
                 </button>
               ))}
             </div>
@@ -237,13 +237,13 @@ function NewBookModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                 <input type="file" accept=".pdf" className="hidden" onChange={e => setFile(e.target.files?.[0] ?? null)} />
                 {file ? (
                   <>
-                    <span className="text-2xl mb-1">📄</span>
+                    <span className="text-xs font-semibold text-xhs-accent mb-1">PDF</span>
                     <span className="text-sm font-medium text-xhs-accent">{file.name}</span>
                     <span className="text-xs text-xhs-muted mt-0.5">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
                   </>
                 ) : (
                   <>
-                    <span className="text-2xl mb-1 text-xhs-muted">⬆️</span>
+                    <span className="text-xs font-semibold mb-1 text-xhs-muted">UPLOAD</span>
                     <span className="text-sm text-xhs-muted">点击选择 PDF 文件</span>
                   </>
                 )}

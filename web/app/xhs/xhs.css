@@ -5,22 +5,22 @@
 /* XHS 模块自定义组件类 */
 @layer components {
   .xhs-card {
-    @apply bg-white rounded-2xl shadow-card border border-xhs-border p-5 transition-all duration-200 hover:shadow-card-hover;
+    @apply bg-white rounded-lg shadow-card border border-xhs-border p-5 transition-all duration-200 hover:shadow-card-hover;
   }
 
   .xhs-btn-primary {
-    @apply bg-xhs-accent text-white font-semibold px-5 py-2.5 rounded-xl
-           hover:bg-orange-500 active:scale-95 transition-all duration-150
+    @apply bg-xhs-accent text-white font-semibold px-5 py-2.5 rounded-lg
+           hover:brightness-90 active:scale-95 transition-all duration-150
            disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
   .xhs-btn-ghost {
-    @apply border border-xhs-border text-xhs-muted font-medium px-4 py-2 rounded-xl
+    @apply border border-xhs-border text-xhs-muted font-medium px-4 py-2 rounded-lg
            hover:bg-xhs-card hover:text-xhs-text transition-all duration-150;
   }
 
   .xhs-input {
-    @apply w-full border border-xhs-border rounded-xl px-4 py-2.5 text-sm
+    @apply w-full border border-xhs-border rounded-lg px-4 py-2.5 text-sm
            text-xhs-text placeholder-xhs-muted bg-white
            focus:outline-none focus:ring-2 focus:ring-xhs-accent/30 focus:border-xhs-accent
            transition-all duration-150;
@@ -32,7 +32,7 @@
 
   .xhs-badge {
     @apply inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1
-           bg-orange-50 text-xhs-accent rounded-full;
+           bg-xhs-cta text-xhs-accent rounded-full;
   }
 
   .xhs-section-title {

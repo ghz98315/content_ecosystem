@@ -62,8 +62,8 @@ export default function XhsBookPage() {
 
   const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: 'topics',   label: '主题矩阵',   icon: '📌' },
-    { key: 'copy',     label: '文案生成室', icon: '✍️'  },
-    { key: 'cards',    label: '卡片工厂',   icon: '🎨' },
+    { key: 'copy',     label: '文案生成室', icon: '文'  },
+    { key: 'cards',    label: '卡片工厂',   icon: '图' },
     { key: 'settings', label: '内容选取',   icon: '📋' },
   ]
 
@@ -231,7 +231,7 @@ function SettingsTab({
         )}
 
         <div className="mt-4 pt-4 border-t border-xhs-border text-xs text-xhs-muted flex gap-2">
-          <span>💡</span>
+          <span>提示</span>
           <span>已选内容将用于主题矩阵生成和卡片制作，不相关章节可取消勾选</span>
         </div>
       </div>

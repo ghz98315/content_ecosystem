@@ -128,7 +128,7 @@ export function CopyTab({ book, selectedText, initialTopic, onGoToCards }: Props
       <div className="flex-1 min-w-0 space-y-5">
         {!draft ? (
           <div className="bg-white rounded-2xl border border-xhs-border flex flex-col items-center justify-center py-24 text-center">
-            <div className="text-4xl mb-4">✍️</div>
+            <div className="text-xs font-semibold tracking-widest text-xhs-accent mb-4">COPY STUDIO</div>
             <p className="text-sm text-xhs-muted">填写参数后点击「一键生成文案」</p>
           </div>
         ) : (
@@ -136,14 +136,14 @@ export function CopyTab({ book, selectedText, initialTopic, onGoToCards }: Props
             {/* 正文 */}
             <div className="bg-white rounded-2xl border border-xhs-border p-5">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold text-xhs-primary">📝 正文</h4>
+                <h4 className="font-semibold text-xhs-primary">正文</h4>
                 <div className="flex items-center gap-2">
                   {bodyBanned && (
-                    <span className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded-full">⚠️ 含违规词：{bodyBanned}</span>
+                    <span className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded-full">含违规词：{bodyBanned}</span>
                   )}
                   {onGoToCards && (
                     <button onClick={() => onGoToCards(title)} className="xhs-btn-ghost py-1 px-3 text-xs">
-                      🎨 送入卡片工厂
+                      送入卡片工厂
                     </button>
                   )}
                   <button onClick={() => copy(draft.body, 'body')} className="xhs-btn-ghost py-1 px-3 text-xs">

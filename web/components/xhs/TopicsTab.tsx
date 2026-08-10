@@ -84,7 +84,7 @@ export function TopicsTab({ book, selectedText, onGoToCopy, onGoToCards }: Props
           <button onClick={generate} disabled={loading} className="xhs-btn-primary min-w-28 flex items-center gap-2">
             {loading
               ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />生成中…</>
-              : '✨ AI 生成选题'}
+              : 'AI 生成选题'}
           </button>
         </div>
         {selectedText.length > 0 && (
@@ -148,9 +148,9 @@ export function TopicsTab({ book, selectedText, onGoToCopy, onGoToCards }: Props
                         <div className="flex items-center gap-2 mb-2">
                           <h4 className="font-semibold text-xhs-primary text-base">{topic.title}</h4>
                           <button onClick={() => startEdit(topic)} className="text-xhs-muted hover:text-xhs-accent text-xs px-1.5 py-0.5 rounded hover:bg-orange-50 transition-colors">
-                            ✏️ 编辑
+                            编辑
                           </button>
-                          {warn && <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full">⚠️ 含违规词</span>}
+                          {warn && <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full">含违规词</span>}
                         </div>
                       )}
 
@@ -167,10 +167,10 @@ export function TopicsTab({ book, selectedText, onGoToCopy, onGoToCards }: Props
 
                       <div className="flex gap-2 mt-4">
                         <button onClick={() => onGoToCopy(topic)} className="xhs-btn-primary py-1.5 px-4 text-xs">
-                          ✍️ 去生成文案
+                          去生成文案
                         </button>
                         <button onClick={() => onGoToCards(topic)} className="xhs-btn-ghost py-1.5 px-4 text-xs">
-                          🎨 去生成卡片
+                          去生成卡片
                         </button>
                       </div>
                     </div>
