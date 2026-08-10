@@ -68,7 +68,14 @@ def maybe_finish_task(task_id: str) -> None:
         lambda: db.get_client().table("stages").select("status").eq("task_id", task_id).execute()
     )
     statuses = [r["status"] for r in res.data]
-    if statuses and all(s in ("done", "cancelled") for s in statuses):
+    # A non-cancelled task with cancelled stages must never be reported as done.
+    # Only an explicitly cancelled task may contain cancelled downstream stages.
+    if any(s == "cancelled" for s in statuses):
+        if task.data and task.data.get("status") == "cancelled":
+            return
+        db.set_task_status(task_id, "failed")
+        print(f"  [FAIL] task {task_id[:8]} has cancelled stages")
+    elif statuses and all(s == "done" for s in statuses):
         db.set_task_status(task_id, "done")
         print(f"  [OK] task {task_id[:8]} complete")
     elif any(s == "failed" for s in statuses):
