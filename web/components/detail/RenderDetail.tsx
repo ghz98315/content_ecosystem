@@ -166,7 +166,12 @@ export function RenderDetail({ stage, taskId, task, onRerun }: DetailCommon) {
           {repostError}
         </div>
       )}
-      {loading && <p style={{ color: "var(--text-disabled)", fontSize: 13 }}>加载中…</p>}
+      {loading && (
+        <div aria-busy="true" aria-label="正在加载成片">
+          <div className="skeleton" style={{ height: 24, width: "42%", marginBottom: 10 }} />
+          <div className="skeleton" style={{ height: 320, width: "100%", marginBottom: 16 }} />
+        </div>
+      )}
 
       {(qualityLoading || quality || qualityUnavailable) && (
         <section style={{ marginBottom: 24 }}>

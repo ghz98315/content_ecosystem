@@ -50,7 +50,7 @@ export function DetailShell({
   return (
     <div className="detail-shell">
       {/* 标题行 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+      <div className="detail-heading">
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)" }}>{title}</h2>
         <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
           <span
@@ -59,7 +59,7 @@ export function DetailShell({
           />
           <span style={{ color }}>{STATUS_LABEL[status]}</span>
         </span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+        <div className="detail-actions">
           {actions}
           {canRerun && (
             <TextBtn onClick={() => onRerun(stage!.id)}>重跑</TextBtn>
@@ -69,7 +69,7 @@ export function DetailShell({
 
       {/* 错误 */}
       {errorPosition === "top" && isFailed && stage?.error && (
-        <div style={{
+        <div role="alert" className="stage-diagnostic" style={{
           padding: "8px 12px", borderRadius: "var(--radius-md)",
           background: diagnosticBackground, border: `1px solid ${diagnosticBorder}`,
           color: diagnosticColor, fontSize: 12,
@@ -81,8 +81,14 @@ export function DetailShell({
 
       {/* 等待/跳过提示 */}
       {(isPending || isCancelled) && (
-        <p style={{ color: "var(--text-disabled)", fontSize: 13 }}>
+        <p className="stage-pending">
           {isCancelled ? "该阶段已跳过" : "等待前置阶段完成…"}
+        </p>
+      )}
+
+      {isProcessing && (
+        <p className="stage-pending" aria-live="polite">
+          该阶段正在处理中，worker 心跳正常时会自动继续。
         </p>
       )}
 
@@ -90,7 +96,7 @@ export function DetailShell({
       {(!isCancelled && (!isPending || showChildrenOnPending)) && children}
 
       {errorPosition === "bottom" && isFailed && stage?.error && (
-        <div style={{
+        <div role="alert" className="stage-diagnostic" style={{
           padding: "8px 12px", borderRadius: "var(--radius-md)",
           background: diagnosticBackground, border: `1px solid ${diagnosticBorder}`,
           color: diagnosticColor, fontSize: 12,
@@ -117,8 +123,9 @@ export function TextBtn({
     <button
       onClick={onClick}
       disabled={disabled}
+      className="text-action"
       style={{
-        padding: "5px 14px", border: "none", borderRadius: "var(--radius-md)",
+        border: "none",
         background: disabled ? "var(--bg-hover)" : bg,
         color: disabled ? "var(--text-disabled)" : fg,
         fontSize: 13, cursor: disabled ? "not-allowed" : "pointer",
