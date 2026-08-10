@@ -29,7 +29,7 @@ interface QualityReport {
 const QUALITY_LABEL = { passed: "通过", warning: "需复核", failed: "未通过" } as const;
 const QUALITY_COLOR = { passed: "#15803d", warning: "#b45309", failed: "#b91c1c" } as const;
 
-export function RenderDetail({ stage, taskId, task, onRerun }: DetailCommon) {
+export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: DetailCommon) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isPreviousVideo, setIsPreviousVideo] = useState(false);
   const [loading, setLoading]   = useState(false);
@@ -46,7 +46,7 @@ export function RenderDetail({ stage, taskId, task, onRerun }: DetailCommon) {
     setIsPreviousVideo(false);
     setLoading(true);
     const loadVideo = async () => {
-      let path = stage?.status === "done" ? stage.output_ref : null;
+      let path = stage?.output_ref ?? null;
       let previous = false;
       if (!path) {
         const { data } = await supabase
@@ -73,7 +73,7 @@ export function RenderDetail({ stage, taskId, task, onRerun }: DetailCommon) {
   }, [stage?.output_ref, stage?.status, taskId]);
 
   useEffect(() => {
-    if (!stage || !["done", "failed"].includes(stage.status)) {
+    if (!stage || !["done", "failed", "needs_review"].includes(stage.status)) {
       setQuality(null);
       setQualityLoading(false);
       setQualityUnavailable(false);
@@ -137,6 +137,7 @@ export function RenderDetail({ stage, taskId, task, onRerun }: DetailCommon) {
   };
 
   const canCreateRepost = stage?.status === "done" && task.rewrite_mode !== "repost_dedup";
+  const canApprove = stage?.status === "needs_review";
 
   return (
     <DetailShell
@@ -149,6 +150,11 @@ export function RenderDetail({ stage, taskId, task, onRerun }: DetailCommon) {
       actions={
         <>
           {videoUrl && <TextBtn variant="primary" onClick={download}>下载视频</TextBtn>}
+          {videoUrl && canApprove && (
+            <TextBtn variant="primary" onClick={() => onApprove(stage!.id, "render")}>
+              人工审核通过
+            </TextBtn>
+          )}
           {canCreateRepost && (
             <TextBtn onClick={createRepost} disabled={creatingRepost}>
               {creatingRepost ? "创建中…" : "生成二次发布版本"}

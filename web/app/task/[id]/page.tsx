@@ -58,15 +58,18 @@ export default function TaskDetail() {
   }, [stages]);
 
   const approve = async (stageId: string, kind: string) => {
-    const next = kind === "book" ? "done" : "pending";
-    const { error } = await supabase.from("stages").update({ status: next }).eq("id", stageId);
+    const next = kind === "book" || kind === "render" ? "done" : "pending";
+    const { error } = await supabase
+      .from("stages")
+      .update({ status: next, error: null })
+      .eq("id", stageId);
     if (error) {
       setActionNotice({ text: error.message, ok: false });
       return;
     }
     const { error: taskError } = await supabase
       .from("tasks")
-      .update({ status: "processing" })
+      .update({ status: kind === "render" ? "done" : "processing" })
       .eq("id", id)
       .eq("status", "needs_review");
     if (taskError) {

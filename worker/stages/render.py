@@ -637,12 +637,11 @@ def run(stage: dict) -> tuple[str, str | None]:
             **quality_report["summary"],
             **quality_report["metrics"],
         })
-        if quality_report["status"] == "failed":
-            failed_labels = [
-                check["label"] for check in quality_report["checks"]
-                if check["status"] == "failed"
-            ]
-            raise ValueError(f"自动质检未通过：{'、'.join(failed_labels)}")
+        quality_needs_review = quality_report["status"] == "failed"
+        failed_labels = [
+            check["label"] for check in quality_report["checks"]
+            if check["status"] == "failed"
+        ]
 
         timeline_path = f"{task_id}/render_timeline.json"
         storage.upload_bytes(
@@ -676,6 +675,11 @@ def run(stage: dict) -> tuple[str, str | None]:
             "quality_status": quality_report["status"],
             "quality_report": quality_path,
         })
+        if quality_needs_review:
+            review_error = f"自动质检未通过：{'、'.join(failed_labels)}"
+            db.set_stage(stage["id"], "needs_review", output_ref=sp, error=review_error)
+            print(f"  [REVIEW] render needs_review; 成片已保留 ({review_error})", flush=True)
+            return "needs_review", sp
         return "done", sp
     except RenderTimeout as exc:
         db.set_stage(stage["id"], "failed", error=str(exc))
