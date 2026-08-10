@@ -205,6 +205,12 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
               <p style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 8 }}>
                 {quality.summary.passed} 项通过 · {quality.summary.warnings} 项需复核 · {quality.summary.failed} 项未通过
               </p>
+              <div className="render-metrics" aria-label="成片指标">
+                <div><strong>{quality.metrics.video_duration.toFixed(1)}s</strong><span>视频时长</span></div>
+                <div><strong>{quality.metrics.image_count}</strong><span>画面镜头</span></div>
+                <div><strong>{quality.metrics.subtitle_count}</strong><span>字幕条数</span></div>
+                <div><strong>{(quality.metrics.file_size / 1024 / 1024).toFixed(1)} MB</strong><span>文件大小</span></div>
+              </div>
               {quality.checks.map(check => (
                 <div key={check.id} style={{
                   display: "grid", gridTemplateColumns: "100px minmax(0, 1fr) 58px",

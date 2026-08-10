@@ -41,6 +41,7 @@ export function DetailShell({
   const isPending    = status === "pending";
   const isProcessing = status === "processing";
   const isFailed     = status === "failed";
+  const isReview     = status === "needs_review";
   const isCancelled  = status === "cancelled";
   const canRerun     = stage && !isPending && !isProcessing && !isCancelled;
   const diagnosticBackground = errorTone === "warning" ? "#fffbeb" : "#fff5f5";
@@ -68,7 +69,7 @@ export function DetailShell({
       </div>
 
       {/* 错误 */}
-      {errorPosition === "top" && isFailed && stage?.error && (
+      {errorPosition === "top" && (isFailed || isReview) && stage?.error && (
         <div role="alert" className="stage-diagnostic" style={{
           padding: "8px 12px", borderRadius: "var(--radius-md)",
           background: diagnosticBackground, border: `1px solid ${diagnosticBorder}`,
@@ -95,7 +96,7 @@ export function DetailShell({
       {/* 主内容 */}
       {(!isCancelled && (!isPending || showChildrenOnPending)) && children}
 
-      {errorPosition === "bottom" && isFailed && stage?.error && (
+      {errorPosition === "bottom" && (isFailed || isReview) && stage?.error && (
         <div role="alert" className="stage-diagnostic" style={{
           padding: "8px 12px", borderRadius: "var(--radius-md)",
           background: diagnosticBackground, border: `1px solid ${diagnosticBorder}`,
