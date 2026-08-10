@@ -129,7 +129,7 @@ def _split_storyboard(
     return shots
 
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
-_GRID = 3   # 3×3 = 9
+_GRID = max(1, int(os.environ.get("IMAGE_GRID_CELLS", "3")))
 _CELL_RATIO = 4 / 3
 _GRID_SIZE = config.IMAGE_GRID_SIZE
 _CELL_EDGE_INSET_RATIO = 0.02
