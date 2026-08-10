@@ -1,12 +1,38 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useState } from "react";
+
+const MAX_BYTES = 10 * 1024 * 1024;
+const ALLOWED_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a"]);
 
 export default function VoiceCloningPage() {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  function chooseFile(next: File | null) {
+    setError("");
+    setUrl("");
+    setCopied(false);
+    if (!next) return setFile(null);
+    if (!ALLOWED_TYPES.has(next.type.toLowerCase())) return setError("仅支持 MP3、WAV 或 M4A 音频");
+    if (next.size > MAX_BYTES) return setError("音频文件不能超过 10 MB");
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(next);
+    setPreviewUrl(URL.createObjectURL(next));
+  }
+
+  function drop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setDragging(false);
+    chooseFile(event.dataTransfer.files?.[0] || null);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -29,23 +55,32 @@ export default function VoiceCloningPage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: "#f6f7f9", padding: "48px 20px", color: "#18202a" }}>
-      <section style={{ maxWidth: 680, margin: "0 auto", background: "#fff", border: "1px solid #e2e6eb", borderRadius: 8, padding: 32 }}>
-        <p style={{ margin: "0 0 8px", color: "#667085", fontSize: 14 }}>VOICE ENROLLMENT</p>
-        <h1 style={{ margin: "0 0 12px", fontSize: 28 }}>声音复刻音频上传</h1>
-        <p style={{ margin: "0 0 24px", color: "#667085", lineHeight: 1.7 }}>上传完成后生成临时公网下载地址，用于百炼创建复刻音色。文件不会直接暴露 Supabase 密钥。</p>
+    <main className="voice-page">
+      <div className="voice-workspace">
+      <section className="voice-upload-panel">
+        <p style={{ margin: "0 0 6px", color: "var(--text-secondary)", fontSize: 12 }}>VOICE ENROLLMENT</p>
+        <h1 style={{ margin: "0 0 8px", fontSize: 26 }}>声音样本</h1>
+        <p style={{ margin: "0 0 22px", color: "var(--text-secondary)", fontSize: 13 }}>MP3、WAV 或 M4A，建议 10–20 秒，最大 10 MB。</p>
         <form onSubmit={submit}>
-          <label style={{ display: "block", border: "1px dashed #b9c1cc", borderRadius: 6, padding: 24, cursor: "pointer" }}>
-            <input type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/m4a" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            <span style={{ display: "block", marginTop: 12, color: "#667085" }}>{file ? file.name : "选择 MP3、WAV 或 M4A（不超过 10 MB）"}</span>
+          <label
+            className={`voice-dropzone ${dragging ? "is-dragging" : ""}`}
+            onDragOver={event => { event.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={drop}
+          >
+            <input hidden type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/m4a" onChange={(e) => chooseFile(e.target.files?.[0] || null)} />
+            <strong style={{ display: "block", fontSize: 14 }}>{file ? file.name : "选择或拖入音频"}</strong>
+            <span style={{ display: "block", marginTop: 6, color: "var(--text-secondary)", fontSize: 12 }}>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : "单人清晰朗读，无背景音乐"}</span>
           </label>
-          <button type="submit" disabled={busy} style={{ marginTop: 20, width: "100%", border: 0, borderRadius: 6, padding: "12px 16px", background: busy ? "#98a2b3" : "#1769e0", color: "#fff", cursor: busy ? "wait" : "pointer" }}>
-            {busy ? "正在上传" : "生成音频访问地址"}
+          {previewUrl && <audio controls src={previewUrl} style={{ width: "100%", marginTop: 16 }} />}
+          <button type="submit" disabled={busy || !file} className="primary-action" style={{ marginTop: 18, width: "100%" }}>
+            {busy ? "正在上传…" : "生成访问地址"}
           </button>
         </form>
-        {error && <p style={{ marginTop: 16, color: "#b42318" }}>{error}</p>}
-        {url && <div style={{ marginTop: 24 }}><p style={{ margin: "0 0 8px", fontWeight: 600 }}>可提交给百炼的音频 URL</p><textarea readOnly value={url} style={{ width: "100%", minHeight: 96, padding: 10, border: "1px solid #d0d5dd", borderRadius: 6, fontSize: 12 }} /></div>}
+        {error && <p role="alert" style={{ marginTop: 16, color: "var(--status-failed)", fontSize: 13 }}>{error}</p>}
+        {url && <div className="voice-result"><p style={{ margin: "0 0 8px", fontWeight: 600 }}>音频访问地址</p><textarea readOnly value={url} style={{ width: "100%", minHeight: 92, padding: 10, border: "1px solid var(--border-strong)", borderRadius: 6, fontSize: 12, resize: "vertical" }} /><button type="button" className="secondary-action" style={{ marginTop: 10 }} onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); }}>{copied ? "已复制" : "复制地址"}</button></div>}
       </section>
+      </div>
     </main>
   );
 }
