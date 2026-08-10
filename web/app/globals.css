@@ -114,6 +114,9 @@ textarea:focus-visible, select:focus-visible {
 .rewrite-workspace { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .rewrite-advice { position: sticky; top: 0; max-height: calc(100vh - 190px); overflow-y: auto; }
 .rewrite-drafts { min-width: 0; }
+.book-review-grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(320px, 1.1fr); gap: 24px; align-items: start; }
+.book-info-panel, .book-cta-panel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-sm); }
+.unsaved-notice { margin-bottom: 14px; padding: 9px 12px; border: 1px solid #fde68a; border-radius: var(--radius-md); background: #fffbeb; color: #92400e; font-size: 12px; }
 
 @media (max-width: 760px) {
   .task-header { min-height: 52px; padding: 0 14px; }
@@ -126,6 +129,8 @@ textarea:focus-visible, select:focus-visible {
   .detail-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
   .rewrite-workspace { grid-template-columns: 1fr; gap: 12px; }
   .rewrite-advice { position: static; max-height: none; }
+  .book-review-grid { grid-template-columns: 1fr; gap: 12px; }
+  .book-info-panel, .book-cta-panel { padding: 14px; }
 }
 
 @media (max-width: 760px) {

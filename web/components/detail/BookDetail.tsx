@@ -95,7 +95,11 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
     <DetailShell title="书籍信息" stage={stage} onRerun={onRerun} actions={actions}>
       {(isReview || isDone) && data && (
         <>
-          <section style={{ marginBottom: 20 }}>
+          {editing && (
+            <div role="status" className="unsaved-notice">存在未保存修改，确认后将用于后续 TTS 和成片。</div>
+          )}
+          <div className="book-review-grid">
+          <section className="book-info-panel">
             <EditableField
               label="书名"
               value={data.book_name}
@@ -135,7 +139,7 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
           </section>
 
           {data.cta_text && (
-            <section>
+            <section className="book-cta-panel">
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-disabled)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
                 CTA 文案
               </div>
@@ -144,8 +148,8 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
                   value={draft.cta_text || ""}
                   onChange={event => setDraft(current => ({ ...current, cta_text: event.target.value }))}
                   aria-label="CTA文案"
-                  rows={4}
-                  style={{ width: "100%", padding: "10px 12px", boxSizing: "border-box", resize: "vertical", border: "1px solid var(--border-focus)", borderRadius: "var(--radius-md)", font: "inherit", fontSize: 13, lineHeight: 1.8, outline: "none" }}
+                  rows={10}
+                  style={{ width: "100%", minHeight: 240, padding: "12px 14px", boxSizing: "border-box", resize: "vertical", border: "1px solid var(--border-focus)", borderRadius: "var(--radius-md)", font: "inherit", fontSize: 13, lineHeight: 1.8, outline: "none" }}
                 />
               ) : (
                 <div style={{ padding: "12px 16px", background: "var(--bg-hover)", borderRadius: "var(--radius-lg)", fontSize: 13, lineHeight: 1.8, color: "var(--text-primary)", borderLeft: "3px solid var(--border-focus)", display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -155,6 +159,7 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
               )}
             </section>
           )}
+          </div>
           {error && <p style={{ fontSize: 12, color: "var(--status-failed)", marginTop: 8 }}>{error}</p>}
         </>
       )}
