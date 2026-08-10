@@ -233,6 +233,8 @@ textarea:focus-visible, select:focus-visible {
 .rewrite-workspace { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .rewrite-advice { position: sticky; top: 0; max-height: calc(100vh - 190px); overflow-y: auto; }
 .rewrite-drafts { min-width: 0; }
+.rewrite-editor { min-height: 640px; }
+.rewrite-preview { max-height: 440px; }
 .issue-location { margin-left: auto; padding: 2px 5px; border-radius: 4px; font-size: 9px; font-weight: 600; white-space: nowrap; }
 .issue-location.is-found { background: #fff0e7; color: #ad5f36; }
 .issue-location.is-removed { background: #eaf6ed; color: #4e7b58; }
@@ -296,6 +298,8 @@ textarea:focus-visible, select:focus-visible {
   .detail-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
   .rewrite-workspace { grid-template-columns: 1fr; gap: 12px; }
   .rewrite-advice { position: static; max-height: none; }
+  .rewrite-editor { min-height: 520px; }
+  .rewrite-preview { max-height: 360px; }
   .marker-strip-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
   .book-review-grid { grid-template-columns: 1fr; gap: 12px; }
   .book-info-panel, .book-cta-panel { padding: 14px; }

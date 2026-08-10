@@ -217,13 +217,14 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
                     })}</div>
                   </div>}
                   <textarea
+                    className="rewrite-editor"
                     ref={element => { draftRefs.current[i] = element; }}
                     value={text}
                     onClick={e => e.stopPropagation()}
                     onChange={e => setDrafts(prev => prev.map((item, idx) => idx === i ? e.target.value : item))}
                     aria-label={`${styleName}完整文案`}
                     style={{
-                      display: "block", width: "calc(100% - 28px)", minHeight: 520,
+                      display: "block", width: "calc(100% - 28px)",
                       margin: "0 14px 14px", padding: 12, resize: "vertical",
                       boxSizing: "border-box",
                       border: "1px solid var(--border-focus)", borderRadius: "var(--radius-md)",
@@ -233,8 +234,8 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
                   />
                   </>
                 ) : (
-                  <pre style={{
-                    margin: "0 14px 14px", padding: 12, maxHeight: 300, overflowY: "auto",
+                  <pre className="rewrite-preview" style={{
+                    margin: "0 14px 14px", padding: 12, overflowY: "auto",
                     whiteSpace: "pre-wrap", fontFamily: "var(--font)", fontSize: 13,
                     lineHeight: 1.8, color: "var(--text-primary)", background: "var(--bg-hover)",
                     borderRadius: "var(--radius-md)",
