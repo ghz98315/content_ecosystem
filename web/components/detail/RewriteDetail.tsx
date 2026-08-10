@@ -99,7 +99,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
       const source = drafts[draftIndex] || "";
       const start = issue.text ? source.indexOf(issue.text) : -1;
       if (!field || start < 0) {
-        setErr("正文中未找到该风险片段，请根据建议人工复核。" );
+        setErr("当前改写稿中已不再出现该风险片段，请确认替代表达是否符合原意。" );
         return;
       }
       field.focus();
@@ -162,6 +162,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
                   <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
                     <strong>{index + 1}. {issue.level === "high" ? "高风险" : issue.level === "medium" ? "需复核" : "提醒"} · {issue.category}</strong>
                     {issue.text && <span style={{ color: "var(--status-failed)" }}>“{issue.text}”</span>}
+                    {issue.text && <span className={`issue-location ${drafts[selected ?? 0]?.includes(issue.text) ? "is-found" : "is-removed"}`}>{drafts[selected ?? 0]?.includes(issue.text) ? "稿件中已定位" : "改写后已移除"}</span>}
                   </div>
                   <div style={{ color: "var(--text-secondary)" }}>{issue.reason}</div>
                   <div>{issue.suggestion}</div>
@@ -206,6 +207,15 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
                 </header>
 
                 {isReview && isSelected ? (
+                  <>
+                  {report?.issues.some(issue => issue.text) && <div className="rewrite-marker-strip" aria-label="问题定位">
+                    <div className="marker-strip-heading"><strong>问题定位</strong><span>编号与左侧建议一致，点击可跳到稿件中的对应位置</span></div>
+                    <div className="marker-list">{report.issues.filter(issue => issue.text).map((issue, issueIndex) => {
+                      const position = text.indexOf(issue.text);
+                      const found = position >= 0;
+                      return <button key={`${issue.text}-${issueIndex}`} type="button" className={found ? "is-found" : "is-removed"} onClick={event => { event.stopPropagation(); jumpToIssue(issue, report.issues.indexOf(issue)); }} title={found ? `位于正文约 ${Math.round(position / Math.max(text.length, 1) * 100)}% 处` : "该词已不在当前稿件中"}><b>{report.issues.indexOf(issue) + 1}</b><span>{issue.text}</span><small>{found ? `${Math.round(position / Math.max(text.length, 1) * 100)}%` : "已移除"}</small></button>;
+                    })}</div>
+                  </div>}
                   <textarea
                     ref={element => { draftRefs.current[i] = element; }}
                     value={text}
@@ -221,6 +231,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
                       color: "var(--text-primary)", background: "#fff",
                     }}
                   />
+                  </>
                 ) : (
                   <pre style={{
                     margin: "0 14px 14px", padding: 12, maxHeight: 300, overflowY: "auto",

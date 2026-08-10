@@ -233,6 +233,21 @@ textarea:focus-visible, select:focus-visible {
 .rewrite-workspace { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .rewrite-advice { position: sticky; top: 0; max-height: calc(100vh - 190px); overflow-y: auto; }
 .rewrite-drafts { min-width: 0; }
+.issue-location { margin-left: auto; padding: 2px 5px; border-radius: 4px; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.issue-location.is-found { background: #fff0e7; color: #ad5f36; }
+.issue-location.is-removed { background: #eaf6ed; color: #4e7b58; }
+.rewrite-marker-strip { margin: 0 14px 10px; padding: 10px; border: 1px solid #dbe4dc; border-radius: 7px; background: #fbfdfb; }
+.marker-strip-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.marker-strip-heading strong { color: #405047; font-size: 11px; }
+.marker-strip-heading span { color: var(--text-disabled); font-size: 10px; }
+.marker-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.marker-list button { min-width: 0; min-height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px 3px 3px; border: 1px solid transparent; border-radius: 5px; background: #f1f3f0; color: var(--text-secondary); font-size: 10px; }
+.marker-list button b { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 4px; background: #fff; color: #9b6842; font-size: 10px; }
+.marker-list button span { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.marker-list button small { color: var(--text-disabled); font-size: 9px; }
+.marker-list button.is-found { border-color: #ecd7c6; background: #fff7f0; }
+.marker-list button.is-removed { border-color: #d8e7db; background: #f1f8f2; text-decoration: line-through; }
+.marker-list button:hover { border-color: var(--sage); }
 .book-review-grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(320px, 1.1fr); gap: 24px; align-items: start; }
 .book-info-panel, .book-cta-panel { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-sm); }
 .book-cover-control { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; align-items: center; margin-bottom: 14px; }
@@ -281,6 +296,7 @@ textarea:focus-visible, select:focus-visible {
   .detail-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
   .rewrite-workspace { grid-template-columns: 1fr; gap: 12px; }
   .rewrite-advice { position: static; max-height: none; }
+  .marker-strip-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
   .book-review-grid { grid-template-columns: 1fr; gap: 12px; }
   .book-info-panel, .book-cta-panel { padding: 14px; }
   .image-review-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
