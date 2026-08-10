@@ -183,9 +183,12 @@ export default function HomePage() {
             </div>
 
             {tasks.length === 0 ? (
-              <p style={{ fontSize: 13, color: "var(--text-disabled)", padding: "12px 0" }}>
-                还没有任务，点击上方新建
-              </p>
+              <div className="page-empty-state" role="status">
+                <span className="empty-state-icon" aria-hidden="true">＋</span>
+                <strong>还没有任务</strong>
+                <span>创建一个任务，开始生成你的第一条成片</span>
+                <button onClick={openForm}>新建任务</button>
+              </div>
             ) : (
               <div className="task-list">
                 {tasks.map((t, i) => {

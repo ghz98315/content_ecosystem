@@ -221,3 +221,21 @@ textarea:focus-visible, select:focus-visible {
   flex-shrink: 0;
   transition: background-color 0.3s ease;
 }
+
+.mobile-sidebar-trigger, .mobile-sidebar-backdrop { display: none; }
+.sidebar-task-tools { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 5px; padding: 6px 2px 8px; }
+.sidebar-task-tools input, .sidebar-task-tools select { min-width: 0; height: 30px; padding: 0 7px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-secondary); font-size: 11px; outline: none; }
+.sidebar-task-tools input:focus, .sidebar-task-tools select:focus { border-color: var(--border-focus); box-shadow: 0 0 0 2px rgba(37, 99, 235, .1); }
+.sidebar-empty { display: grid; justify-items: start; gap: 3px; padding: 14px 8px; color: var(--text-disabled); font-size: 12px; }
+.empty-state-icon { width: 24px; height: 24px; display: grid; place-items: center; border: 1px dashed var(--border-strong); border-radius: 50%; font-size: 16px; }
+.sidebar-empty button { padding: 0; border: 0; background: none; color: var(--accent); font-size: 11px; }
+.page-empty-state { display: grid; justify-items: center; gap: 4px; padding: 34px 16px; border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); color: var(--text-disabled); font-size: 12px; text-align: center; }
+.page-empty-state strong { color: var(--text-secondary); font-size: 14px; }
+.page-empty-state button { margin-top: 8px; min-height: 34px; padding: 0 14px; border: 1px solid var(--accent); border-radius: var(--radius-md); background: var(--accent); color: #fff; font-size: 12px; }
+
+@media (max-width: 760px) {
+  .app-sidebar { position: fixed; z-index: 120; inset: 0 auto 0 0; width: min(82vw, 300px) !important; min-width: min(82vw, 300px) !important; transform: translateX(-102%); box-shadow: var(--shadow-md); transition: transform .22s cubic-bezier(.4,0,.2,1); }
+  .app-sidebar.is-mobile-open { transform: translateX(0); }
+  .mobile-sidebar-trigger { display: grid; position: fixed; z-index: 110; top: 12px; left: 12px; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-secondary); box-shadow: var(--shadow-sm); font-size: 18px; line-height: 1; }
+  .mobile-sidebar-backdrop { display: block; position: fixed; z-index: 115; inset: 0; border: 0; background: rgba(15, 23, 42, .25); }
+}

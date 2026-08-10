@@ -19,11 +19,15 @@ interface Props {
 export function Sidebar({ tasks, currentTaskId, onCreateTask }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   useEffect(() => {
     const saved = localStorage.getItem("sidebar-collapsed");
     if (saved !== null) setCollapsed(saved === "true");
   }, []);
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   const toggle = () => {
     const next = !collapsed;
@@ -32,9 +36,24 @@ export function Sidebar({ tasks, currentTaskId, onCreateTask }: Props) {
   };
 
   const w = collapsed ? "var(--sidebar-collapsed)" : "var(--sidebar-width)";
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleTasks = tasks.filter(task => {
+    const label = (task.title || task.source_url || task.id).toLowerCase();
+    return (!normalizedQuery || label.includes(normalizedQuery))
+      && (statusFilter === "all" || task.status === statusFilter);
+  });
 
   return (
+    <>
+    <button
+      className="mobile-sidebar-trigger"
+      aria-label="打开导航"
+      aria-expanded={mobileOpen}
+      onClick={() => setMobileOpen(true)}
+    >☰</button>
+    {mobileOpen && <button className="mobile-sidebar-backdrop" aria-label="关闭导航" onClick={() => setMobileOpen(false)} />}
     <aside
+      className={`app-sidebar${mobileOpen ? " is-mobile-open" : ""}`}
       style={{
         width: w,
         minWidth: w,
@@ -159,10 +178,29 @@ export function Sidebar({ tasks, currentTaskId, onCreateTask }: Props) {
 
       {/* 任务列表 */}
       <div style={{ flex: 1, overflowY: "auto", padding: "2px 6px 12px" }}>
-        {!collapsed && tasks.length === 0 && (
-          <p style={{ fontSize: 12, color: "var(--text-disabled)", padding: "6px 8px" }}>暂无任务</p>
+        {!collapsed && tasks.length > 0 && (
+          <div className="sidebar-task-tools">
+            <input aria-label="搜索任务" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索任务" />
+            <select aria-label="按状态筛选" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}>
+              <option value="all">全部状态</option>
+              <option value="processing">处理中</option>
+              <option value="needs_review">待确认</option>
+              <option value="done">已完成</option>
+              <option value="failed">失败</option>
+            </select>
+          </div>
         )}
-        {tasks.map(t => {
+        {!collapsed && tasks.length === 0 && (
+          <div className="sidebar-empty" role="status">
+            <span className="empty-state-icon" aria-hidden="true">＋</span>
+            <span>还没有任务</span>
+            {onCreateTask && <button onClick={onCreateTask}>创建第一个任务</button>}
+          </div>
+        )}
+        {!collapsed && tasks.length > 0 && visibleTasks.length === 0 && (
+          <p style={{ fontSize: 12, color: "var(--text-disabled)", padding: "10px 8px" }}>没有匹配的任务</p>
+        )}
+        {visibleTasks.map(t => {
           const isCurrent = t.id === currentTaskId;
           const dotColor = STATUS_COLOR[t.status as keyof typeof STATUS_COLOR] ?? "var(--status-pending)";
           return (
@@ -194,5 +232,6 @@ export function Sidebar({ tasks, currentTaskId, onCreateTask }: Props) {
         })}
       </div>
     </aside>
+    </>
   );
 }
