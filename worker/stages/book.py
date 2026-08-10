@@ -46,6 +46,7 @@ def _apply_manual_overrides(info: dict, params: dict) -> dict:
         "manual_book_name": "book_name",
         "manual_book_author": "author",
         "manual_book_nationality": "nationality",
+        "manual_cta_text": "cta_text",
     }
     applied = False
     for param_key, info_key in overrides.items():
@@ -138,6 +139,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         )
     except Exception:
         info["cta_text"] = ""  # CTA 失败不阻断主流程
+
+    # Apply reviewer edits after generation so a manual CTA is authoritative.
+    _apply_manual_overrides(info, params)
 
     data = json.dumps(info, ensure_ascii=False, indent=2).encode("utf-8")
     sp = f"{task_id}/book.json"

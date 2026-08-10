@@ -38,6 +38,7 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
       book_name: data?.book_name || "",
       author: data?.author || "",
       nationality: data?.nationality || "",
+      cta_text: data?.cta_text || "",
     });
     setEditing(true);
     setError(null);
@@ -55,6 +56,8 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
       if (bookName) params.manual_book_name = bookName;
       if (author) params.manual_book_author = author;
       if (nationality) params.manual_book_nationality = nationality;
+      const ctaText = draft.cta_text?.trim();
+      if (ctaText) params.manual_cta_text = ctaText;
     }
     params.book_confirmed = true;
     const { error: updateError } = await supabase
@@ -136,9 +139,20 @@ export function BookDetail({ stage, onRerun }: DetailCommon) {
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-disabled)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
                 CTA 文案
               </div>
-              <div style={{ padding: "12px 16px", background: "var(--bg-hover)", borderRadius: "var(--radius-lg)", fontSize: 13, lineHeight: 1.8, color: "var(--text-primary)", borderLeft: "3px solid var(--border-focus)" }}>
-                {data.cta_text}
-              </div>
+              {editing ? (
+                <textarea
+                  value={draft.cta_text || ""}
+                  onChange={event => setDraft(current => ({ ...current, cta_text: event.target.value }))}
+                  aria-label="CTA文案"
+                  rows={4}
+                  style={{ width: "100%", padding: "10px 12px", boxSizing: "border-box", resize: "vertical", border: "1px solid var(--border-focus)", borderRadius: "var(--radius-md)", font: "inherit", fontSize: 13, lineHeight: 1.8, outline: "none" }}
+                />
+              ) : (
+                <div style={{ padding: "12px 16px", background: "var(--bg-hover)", borderRadius: "var(--radius-lg)", fontSize: 13, lineHeight: 1.8, color: "var(--text-primary)", borderLeft: "3px solid var(--border-focus)", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ flex: 1 }}>{data.cta_text}</span>
+                  {isReview && <button type="button" onClick={beginEditing} style={{ fontSize: 11, color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", padding: "1px 6px", borderRadius: "var(--radius-sm)" }}>编辑</button>}
+                </div>
+              )}
             </section>
           )}
           {error && <p style={{ fontSize: 12, color: "var(--status-failed)", marginTop: 8 }}>{error}</p>}
