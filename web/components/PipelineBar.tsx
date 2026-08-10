@@ -18,15 +18,7 @@ const STATUS_ICON: Record<string, string> = {
 
 export function PipelineBar({ stages, selected, onSelect }: Props) {
   return (
-    <div style={{
-      height: "var(--pipeline-height)",
-      borderBottom: "1px solid var(--border)",
-      display: "flex",
-      alignItems: "stretch",
-      overflowX: "auto",
-      overflowY: "hidden",
-      flexShrink: 0,
-    }}>
+    <div className="pipeline-bar">
       {STAGES.map((def, i) => {
         const st = stages.find(s => s.kind === def.kind);
         const status = st?.status ?? "pending";
@@ -46,6 +38,7 @@ export function PipelineBar({ stages, selected, onSelect }: Props) {
           <button
             key={def.kind}
             onClick={() => onSelect(def.kind)}
+            className={`pipeline-step ${isSelected ? "" : "hoverable"}`}
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "0 14px", border: "none", background: "none",
@@ -55,7 +48,6 @@ export function PipelineBar({ stages, selected, onSelect }: Props) {
               transition: "background 0.12s ease, color 0.12s ease",
               borderBottom: isSelected ? "2px solid var(--border-focus)" : "2px solid transparent",
             }}
-            className={isSelected ? "" : "hoverable"}
             title={def.label}
           >
             {/* 状态圆点 */}

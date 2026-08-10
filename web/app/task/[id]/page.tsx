@@ -225,13 +225,9 @@ export default function TaskDetail() {
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       <Sidebar tasks={tasks} currentTaskId={id} />
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+      <div className="task-workspace">
         {/* 任务标题栏 */}
-        <div style={{
-          height: 48, display: "flex", alignItems: "center",
-          padding: "0 20px", gap: 12, flexShrink: 0,
-          borderBottom: "1px solid var(--border)",
-        }}>
+        <div className="task-header">
           <span style={{ fontSize: 14, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
             {task.title || task.source_url || task.id}
           </span>
@@ -242,6 +238,7 @@ export default function TaskDetail() {
             <button
               onClick={canDeletePending ? cancelAndDeletePendingTask : cancelTask}
               disabled={actionBusy}
+              className="task-cancel hoverable"
               style={{
                 padding: "3px 10px", fontSize: 12, background: "none",
                 border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
@@ -250,7 +247,6 @@ export default function TaskDetail() {
                 opacity: actionBusy ? 0.65 : 1,
                 transition: "background 0.12s ease",
               }}
-              className="hoverable"
             >
               {actionBusy ? "处理中…" : canDeletePending ? "取消并删除" : "取消任务"}
             </button>
@@ -272,7 +268,7 @@ export default function TaskDetail() {
         <PipelineBar stages={stages} selected={selected} onSelect={setSelected} />
 
         {/* 详情面板 */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+        <div className="task-stage-content">
           <StageDetail
             key={selected}
             kind={selected}

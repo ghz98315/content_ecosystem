@@ -96,6 +96,22 @@ textarea:focus-visible, select:focus-visible {
 .task-row:last-child { border-bottom: 0; }
 .task-row:hover { background: var(--bg-hover); }
 
+.task-workspace { display: flex; flex-direction: column; min-width: 0; flex: 1; overflow: hidden; }
+.task-header { min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
+.task-stage-content { flex: 1; min-height: 0; overflow-y: auto; padding: 32px clamp(16px, 4vw, 48px); }
+.pipeline-bar { min-height: var(--pipeline-height); border-bottom: 1px solid var(--border); display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; background: var(--bg-surface); scrollbar-width: thin; }
+.pipeline-step { min-height: var(--pipeline-height); }
+.detail-shell { width: min(100%, 820px); }
+
+@media (max-width: 760px) {
+  .task-header { min-height: 52px; padding: 0 14px; }
+  .task-header .task-cancel { padding: 7px 10px !important; }
+  .pipeline-bar { min-height: 52px; }
+  .pipeline-step { min-height: 52px; padding: 0 11px !important; }
+  .task-stage-content { padding: 20px 14px 40px; }
+  .detail-shell { width: 100%; }
+}
+
 @media (max-width: 760px) {
   .home-content { padding: 28px 16px 48px; }
   .home-title { font-size: 24px; }

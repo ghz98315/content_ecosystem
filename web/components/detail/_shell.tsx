@@ -48,7 +48,7 @@ export function DetailShell({
   const diagnosticColor = errorTone === "warning" ? "#a16207" : "var(--status-failed)";
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div className="detail-shell">
       {/* 标题行 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)" }}>{title}</h2>
