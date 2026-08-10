@@ -256,6 +256,11 @@ class StoryboardTests(unittest.TestCase):
         self.assertNotIn("治疗", safe_prompt)
         self.assertNotIn("用药", safe_prompt)
         self.assertNotIn("症状", safe_prompt)
+        self.assertNotIn("医院", _build_grid_prompt(["医院、器官、伤口和监护仪"])
+        )
+        self.assertNotIn("器官", _build_grid_prompt(["医院、器官、伤口和监护仪"]))
+        self.assertNotIn("伤口", _build_grid_prompt(["医院、器官、伤口和监护仪"]))
+        self.assertNotIn("监护仪", _build_grid_prompt(["医院、器官、伤口和监护仪"]))
         self.assertNotIn("带货", safe_prompt)
         self.assertEqual("一本素色无字封面的书介绍三个健康方法", _visual_scene("《身体重置》介绍三个健康方法123"))
 
