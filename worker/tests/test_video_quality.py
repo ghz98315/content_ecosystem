@@ -63,7 +63,12 @@ from stages.rewrite import _candidate_issues, _parse_candidates
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
-from narration import pause_after_text, split_semantic_units, strip_subtitle_punctuation
+from narration import (
+    has_disallowed_subtitle_punctuation,
+    pause_after_text,
+    split_semantic_units,
+    strip_subtitle_punctuation,
+)
 
 
 class RewriteQualityTests(unittest.TestCase):
@@ -280,7 +285,7 @@ class StoryboardTests(unittest.TestCase):
             {"start": 2.0, "end": 4.0, "duration": 2.0},
         ]
         cues = [
-            {"text": "第一句字幕", "start": 0.0, "end": 2.0},
+            {"text": "介绍《超越百岁》", "start": 0.0, "end": 2.0},
             {"text": "第二句字幕", "start": 2.0, "end": 4.0},
         ]
         report = evaluate_render_quality(
@@ -448,6 +453,14 @@ class TtsInputTests(unittest.TestCase):
         timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]
         with self.assertRaisesRegex(ValueError, "标点"):
             _validate_timeline(timeline, [{"text": "字幕不要出现。", "start": 0.0, "end": 1.0}], 2.0)
+
+    def test_render_allows_paired_book_title_marks(self):
+        timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]
+        cues = [{"text": "把《超越百岁》带回家", "start": 0.0, "end": 2.0}]
+        _validate_timeline(timeline, cues, 2.0)
+        self.assertFalse(has_disallowed_subtitle_punctuation(cues[0]["text"]))
+        self.assertTrue(has_disallowed_subtitle_punctuation("《超越百岁"))
+        self.assertTrue(has_disallowed_subtitle_punctuation("《超越百岁》。"))
 
     def test_render_rejects_overlong_or_reversed_subtitles(self):
         timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]

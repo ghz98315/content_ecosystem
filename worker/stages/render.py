@@ -15,7 +15,7 @@ import imageio_ffmpeg
 import db
 import storage
 import config
-from narration import strip_subtitle_punctuation, visible_len
+from narration import has_disallowed_subtitle_punctuation, visible_len
 from quality import inspect_render_quality
 
 W, H = 1080, 1920
@@ -387,9 +387,7 @@ def _validate_timeline(timeline: list[dict], cues: list[dict], tts_duration: flo
         unmarked_text = text.replace("《", "").replace("》", "")
         if visible_len(unmarked_text) > 14:
             raise ValueError("字幕存在超过 14 字的片段")
-        if text.count("《") != text.count("》"):
-            raise ValueError("字幕中的书名号必须成对出现")
-        if unmarked_text != strip_subtitle_punctuation(text):
+        if has_disallowed_subtitle_punctuation(text):
             raise ValueError("字幕存在标点符号，必须在标点处断句且不显示标点")
         start = float(cue.get("start", 0.0))
         end = float(cue.get("end", start))

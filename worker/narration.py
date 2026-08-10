@@ -80,6 +80,15 @@ def strip_subtitle_punctuation(text: str) -> str:
     return re.sub(r"\s+", "", _SUBTITLE_PUNCTUATION_RE.sub("", text or ""))
 
 
+def has_disallowed_subtitle_punctuation(text: str) -> bool:
+    """Allow paired Chinese book-title marks, but reject other subtitle punctuation."""
+    value = str(text or "")
+    if re.fullmatch(r"(?:[^《》]|《[^《》]+》)*", value) is None:
+        return True
+    unmarked = value.replace("《", "").replace("》", "")
+    return unmarked != strip_subtitle_punctuation(value)
+
+
 def pause_after_text(text: str) -> float:
     """Return the requested pause represented by trailing punctuation."""
     compact = re.sub(r"\s+", "", text or "")
