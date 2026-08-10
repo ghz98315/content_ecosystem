@@ -587,8 +587,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             ff(), "-y", "-i", video_only,
             "-itsoffset", str(INTRO_DUR), "-i", audio_local,
             "-vf", "ass=subs.ass",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-shortest", final,
+            "-c:v", "libx264", "-b:v", "600k", "-maxrate", "750k",
+            "-bufsize", "1500k", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "64k", "-shortest", final,
         ], check=True, capture_output=True, cwd=tmpdir)
 
         stage_rows = db.retry(

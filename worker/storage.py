@@ -17,7 +17,7 @@ _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-_RESUMABLE_THRESHOLD = 40 * 1024 * 1024
+_RESUMABLE_THRESHOLD = 49 * 1024 * 1024
 _RESUMABLE_CHUNK_SIZE = 6 * 1024 * 1024
 
 
