@@ -1,6 +1,9 @@
 "use client";
 
 import { DragEvent, FormEvent, useEffect, useState } from "react";
+import { AppShell } from "@/components/AppShell";
+import { supabase } from "@/lib/supabase";
+import { Task } from "@/lib/types";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a"]);
@@ -13,8 +16,10 @@ export default function VoiceCloningPage() {
   const [dragging, setDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [copied, setCopied] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  useEffect(() => { supabase.from("tasks").select("*").order("created_at", { ascending: false }).limit(20).then(({ data }) => data && setTasks(data as Task[])); }, []);
 
   function chooseFile(next: File | null) {
     setError("");
@@ -55,7 +60,8 @@ export default function VoiceCloningPage() {
   }
 
   return (
-    <main className="voice-page">
+    <AppShell tasks={tasks}>
+    <div className="voice-page">
       <div className="voice-workspace">
       <section className="voice-upload-panel">
         <p style={{ margin: "0 0 6px", color: "var(--text-secondary)", fontSize: 12 }}>VOICE ENROLLMENT</p>
@@ -81,6 +87,7 @@ export default function VoiceCloningPage() {
         {url && <div className="voice-result"><p style={{ margin: "0 0 8px", fontWeight: 600 }}>音频访问地址</p><textarea readOnly value={url} style={{ width: "100%", minHeight: 92, padding: 10, border: "1px solid var(--border-strong)", borderRadius: 6, fontSize: 12, resize: "vertical" }} /><button type="button" className="secondary-action" style={{ marginTop: 10 }} onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); }}>{copied ? "已复制" : "复制地址"}</button></div>}
       </section>
       </div>
-    </main>
+    </div>
+    </AppShell>
   );
 }

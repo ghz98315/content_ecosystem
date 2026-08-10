@@ -6,8 +6,9 @@ import { Task } from "@/lib/types";
 import { STATUS_COLOR } from "@/lib/types";
 
 const TOOLS = [
-  { id: "douyin",       label: "抖音带货视频", icon: "🎬", href: "/",    active: true  },
-  { id: "xiaohongshu",  label: "小红书笔记",   icon: "📕", href: "/xhs", active: true  },
+  { id: "projects", label: "内容项目库", icon: "▦", href: "/", active: true },
+  { id: "knowledge", label: "知识图文", icon: "▤", href: "/xhs", active: true },
+  { id: "voice", label: "音色与声音复刻", icon: "◉", href: "/voice-cloning", active: true },
 ];
 
 interface Props {

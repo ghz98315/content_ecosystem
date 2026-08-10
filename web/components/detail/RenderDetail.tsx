@@ -179,8 +179,28 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         </div>
       )}
 
+      {videoUrl && (
+        <section className="render-workbench">
+          <div className="render-video-panel">
+            <div className="render-panel-heading"><div><strong>成片预览</strong><span>{isPreviousVideo ? "当前展示上一次成功版本" : "当前任务最新版本"}</span></div><span className="status-badge status-done">可人工检查</span></div>
+            <video controls src={videoUrl} />
+          </div>
+          <aside className="render-preset-panel" aria-label="当前成片方案">
+            <div><p className="eyebrow">当前成片方案</p><h3>中老年生活叙事</h3><p>以下为当前 worker 实际使用的固定输出参数，不会在本任务中途改变。</p></div>
+            <dl>
+              <div><dt>画幅</dt><dd>竖版 9:16</dd></div>
+              <div><dt>画面</dt><dd>生活化 · 轻微油画感</dd></div>
+              <div><dt>动效</dt><dd>缓慢 Zoom In · 短叠化</dd></div>
+              <div><dt>声音</dt><dd>配音与字幕时间轴对齐</dd></div>
+              <div><dt>背景音乐</dt><dd>当前未配置</dd></div>
+            </dl>
+            <p className="render-preset-note">多风格和背景音乐会在 worker 参数化后进入新任务设置，不影响历史成片。</p>
+          </aside>
+        </section>
+      )}
+
       {(qualityLoading || quality || qualityUnavailable) && (
-        <section style={{ marginBottom: 24 }}>
+        <section className="quality-panel" style={{ marginBottom: 24 }}>
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             paddingBottom: 10, borderBottom: "1px solid var(--border)", marginBottom: 10,
@@ -229,26 +249,6 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         </section>
       )}
 
-      {videoUrl && (
-        <section>
-          {isPreviousVideo && (
-            <p style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 8 }}>
-              当前重跑未成功，以下为上一次成功生成的成片
-            </p>
-          )}
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            <video
-              controls src={videoUrl}
-              style={{
-                maxWidth: 320, width: "100%",
-                borderRadius: "var(--radius-lg)",
-                border: "1px solid var(--border)",
-                background: "#000",
-              }}
-            />
-          </div>
-        </section>
-      )}
     </DetailShell>
   );
 }
