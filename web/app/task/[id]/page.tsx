@@ -5,9 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useAnonAuth } from "@/lib/useAnonAuth";
 import { Task, Stage, StageKind, STAGES } from "@/lib/types";
-import { Sidebar }     from "@/components/Sidebar";
+import { AppShell }    from "@/components/AppShell";
 import { PipelineBar } from "@/components/PipelineBar";
 import { StageDetail } from "@/components/StageDetail";
+import { PreflightPanel } from "@/components/PreflightPanel";
 
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +19,7 @@ export default function TaskDetail() {
   const [stages, setStages] = useState<Stage[]>([]);
   const [tasks,  setTasks]  = useState<Task[]>([]);
   const [selected, setSelected] = useState<StageKind>("ingest");
+  const [workspaceView, setWorkspaceView] = useState<"flow" | "preflight">("flow");
   const [actionBusy, setActionBusy] = useState(false);
   const [actionNotice, setActionNotice] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -209,25 +211,17 @@ export default function TaskDetail() {
   };
 
   if (!task) {
-    return (
-      <div style={{ display: "flex", height: "100vh" }}>
-        <Sidebar tasks={[]} />
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <p style={{ color: "var(--text-disabled)", fontSize: 13 }}>加载中…</p>
-        </div>
-      </div>
-    );
+    return <AppShell><div className="page-loading"><div className="skeleton loading-line" /><div className="skeleton loading-block" /></div></AppShell>;
   }
 
   const doneCount = stages.filter(s => s.status === "done").length;
   const canDeletePending = task.status === "pending"
     && stages.length > 0
     && stages.every(stage => stage.status === "pending");
+  const openStage = (kind: StageKind) => { setSelected(kind); setWorkspaceView("flow"); };
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      <Sidebar tasks={tasks} currentTaskId={id} />
-
+    <AppShell tasks={tasks} currentTaskId={id}>
       <div className="task-workspace">
         {/* 任务标题栏 */}
         <div className="task-header">
@@ -267,22 +261,16 @@ export default function TaskDetail() {
           </div>
         )}
 
-        {/* 流程条 */}
-        <PipelineBar stages={stages} selected={selected} onSelect={setSelected} />
+        <nav className="workspace-tabs" aria-label="项目工作区">
+          <button className={workspaceView === "flow" ? "is-active" : ""} onClick={() => setWorkspaceView("flow")}>流程工作台</button>
+          <button className={workspaceView === "preflight" ? "is-active" : ""} onClick={() => setWorkspaceView("preflight")}>生成前确认<span className="tab-count">{stages.filter(stage => stage.kind !== "render" && stage.status === "done").length}/7</span></button>
+        </nav>
 
-        {/* 详情面板 */}
-        <div className="task-stage-content">
-          <StageDetail
-            key={selected}
-            kind={selected}
-            stage={stages.find(s => s.kind === selected)}
-            taskId={id}
-            task={task}
-            onRerun={rerun}
-            onApprove={approve}
-          />
-        </div>
+        {workspaceView === "flow" ? <>
+          <PipelineBar stages={stages} selected={selected} onSelect={setSelected} />
+          <div className="task-stage-content"><StageDetail key={selected} kind={selected} stage={stages.find(s => s.kind === selected)} taskId={id} task={task} onRerun={rerun} onApprove={approve} /></div>
+        </> : <div className="task-stage-content"><PreflightPanel task={task} stages={stages} onOpenStage={openStage} /></div>}
       </div>
-    </div>
+    </AppShell>
   );
 }

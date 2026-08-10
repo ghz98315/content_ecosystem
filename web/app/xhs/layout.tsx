@@ -2,7 +2,7 @@
 import './xhs.css'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Sidebar } from '@/components/Sidebar'
+import { AppShell } from '@/components/AppShell'
 import { Task } from '@/lib/types'
 
 export default function XhsLayout({ children }: { children: React.ReactNode }) {
@@ -20,12 +20,5 @@ export default function XhsLayout({ children }: { children: React.ReactNode }) {
     load()
   }, [])
 
-  return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <Sidebar tasks={tasks} />
-      <main className="flex-1 overflow-y-auto bg-gray-50 min-h-screen">
-        {children}
-      </main>
-    </div>
-  )
+  return <AppShell tasks={tasks}>{children}</AppShell>
 }
