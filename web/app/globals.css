@@ -111,6 +111,9 @@ textarea:focus-visible, select:focus-visible {
 @keyframes skeleton-wave { to { transform: translateX(100%); } }
 .text-action { min-height: 36px; padding: 0 14px; border: 0; border-radius: var(--radius-md); font-size: 13px; transition: background .15s ease, color .15s ease, transform .15s ease; }
 .text-action:hover:not(:disabled) { transform: translateY(-1px); }
+.rewrite-workspace { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.rewrite-advice { position: sticky; top: 0; max-height: calc(100vh - 190px); overflow-y: auto; }
+.rewrite-drafts { min-width: 0; }
 
 @media (max-width: 760px) {
   .task-header { min-height: 52px; padding: 0 14px; }
@@ -121,6 +124,8 @@ textarea:focus-visible, select:focus-visible {
   .detail-shell { width: 100%; }
   .detail-heading { align-items: flex-start; flex-wrap: wrap; }
   .detail-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
+  .rewrite-workspace { grid-template-columns: 1fr; gap: 12px; }
+  .rewrite-advice { position: static; max-height: none; }
 }
 
 @media (max-width: 760px) {

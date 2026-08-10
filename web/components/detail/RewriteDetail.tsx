@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { DetailShell, TextBtn, DetailCommon } from "./_shell";
 
@@ -46,6 +46,8 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [activeIssue, setActiveIssue] = useState<number | null>(null);
+  const draftRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
 
   useEffect(() => {
     if (!stage?.output_ref) return;
@@ -86,6 +88,25 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
   const isReview = stage?.status === "needs_review";
   const isDone = stage?.status === "done";
   const report = data?.compliance;
+
+  const jumpToIssue = (issue: ComplianceIssue, issueIndex: number) => {
+    const draftIndex = selected ?? 0;
+    setSelected(draftIndex);
+    setActiveIssue(issueIndex);
+    setErr(null);
+    window.setTimeout(() => {
+      const field = draftRefs.current[draftIndex];
+      const source = drafts[draftIndex] || "";
+      const start = issue.text ? source.indexOf(issue.text) : -1;
+      if (!field || start < 0) {
+        setErr("正文中未找到该风险片段，请根据建议人工复核。" );
+        return;
+      }
+      field.focus();
+      field.setSelectionRange(start, start + issue.text.length);
+      field.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+  };
   const actions = isReview ? (
     <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null}>
       {busy ? "提交中…" : "确认改写稿 →"}
@@ -101,6 +122,8 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
             <span>{data.complete ? "改写稿已通过完整性检查" : "历史改写稿，确认前请检查全文"}</span>
           </div>
 
+          <div className="rewrite-workspace">
+          <aside className="rewrite-advice" aria-label="合规检查建议">
           {report && (
             <section style={{
               marginBottom: 16,
@@ -120,15 +143,24 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
               {report.issues.map((issue, index) => (
                 <div
                   key={`${issue.category}-${issue.text}-${index}`}
+                  role={issue.text ? "button" : undefined}
+                  tabIndex={issue.text ? 0 : undefined}
+                  onClick={() => issue.text && jumpToIssue(issue, index)}
+                  onKeyDown={event => {
+                    if (issue.text && (event.key === "Enter" || event.key === " ")) jumpToIssue(issue, index);
+                  }}
                   style={{
-                    padding: "9px 0",
+                    padding: "10px 8px",
                     borderTop: index ? "1px solid rgba(0,0,0,0.08)" : "none",
                     fontSize: 12,
                     lineHeight: 1.6,
+                    cursor: issue.text ? "pointer" : "default",
+                    background: activeIssue === index ? "rgba(37, 99, 235, 0.08)" : "transparent",
+                    borderRadius: "var(--radius-sm)",
                   }}
                 >
                   <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                    <strong>{issue.level === "high" ? "高风险" : issue.level === "medium" ? "需复核" : "提醒"} · {issue.category}</strong>
+                    <strong>{index + 1}. {issue.level === "high" ? "高风险" : issue.level === "medium" ? "需复核" : "提醒"} · {issue.category}</strong>
                     {issue.text && <span style={{ color: "var(--status-failed)" }}>“{issue.text}”</span>}
                   </div>
                   <div style={{ color: "var(--text-secondary)" }}>{issue.reason}</div>
@@ -137,6 +169,9 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
               ))}
             </section>
           )}
+          </aside>
+
+          <div className="rewrite-drafts">
 
           {data.candidates.map((original, i) => {
             const isSelected = selected === i;
@@ -172,12 +207,13 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
 
                 {isReview && isSelected ? (
                   <textarea
+                    ref={element => { draftRefs.current[i] = element; }}
                     value={text}
                     onClick={e => e.stopPropagation()}
                     onChange={e => setDrafts(prev => prev.map((item, idx) => idx === i ? e.target.value : item))}
                     aria-label={`${styleName}完整文案`}
                     style={{
-                      display: "block", width: "calc(100% - 28px)", minHeight: 240,
+                      display: "block", width: "calc(100% - 28px)", minHeight: 520,
                       margin: "0 14px 14px", padding: 12, resize: "vertical",
                       boxSizing: "border-box",
                       border: "1px solid var(--border-focus)", borderRadius: "var(--radius-md)",
@@ -198,8 +234,10 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
               </section>
             );
           })}
+          </div>
+          </div>
 
-          {err && <p style={{ fontSize: 12, color: "var(--status-failed)", marginTop: 8 }}>{err}</p>}
+          {err && <p role="alert" style={{ fontSize: 12, color: "var(--status-failed)", marginTop: 8 }}>{err}</p>}
         </>
       )}
     </DetailShell>
