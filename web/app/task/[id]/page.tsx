@@ -215,6 +215,8 @@ export default function TaskDetail() {
   }
 
   const doneCount = stages.filter(s => s.status === "done").length;
+  const currentStage = stages.find(stage => stage.kind === selected);
+  const taskStatusLabel = task.status === "processing" ? "处理中" : task.status === "needs_review" ? "待确认" : task.status === "done" ? "已完成" : task.status === "failed" ? "失败" : task.status === "cancelled" ? "已取消" : "待处理";
   const canDeletePending = task.status === "pending"
     && stages.length > 0
     && stages.every(stage => stage.status === "pending");
@@ -225,12 +227,14 @@ export default function TaskDetail() {
       <div className="task-workspace">
         {/* 任务标题栏 */}
         <div className="task-header">
-          <span style={{ fontSize: 14, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-            {task.title || task.source_url || task.id}
-          </span>
-          <span style={{ fontSize: 12, color: "var(--text-secondary)", flexShrink: 0 }}>
-            {doneCount} / {STAGES.length} 完成
-          </span>
+          <div className="task-header-copy">
+            <span className="task-header-kicker">内容任务 · {task.id.slice(0, 8)}</span>
+            <strong>{task.title || task.source_url || task.id}</strong>
+          </div>
+          <div className="task-header-progress" aria-label={`已完成 ${doneCount} 个阶段，共 ${STAGES.length} 个阶段`}>
+            <div><span>{taskStatusLabel}</span><b>{doneCount} / {STAGES.length}</b></div>
+            <span className="task-progress-track"><i style={{ width: `${Math.round(doneCount / STAGES.length * 100)}%` }} /></span>
+          </div>
           {!["done", "cancelled", "failed"].includes(task.status) && (
             <button
               onClick={canDeletePending ? cancelAndDeletePendingTask : cancelTask}
@@ -268,7 +272,8 @@ export default function TaskDetail() {
 
         {workspaceView === "flow" ? <>
           <PipelineBar stages={stages} selected={selected} onSelect={setSelected} />
-          <div className="task-stage-content"><StageDetail key={selected} kind={selected} stage={stages.find(s => s.kind === selected)} taskId={id} task={task} onRerun={rerun} onApprove={approve} /></div>
+          <div className="task-stage-context"><span>当前阶段</span><strong>{STAGES.find(item => item.kind === selected)?.label}</strong><span className={`status-badge status-${currentStage?.status || "pending"}`}>{currentStage ? ({ pending: "待处理", processing: "处理中", done: "已完成", failed: "失败", needs_review: "待确认", cancelled: "已取消" } as const)[currentStage.status] : "待处理"}</span><small>{currentStage?.updated_at ? `更新于 ${new Date(currentStage.updated_at).toLocaleString("zh-CN", { hour12: false })}` : "等待阶段开始"}</small></div>
+          <div className="task-stage-content"><StageDetail key={selected} kind={selected} stage={currentStage} stages={stages} taskId={id} task={task} onRerun={rerun} onApprove={approve} /></div>
         </> : <div className="task-stage-content"><PreflightPanel task={task} stages={stages} onOpenStage={openStage} /></div>}
       </div>
     </AppShell>

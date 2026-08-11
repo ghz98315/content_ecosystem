@@ -17,6 +17,9 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [urls,    setUrls]    = useState<Record<number, string>>({});
   const [big,     setBig]     = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const providerParams = (stage?.params || {}) as Record<string, unknown>;
+  const providerName = String(providerParams.image_provider || providerParams.provider || "主生图通道");
+  const imageModel = String(providerParams.image_model || providerParams.model || "任务配置模型");
 
   // 1. 下载索引 JSON
   useEffect(() => {
@@ -44,11 +47,21 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
     <DetailShell title="生图" stage={stage} onRerun={onRerun}>
       {entries.length > 0 ? (
         <>
+          <section className="media-workbench-heading">
+            <div><p className="eyebrow">IMAGE GENERATION</p><h2>AI 场景图生成</h2><p>九宫格批量生成后切分为分镜图片，按最终文案时间轴排列。</p></div>
+            <div className="media-workbench-actions"><span className="status-badge status-done">{stage?.status === "done" ? "图片已就绪" : "处理中"}</span>{stage && stage.status === "failed" && <button className="secondary-action" onClick={() => onRerun(stage.id)}>重跑失败批次</button>}</div>
+          </section>
           <section className="image-workbench-summary" aria-label="图片生成摘要">
             <div><span>分镜图片</span><strong>{entries.length}</strong><small>按文案时间轴排列</small></div>
             <div><span>九宫格批次</span><strong>{new Set(entries.map(entry => entry.source_grid).filter(Boolean)).size || Math.ceil(entries.length / 9)}</strong><small>每批最多 9 个镜头</small></div>
             <div><span>预计画面时长</span><strong>{Math.round(entries.reduce((sum, entry) => sum + (entry.estimated_duration || 0), 0))}s</strong><small>跟随配音时间轴</small></div>
             <div><span>画面动效</span><strong>Zoom In</strong><small>缓慢放大与叠化</small></div>
+          </section>
+          <section className="image-config-strip" aria-label="当前生图配置">
+            <div><span>生成模式</span><strong>3×3 九宫格切分</strong><small>每批最多 9 个分镜</small></div>
+            <div><span>单图比例</span><strong>4:3</strong><small>与成片画面一致</small></div>
+            <div><span>Provider</span><strong>{providerName}</strong><small>{imageModel}</small></div>
+            <div><span>安全规则</span><strong>无可见文字</strong><small>违规语义转生活化类比</small></div>
           </section>
           <div className="image-workbench-toolbar">
             <div><strong>镜头与文案对应</strong><span>点击图片放大检查，卡片下方显示该镜头实际对应的字幕内容。</span></div>
@@ -84,7 +97,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
               );
             })}
           </div>
-          <p style={{ fontSize: 12, color: "var(--text-disabled)" }}>共 {entries.length} 张 · 当前版本按完整九宫格批次生成并切分 · 单图重生成将在 worker 支持镜头级任务后开放</p>
+          <p className="capability-note">共 {entries.length} 张 · 当前版本按完整九宫格批次生成并切分。<span>后续能力：镜头级提示词编辑、单图重生成和违规替换记录，需要 Worker 镜头级任务接口后开放。</span></p>
         </>
       ) : (
         stage?.status === "done" && (

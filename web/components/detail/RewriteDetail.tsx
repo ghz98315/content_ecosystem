@@ -88,6 +88,9 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
   const isReview = stage?.status === "needs_review";
   const isDone = stage?.status === "done";
   const report = data?.compliance;
+  const activeText = drafts[selected ?? 0] || data?.final_text || "";
+  const activeLength = textLength(activeText);
+  const estimatedSeconds = Math.max(1, Math.round(activeLength / 3.5));
 
   const jumpToIssue = (issue: ComplianceIssue, issueIndex: number) => {
     const draftIndex = selected ?? 0;
@@ -117,10 +120,12 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
     <DetailShell title="改写" stage={stage} onRerun={onRerun} actions={actions}>
       {(isReview || isDone) && data && (
         <>
-          <div style={{ display: "flex", gap: 16, marginBottom: 14, fontSize: 12, color: "var(--text-secondary)" }}>
-            <span>原文 {data.source_length ?? "—"} 字</span>
-            <span>{data.complete ? "改写稿已通过完整性检查" : "历史改写稿，确认前请检查全文"}</span>
-          </div>
+          <section className="rewrite-summary-grid" aria-label="改写稿摘要">
+            <div><span>原文长度</span><strong>{data.source_length ?? "—"} 字</strong><small>清洗后输入文本</small></div>
+            <div><span>当前稿件</span><strong>{activeLength} 字</strong><small>{data.complete ? "完整性检查通过" : "确认前检查全文"}</small></div>
+            <div><span>预计口播</span><strong>{Math.floor(estimatedSeconds / 60)}:{String(estimatedSeconds % 60).padStart(2, "0")}</strong><small>按当前文案估算</small></div>
+            <div><span>合规状态</span><strong>{report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
+          </section>
 
           <div className="rewrite-workspace">
           <aside className="rewrite-advice" aria-label="合规检查建议">

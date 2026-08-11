@@ -195,6 +195,12 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
               <div><dt>背景音乐</dt><dd>当前未配置</dd></div>
             </dl>
             <p className="render-preset-note">多风格和背景音乐会在 worker 参数化后进入新任务设置，不影响历史成片。</p>
+            <div className="render-future-list" aria-label="后续能力">
+              <strong>后续能力</strong>
+              <span>多风格版本：待接入 render 配置</span>
+              <span>背景音乐：待接入音频混音配置</span>
+              <span>失败后保留视频：当前已支持人工检查</span>
+            </div>
           </aside>
         </section>
       )}

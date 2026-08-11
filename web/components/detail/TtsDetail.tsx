@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 
 interface TtsData {
+  provider?: string;
+  model?: string;
   voice?: string;
   duration?: number;
   segment_count?: number;
@@ -61,6 +63,12 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
 
   return (
     <DetailShell title="配音" stage={stage} onRerun={onRerun}>
+      {data && (
+        <section className="media-workbench-heading tts-workbench-heading">
+          <div><p className="eyebrow">AUDIO</p><h2>音频生成与时长预估</h2><p>使用当前任务快照中的 Provider、音色和语速生成配音，并按真实边界校准字幕。</p></div>
+          <div className="media-workbench-actions"><span className="status-badge status-done">{data.input_format === "timeline_v3" ? "时间轴已对齐" : "已生成音频"}</span></div>
+        </section>
+      )}
       {audioUrl && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>完整配音</div>
@@ -75,6 +83,8 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
         <>
           <div className="tts-summary-grid">
             {[
+              { label: "Provider", value: data.provider || "任务配置" },
+              { label: "模型", value: data.model || "—" },
               { label: "音色",   value: data.voice || "—" },
               { label: "时长",   value: fmtDur(data.duration) },
               { label: "片段数", value: String(data.segment_count ?? "—") },
