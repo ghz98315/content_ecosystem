@@ -133,6 +133,16 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
     <DetailShell title="书籍信息" stage={stage} onRerun={onRerun} actions={actions}>
       {(isReview || isDone) && data && (
         <>
+          <section className="media-workbench-heading book-workbench-heading">
+            <div><p className="eyebrow">BOOK IDENTITY</p><h2>书籍信息与 CTA</h2><p>确认后的书名、作者、国籍、封面和收尾文案会供后续配音与成片使用。</p></div>
+            <div className="media-workbench-actions"><span className={`status-badge status-${stage?.status}`}>{isReview ? "等待确认" : "已确认"}</span></div>
+          </section>
+          <section className="book-review-summary" aria-label="书籍信息摘要">
+            <div><span>识别书名</span><strong>{data.book_name || "待补充"}</strong><small>{data.confidence === "high" ? "高置信度识别" : data.confidence === "low" ? "低置信度，建议核对" : "人工或历史结果"}</small></div>
+            <div><span>作者与国籍</span><strong>{data.author || "待补充"}</strong><small>{data.nationality || "国籍尚未填写"}</small></div>
+            <div><span>书籍封面</span><strong>{coverUrl ? "已上传" : "待上传"}</strong><small>仅使用人工受控封面</small></div>
+            <div><span>收尾 CTA</span><strong>{data.cta_text ? `${data.cta_text.length} 字` : "待补充"}</strong><small>{data.cta_text ? "可继续人工编辑" : "后续成片前补充"}</small></div>
+          </section>
           {editing && (
             <div role="status" className="unsaved-notice">存在未保存修改，确认后将用于后续 TTS 和成片。</div>
           )}
