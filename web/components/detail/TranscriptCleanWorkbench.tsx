@@ -87,6 +87,7 @@ export function TranscriptCleanWorkbench({
   const delta = cleanChars - rawChars;
   const deltaRatio = rawChars ? Math.abs(delta) / rawChars : 0;
   const segments = summary?.segments ?? [];
+  const failedStages = stages.filter(item => item.status === "failed");
   const stats = useMemo(() => [
     { label: "原稿字数", value: `${rawChars} 字`, hint: "ASR 原始结果" },
     { label: "清洗后", value: cleanText ? `${cleanChars} 字` : "待生成", hint: cleanText ? `${delta > 0 ? "增加" : "减少"} ${Math.abs(delta)} 字` : "等待清洗阶段" },
@@ -118,6 +119,7 @@ export function TranscriptCleanWorkbench({
       </header>
 
       {error && <div className="stage-diagnostic is-error" role="alert">{error}</div>}
+      {failedStages.map(failedStage => <div className="stage-diagnostic is-error transcript-stage-error" role="alert" key={failedStage.id}><div><strong>{failedStage.kind === "transcribe" ? "逐字稿" : "清洗稿"}阶段失败</strong><span>{failedStage.error || "阶段未生成可用产物"}</span></div><button className="secondary-action" onClick={() => onRerun(failedStage.id)}>重跑此阶段</button></div>)}
       {clean?.quality_issue && <div className="stage-diagnostic is-warning" role="alert">{clean.quality_issue}</div>}
       {copyNotice && <div className="copy-notice" role="status">{copyNotice}</div>}
 

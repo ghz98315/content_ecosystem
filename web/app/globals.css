@@ -282,6 +282,7 @@ textarea:focus-visible, select:focus-visible {
 .workbench-heading-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .stage-diagnostic.is-error { border: 1px solid #fecaca; background: #fff5f5; color: var(--status-failed); }
 .stage-diagnostic.is-warning { border: 1px solid #f3d69d; background: #fffaf0; color: #95652d; }
+.transcript-stage-error { display: flex; align-items: center; justify-content: space-between; gap: 14px; }.transcript-stage-error > div { display: grid; gap: 2px; min-width: 0; }.transcript-stage-error strong { font-size: 12px; }.transcript-stage-error span { overflow-wrap: anywhere; }
 .copy-notice { position: fixed; z-index: 80; top: 78px; right: 24px; padding: 8px 12px; border: 1px solid #cfe0d2; border-radius: 7px; background: #f4faf5; color: #496a53; box-shadow: var(--shadow-md); font-size: 11px; }
 .text-review-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
 .text-review-summary > div { display: grid; gap: 2px; min-height: 86px; padding: 13px 14px; border: 1px solid #e2e7e2; border-radius: 8px; background: #fbfcf9; }
