@@ -54,7 +54,7 @@ export function ManualUpload({
       </div>
       <input
         type="file"
-        accept="video/*,audio/*"
+        accept="video/*,audio/*,.txt,.md,.markdown,text/plain,text/markdown"
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         style={{ fontSize: 13 }}
       />

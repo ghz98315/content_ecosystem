@@ -173,6 +173,13 @@ def set_stage(stage_id: str, status: str, output_ref: str | None = None,
     retry(lambda: get_client().table("stages").update(patch).eq("id", stage_id).execute())
 
 
+def set_stage_by_task_kind(task_id: str, kind: str, status: str, output_ref: str | None = None) -> None:
+    patch: dict = {"status": status, "error": None}
+    if output_ref is not None:
+        patch["output_ref"] = output_ref
+    retry(lambda: get_client().table("stages").update(patch).eq("task_id", task_id).eq("kind", kind).execute())
+
+
 def set_task_status(task_id: str, status: str) -> None:
     retry(lambda: get_client().table("tasks").update({"status": status}).eq("id", task_id).execute())
 

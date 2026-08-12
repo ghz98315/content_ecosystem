@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 
 import db
 import storage
@@ -60,6 +61,19 @@ def run(stage: dict) -> tuple[str, str | None]:
         local = storage.download_artifact(src_path)
         audio = None
         try:
+            if params.get("manual_is_text"):
+                raw_text = open(local, encoding="utf-8-sig").read().strip()
+                if not raw_text:
+                    raise ValueError("上传的文档没有可用正文")
+                # Markdown stays readable while headings and simple formatting do not reach narration.
+                text = re.sub(r"^#{1,6}\s*", "", raw_text, flags=re.MULTILINE)
+                text = re.sub(r"[*_`>#]", "", text).strip()
+                transcript_path = f"{task_id}/transcript.json"
+                transcript = {"language": "zh", "duration": 0, "text": text, "segments": [{"id": 0, "start": 0, "end": 0, "text": text, "words": []}], "source": "manual_text"}
+                storage.upload_bytes(transcript_path, json.dumps(transcript, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+                storage.add_artifact(task_id, "transcribe", "transcript", transcript_path, meta={"language": "zh", "duration": 0, "segment_count": 1, "char_count": len(text), "source": "manual_text"})
+                db.set_stage_by_task_kind(task_id, "transcribe", "done", output_ref=transcript_path)
+                return "done", transcript_path
             # 视频→抽音频；已是音频→直接用
             audio = local if params.get("manual_is_audio") else storage.extract_audio(local)
             sp = f"{task_id}/audio.mp3"
