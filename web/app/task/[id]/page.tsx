@@ -96,7 +96,7 @@ export default function TaskDetail() {
       ["时长", formatDuration(sourceMeta?.duration)],
       ["采集时间", sourceCapturedAt ? new Date(sourceCapturedAt).toLocaleString("zh-CN", { hour12: false }) : "-"],
       ["互动数据", `${formatCount(sourceMeta?.digg_count ?? task.play_count)} 赞 / ${formatCount(sourceMeta?.comment_count)} 评 / ${formatCount(sourceMeta?.share_count)} 转 / ${formatCount(sourceMeta?.collect_count)} 藏`],
-      ["配音快照", voice ? `${voice} / ${task.tts_provider || "edge"}` : "系统默认 Edge 音色"],
+      ["配音快照", voice ? `${voice} / ${task.tts_provider || "edge"}` : "Edge · 晓晓（zh-CN-XiaoxiaoNeural）"],
     ];
   }, [sourceCapturedAt, sourceMeta, task]);
 
