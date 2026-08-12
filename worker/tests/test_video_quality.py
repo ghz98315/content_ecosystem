@@ -619,8 +619,35 @@ class NetworkRetryTests(unittest.TestCase):
         self.assertEqual(2.75, duration)
         self.assertEqual("试听文本。", boundaries[0]["text"])
         self.assertEqual("https://tts.example/v1/audio/speech", captured["endpoint"])
-        self.assertEqual("sample-voice", captured["request"]["voice"])
+        self.assertEqual("ignored", captured["request"]["voice"])
         self.assertEqual("mp3", captured["request"]["response_format"])
+
+    def test_cosyvoice2_task_voice_overrides_environment_default(self):
+        captured = {}
+
+        class FakeResponse:
+            headers = {"content-type": "audio/mpeg"}
+            content = b"cosy-audio"
+            status_code = 200
+            is_error = False
+            text = ""
+            @staticmethod
+            def raise_for_status(): return None
+
+        class FakeClient:
+            def __init__(self, **_kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_args): return None
+            async def post(self, _endpoint, **kwargs):
+                captured["request"] = kwargs["json"]
+                return FakeResponse()
+
+        env = {"DASHSCOPE_API_KEY": "key", "DASHSCOPE_MODEL": "default-model", "DASHSCOPE_VOICE": "environment-voice", "DASHSCOPE_ENDPOINT": "https://tts.example"}
+        with patch.dict(os.environ, env, clear=True), patch("tts_providers.httpx.AsyncClient", FakeClient), patch("tts_providers._probe_duration", return_value=1.0):
+            asyncio.run(get_tts_provider("cosyvoice2", allow_experimental=True, model="snapshot-model").synthesize("测试", "snapshot-voice"))
+
+        self.assertEqual("snapshot-voice", captured["request"]["input"]["voice"])
+        self.assertEqual("snapshot-model", captured["request"]["model"])
 
     def test_tts_comparison_writes_isolated_audio_and_report(self):
         class FakeProvider:

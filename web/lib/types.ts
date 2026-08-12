@@ -28,6 +28,7 @@ export interface Task {
   author: Record<string, unknown> | null;
   tts_voice_profile_id?: string | null;
   tts_provider?: "edge" | "cosyvoice2" | null;
+  tts_model?: string | null;
   tts_voice?: string | null;
   tts_voice_label?: string | null;
   content_category?: "health" | "social_science" | "education";

@@ -11,7 +11,7 @@ import { STATUS_COLOR, Task } from "@/lib/types";
 type Artifact = { task_id: string; meta: Record<string, unknown> | null; created_at: string };
 type Stage = { task_id: string; kind: string; seq: number; status: string };
 type BookSignal = { task_id: string; detected_title: string | null; detected_author: string | null; confidence: string; evidence: string | null; confirmed_title: string | null; confirmed_author: string | null };
-type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2"; voice_id: string; enabled: boolean };
+type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2"; model: string | null; voice_id: string; enabled: boolean };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "待处理", processing: "处理中", done: "已完成", failed: "异常",
@@ -117,7 +117,7 @@ function VideoCollectionContent() {
   useEffect(() => {
     if (!userId) return;
     load();
-    supabase.from("voice_profiles").select("id,display_name,provider,voice_id,enabled").eq("enabled", true).order("updated_at", { ascending: false }).then(({ data }) => data && setVoiceProfiles(data as VoiceProfile[]));
+    supabase.from("voice_profiles").select("id,display_name,provider,model,voice_id,enabled").eq("enabled", true).order("updated_at", { ascending: false }).then(({ data }) => data && setVoiceProfiles(data as VoiceProfile[]));
     const channel = supabase.channel("video-collection-workbench")
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "artifacts" }, load)
@@ -168,7 +168,7 @@ function VideoCollectionContent() {
     if (selectedVoiceProfileId !== "system-default") {
       const { data, error: profileError } = await supabase
         .from("voice_profiles")
-        .select("id,display_name,provider,voice_id,enabled")
+        .select("id,display_name,provider,model,voice_id,enabled")
         .eq("id", selectedVoiceProfileId)
         .eq("enabled", true)
         .maybeSingle();
@@ -186,6 +186,7 @@ function VideoCollectionContent() {
       status: "pending",
       tts_voice_profile_id: selectedProfile?.id ?? null,
       tts_provider: selectedProfile?.provider ?? null,
+      tts_model: selectedProfile?.model ?? null,
       tts_voice: selectedProfile?.voice_id ?? null,
       tts_voice_label: selectedProfile?.display_name ?? null,
     })));

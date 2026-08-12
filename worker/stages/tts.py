@@ -130,18 +130,19 @@ async def _synthesize_part(text: str, voice: str) -> tuple[bytes, list[dict], fl
     return await get_tts_provider(config.TTS_PROVIDER).synthesize(text, voice)
 
 
-async def _synthesize_part_via_provider(text: str, voice: str, provider: str | None = None) -> tuple[bytes, list[dict], float]:
+async def _synthesize_part_via_provider(text: str, voice: str, provider: str | None = None, model: str | None = None) -> tuple[bytes, list[dict], float]:
     """Provider-aware boundary kept separate so older test doubles remain valid."""
-    return await get_tts_provider(provider or config.TTS_PROVIDER).synthesize(text, voice)
+    kwargs = {"model": model} if model else {}
+    return await get_tts_provider(provider or config.TTS_PROVIDER, **kwargs).synthesize(text, voice)
 
 
-async def _synthesize_part_with_retry(text: str, voice: str, provider: str | None = None) -> tuple[bytes, list[dict], float]:
+async def _synthesize_part_with_retry(text: str, voice: str, provider: str | None = None, model: str | None = None) -> tuple[bytes, list[dict], float]:
     """Bound each provider request so one stalled segment cannot block the task."""
     last_error: Exception | None = None
     for attempt in range(_PART_ATTEMPTS):
         try:
-            runner = _synthesize_part if provider in (None, "", config.TTS_PROVIDER) else _synthesize_part_via_provider
-            return await asyncio.wait_for(runner(text, voice) if runner is _synthesize_part else runner(text, voice, provider), timeout=_PART_TIMEOUT)
+            runner = _synthesize_part if provider in (None, "", config.TTS_PROVIDER) and not model else _synthesize_part_via_provider
+            return await asyncio.wait_for(runner(text, voice) if runner is _synthesize_part else runner(text, voice, provider, model), timeout=_PART_TIMEOUT)
         except Exception as exc:  # edge-tts exposes several transport exception types
             last_error = exc
             if attempt == _PART_ATTEMPTS - 1:
@@ -278,7 +279,7 @@ def _build_subtitle_cues(
     return cues
 
 
-async def _synthesize_detailed(text: str, voice: str, provider: str | None = None) -> tuple[bytes, list[dict], list[dict]]:
+async def _synthesize_detailed(text: str, voice: str, provider: str | None = None, model: str | None = None) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
     parts = _split_tts_segments(text)
     spoken_parts = [normalize_tts_numbers(part) for part in parts]
@@ -288,7 +289,7 @@ async def _synthesize_detailed(text: str, voice: str, provider: str | None = Non
 
     async def synthesize_limited(part: str, spoken_part: str):
         async with semaphore:
-            return await _synthesize_part_with_retry(spoken_part, voice, provider)
+            return await _synthesize_part_with_retry(spoken_part, voice, provider, model)
 
     results = await asyncio.gather(*(synthesize_limited(part, spoken) for part, spoken in zip(parts, spoken_parts)))
     merged_segments: list[dict] = []
@@ -395,9 +396,10 @@ def run(stage: dict) -> tuple[str, str | None]:
     book_name = _get_book_name(task_id)
     text = rewrite_text + ("\n\n" + cta if cta else "")
     tts_params = stage.get("params", {}) or {}
-    voice = tts_params.get("voice") or _VOICE
     provider = tts_params.get("provider") or config.TTS_PROVIDER
-    audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice, provider))
+    voice = tts_params.get("voice") or (config.COSYVOICE2_VOICE if provider in {"cosyvoice2", "cosyvoice"} else _VOICE)
+    model = tts_params.get("model") or None
+    audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice, provider, model))
     duration = round(sum(float(batch["duration"]) for batch in batches), 3)
     cues = _build_subtitle_cues(
         text,
@@ -421,6 +423,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     storage.upload_bytes(sp_audio, audio, "audio/mpeg")
     storage.add_artifact(task_id, "tts", "audio", sp_audio, meta={
         "provider": provider,
+        "model": model,
         "voice": voice,
         "duration": duration,
         "segment_count": len(cues),

@@ -64,7 +64,7 @@ class EdgeTTSProvider:
 class CosyVoice2Provider:
     """OpenAI-compatible CosyVoice2 HTTP adapter kept outside production by default."""
 
-    def __init__(self) -> None:
+    def __init__(self, model_override: str | None = None) -> None:
         self.dashscope_api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
         self.dashscope_model = os.environ.get("DASHSCOPE_MODEL", "").strip()
         self.dashscope_voice = os.environ.get("DASHSCOPE_VOICE", "").strip()
@@ -80,6 +80,8 @@ class CosyVoice2Provider:
                 self.dashscope_voice = str(profile.get("voice", "")).strip() or self.dashscope_voice
             except (json.JSONDecodeError, AttributeError) as exc:
                 raise ValueError("DASHSCOPE_VOICE_PROFILES_JSON must be a JSON object") from exc
+        if model_override:
+            self.dashscope_model = model_override
         base_url = (
             os.environ.get("COSYVOICE2_BASE_URL", "").strip()
             or os.environ.get("COSYVOICE_BASE_URL", "").strip()
@@ -147,7 +149,9 @@ class CosyVoice2Provider:
             raise ValueError(
                 "CosyVoice2 未配置：请设置 DASHSCOPE_API_KEY/DASHSCOPE_MODEL/DASHSCOPE_ENDPOINT"
             )
-        selected_voice = self.dashscope_voice or self.configured_voice or voice
+        # A task snapshot is authoritative. Environment profiles only provide a
+        # default for legacy tasks that do not carry a selected voice.
+        selected_voice = voice or self.dashscope_voice or self.configured_voice
         if not selected_voice:
             raise ValueError("CosyVoice2 未配置音色：请设置 COSYVOICE2_VOICE")
 
@@ -218,6 +222,7 @@ def get_tts_provider(
     name: str | None = None,
     *,
     allow_experimental: bool = False,
+    model: str | None = None,
 ) -> TTSProvider:
     provider = (name or os.environ.get("TTS_PROVIDER", "edge")).strip().lower()
     if provider in {"edge", "edge-tts"}:
@@ -230,7 +235,7 @@ def get_tts_provider(
             raise ValueError(
                 "CosyVoice2 尚未通过生产启用门；请先使用 tts_compare.py 完成试听验收"
             )
-        return CosyVoice2Provider()
+        return CosyVoice2Provider(model_override=model)
     raise ValueError(
         f"未适配的 TTS Provider: {provider}。当前可用 provider 为 edge、cosyvoice2。"
     )
