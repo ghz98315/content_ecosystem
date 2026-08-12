@@ -157,8 +157,10 @@ class PromptProfileTests(unittest.TestCase):
         self.assertIn("疗效和安全承诺", load_compliance_rules("health"))
         self.assertEqual("social_science", normalize_category("social_science"))
         self.assertEqual("education", normalize_category("education"))
-        self.assertIn("史实", load_prompt("social_science", "clean"))
-        self.assertIn("投资建议", load_compliance_rules("education"))
+        self.assertIn("不得杜撰史料", load_prompt("social_science", "initial_dedup"))
+        self.assertIn("个性化投资建议", load_prompt("education", "initial_dedup"))
+        self.assertIn("伪造史实", load_compliance_rules("social_science"))
+        self.assertIn("收益承诺", load_compliance_rules("education"))
 
     def test_prompt_context_preserves_book_numbers_and_keyword(self):
         source = "《控糖方法》建议连续观察14天，变化约为12%。"
