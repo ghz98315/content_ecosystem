@@ -58,6 +58,7 @@ from stages.render import (
     DISCLAIMER_OPACITY,
     RenderTimeout,
     _run_ffmpeg,
+    _audio_mix_filter,
 )
 from stages.rewrite import _candidate_issues, _parse_candidates, _rewrite_structure
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize, _synthesize_detailed
@@ -187,6 +188,17 @@ class ComplianceTests(unittest.TestCase):
 
 
 class StoryboardTests(unittest.TestCase):
+
+    def test_bgm_mix_keeps_narration_primary_and_uses_fade(self):
+        filter_graph = _audio_mix_filter(True, 0.08, 1.0, 42.0)
+        self.assertIn("[1:a]volume=1.000", filter_graph)
+        self.assertIn("[2:a]volume=0.080", filter_graph)
+        self.assertIn("afade=t=in", filter_graph)
+        self.assertIn("afade=t=out:st=41.200", filter_graph)
+        self.assertIn("amix=inputs=2:duration=first", filter_graph)
+
+    def test_no_bgm_uses_only_narration_filter(self):
+        self.assertEqual("[1:a]volume=1.000[narration]", _audio_mix_filter(False, 0.08, 1.0))
     def test_apimart_async_image_result_is_parsed(self):
         self.assertIsNone(_apimart_result_url({"data": {"status": "processing"}}))
         self.assertEqual(

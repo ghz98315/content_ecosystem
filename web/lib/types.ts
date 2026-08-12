@@ -31,6 +31,10 @@ export interface Task {
   tts_model?: string | null;
   tts_voice?: string | null;
   tts_voice_label?: string | null;
+  bgm_path?: string | null;
+  bgm_volume?: number | null;
+  narration_volume?: number | null;
+  bgm_authorization_confirmed?: boolean;
   content_category?: "health" | "social_science" | "education";
   rewrite_mode?: "initial_dedup" | "repost_dedup";
   source_task_id?: string | null;

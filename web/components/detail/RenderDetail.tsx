@@ -28,6 +28,9 @@ interface QualityReport {
 interface TimelineEntry { index: number; path?: string; sentence?: string; start?: number; end?: number; duration: number }
 interface ReviewEntry { decision: string; note: string | null; created_at: string }
 
+const BGM_MAX_BYTES = 25 * 1024 * 1024;
+const BGM_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a"]);
+
 const QUALITY_LABEL = { passed: "通过", warning: "需复核", failed: "未通过" } as const;
 const QUALITY_COLOR = { passed: "#15803d", warning: "#b45309", failed: "#b91c1c" } as const;
 
@@ -42,6 +45,13 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const [qualityUnavailable, setQualityUnavailable] = useState(false);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [review, setReview] = useState<ReviewEntry | null>(null);
+  const [bgmPath, setBgmPath] = useState(task.bgm_path || "");
+  const [bgmVolume, setBgmVolume] = useState(Number(task.bgm_volume ?? 0.08));
+  const [narrationVolume, setNarrationVolume] = useState(Number(task.narration_volume ?? 1));
+  const [bgmAuthorized, setBgmAuthorized] = useState(Boolean(task.bgm_authorization_confirmed));
+  const [bgmUrl, setBgmUrl] = useState<string | null>(null);
+  const [bgmBusy, setBgmBusy] = useState(false);
+  const [bgmError, setBgmError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -116,6 +126,50 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       .finally(() => active && setQualityLoading(false));
     return () => { active = false; };
   }, [stage?.status, taskId]);
+
+  useEffect(() => {
+    if (!bgmPath) { setBgmUrl(null); return; }
+    fetch(`/api/signed-url?path=${encodeURIComponent(bgmPath)}`)
+      .then(response => response.json())
+      .then(data => setBgmUrl(data.signedUrl || null))
+      .catch(() => setBgmUrl(null));
+  }, [bgmPath]);
+
+  const saveBgm = async (next: { path?: string; authorized?: boolean } = {}) => {
+    setBgmBusy(true);
+    setBgmError(null);
+    const { error } = await supabase.from("tasks").update({
+      bgm_path: (next.path ?? bgmPath) || null,
+      bgm_volume: bgmVolume,
+      narration_volume: narrationVolume,
+      bgm_authorization_confirmed: next.authorized ?? bgmAuthorized,
+    }).eq("id", taskId);
+    setBgmBusy(false);
+    if (error) setBgmError(error.message);
+  };
+
+  const uploadBgm = async (file: File | null) => {
+    if (!file) return;
+    if (!BGM_TYPES.has(file.type.toLowerCase()) || file.size > BGM_MAX_BYTES) {
+      setBgmError("仅支持不超过 25MB 的 MP3、WAV 或 M4A 音频");
+      return;
+    }
+    setBgmBusy(true);
+    setBgmError(null);
+    const ext = file.name.split(".").pop()?.toLowerCase() || "mp3";
+    const path = `${taskId}/background-music/${crypto.randomUUID()}.${ext}`;
+    const { error: uploadError } = await supabase.storage.from("artifacts").upload(path, file, { contentType: file.type || "audio/mpeg", upsert: false });
+    if (uploadError) { setBgmBusy(false); setBgmError(uploadError.message); return; }
+    setBgmPath(path);
+    const { error } = await supabase.from("tasks").update({
+      bgm_path: path,
+      bgm_volume: bgmVolume,
+      narration_volume: narrationVolume,
+      bgm_authorization_confirmed: bgmAuthorized,
+    }).eq("id", taskId);
+    setBgmBusy(false);
+    if (error) setBgmError(error.message);
+  };
 
   useEffect(() => {
     if (!taskId) return;
@@ -283,6 +337,18 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
 
       {timeline.length > 0 && <section className="render-timeline-panel" aria-labelledby="render-timeline-title"><div className="render-panel-heading"><div><strong id="render-timeline-title">画面与字幕时间轴</strong><span>读取本次成片实际使用的 render timeline，历史成片保持只读。</span></div><span>{timeline.length} 个镜头</span></div><div className="render-timeline-list">{timeline.map((item, index) => { const start = Number(item.start || 0); const end = Number(item.end ?? start + Number(item.duration || 0)); return <article key={`${item.index}-${index}`}><span className="render-timeline-index">{String(item.index + 1).padStart(2, "0")}</span><div><strong>{item.sentence || `镜头 ${item.index + 1}`}</strong><small>{start.toFixed(2)}s - {end.toFixed(2)}s · 持续 {Number(item.duration || end - start).toFixed(2)}s</small></div><span className="render-timeline-bar"><i style={{ width: `${Math.max(4, Math.min(100, Number(item.duration || 0) * 12))}%` }} /></span></article>; })}</div></section>}
       {review && <p className="render-review-note" role="status">最近审核：{review.decision === "approved" ? "已通过" : "要求重新生成"} · {new Date(review.created_at).toLocaleString("zh-CN", { hour12: false })}{review.note ? ` · ${review.note}` : ""}</p>}
+
+      <section className="bgm-settings" aria-label="背景音乐设置">
+        <div className="render-panel-heading"><div><strong>背景音乐</strong><span>任务级设置，配音始终优先；只上传已获授权使用的音乐。</span></div></div>
+        <div className="bgm-controls">
+          <label className="bgm-file-control"><span>音乐文件</span><input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/m4a" disabled={bgmBusy} onChange={event => { void uploadBgm(event.target.files?.[0] || null); event.currentTarget.value = ""; }} /><small>{bgmPath ? "已上传，可替换" : "MP3、WAV、M4A，不超过 25MB"}</small></label>
+          <label><span>背景音乐音量 {bgmVolume.toFixed(2)}</span><input type="range" min="0.02" max="0.20" step="0.01" value={bgmVolume} onChange={event => setBgmVolume(Number(event.target.value))} disabled={bgmBusy || !bgmPath} /></label>
+          <label><span>配音音量 {narrationVolume.toFixed(2)}</span><input type="range" min="0.50" max="1.50" step="0.05" value={narrationVolume} onChange={event => setNarrationVolume(Number(event.target.value))} disabled={bgmBusy} /></label>
+          <label className="bgm-authorization"><input type="checkbox" checked={bgmAuthorized} disabled={bgmBusy || !bgmPath} onChange={event => setBgmAuthorized(event.target.checked)} />我确认已取得该音乐的使用授权</label>
+          <div className="bgm-actions">{bgmUrl && <audio controls src={bgmUrl} />}<TextBtn variant="primary" disabled={bgmBusy || !bgmPath || !bgmAuthorized} onClick={() => void saveBgm()}> {bgmBusy ? "保存中…" : "保存成片设置"}</TextBtn></div>
+        </div>
+        {bgmError && <p role="alert" className="bgm-error">{bgmError}</p>}
+      </section>
 
     </DetailShell>
   );

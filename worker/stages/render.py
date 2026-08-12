@@ -128,6 +128,35 @@ def _load_audio(task_id: str) -> str | None:
     return storage.download_artifact(res.data[0]["storage_path"], ".mp3")
 
 
+def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
+    """Load task-scoped BGM only when the owner confirmed usage rights."""
+    task = db.retry(
+        lambda: db.get_client().table("tasks")
+        .select("bgm_path,bgm_volume,narration_volume,bgm_authorization_confirmed")
+        .eq("id", task_id).single().execute()
+    ).data or {}
+    bgm_path = str(task.get("bgm_path") or "").strip()
+    approved = bool(task.get("bgm_authorization_confirmed"))
+    bgm_volume = min(0.20, max(0.02, float(task.get("bgm_volume") or 0.08)))
+    narration_volume = min(1.50, max(0.50, float(task.get("narration_volume") or 1.0)))
+    return (bgm_path if bgm_path and approved else None, bgm_volume, narration_volume)
+
+
+def _audio_mix_filter(
+    bgm_enabled: bool, bgm_volume: float, narration_volume: float, duration: float = 0.0
+) -> str:
+    narration = f"[1:a]volume={narration_volume:.3f}[narration]"
+    if not bgm_enabled:
+        return narration
+    fade_start = max(0.0, duration - 0.8)
+    return (
+        f"[1:a]volume={narration_volume:.3f}[narration];"
+        f"[2:a]volume={bgm_volume:.3f},afade=t=in:st=0:d=0.8,"
+        f"afade=t=out:st={fade_start:.3f}:d=0.8[bgm];"
+        "[narration][bgm]amix=inputs=2:duration=first:dropout_transition=0:weights='1 1'[audio]"
+    )
+
+
 def _fmt_ass_time(t: float) -> str:
     t = max(0.0, t + INTRO_DUR)
     h = int(t // 3600)
@@ -505,6 +534,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     book_data = _load_json_artifact(task_id, "book")
     print("  [render] 下载完整配音", flush=True)
     audio_path = _load_audio(task_id)
+    bgm_path, bgm_volume, narration_volume = _load_bgm_config(task_id)
 
     if not images_data or not audio_path:
         db.set_stage(stage["id"], "failed", error="缺少图片或音频产物（请确认 image/tts 阶段已完成）")
@@ -522,6 +552,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             raise ValueError("配音临时文件不存在，已停止渲染")
         audio_local = os.path.join(tmpdir, "tts.mp3")
         shutil.copyfile(audio_path, audio_local)
+        bgm_local = storage.download_artifact(bgm_path, os.path.splitext(bgm_path)[1] or ".mp3") if bgm_path else None
         if not images:
             db.set_stage(stage["id"], "failed", error="图片列表为空")
             return "failed", None
@@ -602,14 +633,25 @@ def run(stage: dict) -> tuple[str, str | None]:
         _make_ass(segments, os.path.join(tmpdir, "subs.ass"))
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
-        _run_ffmpeg([
+        render_args = [
             ff(), "-y", "-i", video_only,
             "-itsoffset", str(INTRO_DUR), "-i", audio_local,
+        ]
+        if bgm_local:
+            render_args.extend(["-stream_loop", "-1", "-i", bgm_local])
+        mix_filter = _audio_mix_filter(
+            bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
+        )
+        audio_label = "[audio]" if bgm_local else "[narration]"
+        render_args.extend([
+            "-filter_complex", mix_filter,
             "-vf", "ass=subs.ass",
             "-c:v", "libx264", "-b:v", "600k", "-maxrate", "750k",
             "-bufsize", "1500k", "-pix_fmt", "yuv420p",
+            "-map", "0:v:0", "-map", audio_label,
             "-c:a", "aac", "-b:a", "64k", "-shortest", final,
-        ], check=True, capture_output=True, cwd=tmpdir)
+        ])
+        _run_ffmpeg(render_args, check=True, capture_output=True, cwd=tmpdir)
 
         stage_rows = db.retry(
             lambda: db.get_client().table("stages")
@@ -694,6 +736,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             "disclaimer_opacity": DISCLAIMER_OPACITY,
             "quality_status": quality_report["status"],
             "quality_report": quality_path,
+            "bgm_enabled": bool(bgm_local),
+            "bgm_volume": bgm_volume if bgm_local else None,
+            "narration_volume": narration_volume,
         })
         if quality_needs_review:
             review_error = f"自动质检未通过：{'、'.join(failed_labels)}"
@@ -717,5 +762,10 @@ def run(stage: dict) -> tuple[str, str | None]:
         if audio_path and os.path.exists(audio_path):
             try:
                 os.remove(audio_path)
+            except OSError:
+                pass
+        if 'bgm_local' in locals() and bgm_local and os.path.exists(bgm_local):
+            try:
+                os.remove(bgm_local)
             except OSError:
                 pass

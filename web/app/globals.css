@@ -403,6 +403,19 @@ textarea:focus-visible, select:focus-visible {
 .image-prompt-full { margin: 14px 0; text-align: left; }
 .image-prompt-full strong { display: block; margin-bottom: 6px; font-size: 12px; }
 .image-prompt-full pre { max-height: 180px; margin: 0; overflow: auto; padding: 10px; white-space: pre-wrap; font: 11px/1.6 var(--font); color: var(--text-secondary); background: var(--bg-hover); border-radius: var(--radius-sm); }
+.bgm-settings { margin-top: 24px; padding: 16px; border-top: 1px solid var(--border); background: var(--bg-page); }
+.bgm-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin-top: 14px; }
+.bgm-controls label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.bgm-controls label > span { color: var(--text-primary); font-weight: 600; }
+.bgm-controls input[type="range"] { width: 100%; accent-color: var(--text-primary); }
+.bgm-file-control input { max-width: 100%; }
+.bgm-file-control small { color: var(--text-disabled); }
+.bgm-authorization { grid-template-columns: auto 1fr; align-items: center; }
+.bgm-authorization input { margin: 0; }
+.bgm-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bgm-actions audio { height: 32px; max-width: 100%; }
+.bgm-error { margin: 10px 0 0; color: var(--status-failed); font-size: 12px; }
+@media (max-width: 680px) { .bgm-controls { grid-template-columns: 1fr; } }
 .tts-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
 .tts-metric { padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }
 .tts-audio-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }.tts-audio-heading div { display: grid; gap: 3px; }.tts-audio-heading strong { font-size: 12px; }.tts-audio-heading small { color: var(--text-disabled); font-size: 10px; }.tts-preview-trigger { margin-top: 5px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-surface); color: var(--text-secondary); font-size: 11px; cursor: pointer; }
