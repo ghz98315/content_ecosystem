@@ -11,7 +11,7 @@ import { STATUS_COLOR, Task } from "@/lib/types";
 type Artifact = { task_id: string; meta: Record<string, unknown> | null; created_at: string };
 type Stage = { task_id: string; kind: string; seq: number; status: string };
 type BookSignal = { task_id: string; detected_title: string | null; detected_author: string | null; confidence: string; evidence: string | null; confirmed_title: string | null; confirmed_author: string | null };
-type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2"; model: string | null; voice_id: string; enabled: boolean };
+type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2"; model: string | null; voice_id: string; sample_path: string | null; enabled: boolean };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "待处理", processing: "处理中", done: "已完成", failed: "异常",
@@ -65,6 +65,8 @@ function VideoCollectionContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([]);
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("system-default");
+  const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
+  const [voiceSampleState, setVoiceSampleState] = useState<"idle" | "loading" | "missing" | "error">("idle");
 
   const load = async () => {
     setLoading(true);
@@ -117,7 +119,7 @@ function VideoCollectionContent() {
   useEffect(() => {
     if (!userId) return;
     load();
-    supabase.from("voice_profiles").select("id,display_name,provider,model,voice_id,enabled").eq("enabled", true).order("updated_at", { ascending: false }).then(({ data }) => data && setVoiceProfiles(data as VoiceProfile[]));
+    supabase.from("voice_profiles").select("id,display_name,provider,model,voice_id,sample_path,enabled").eq("enabled", true).order("updated_at", { ascending: false }).then(({ data }) => data && setVoiceProfiles(data as VoiceProfile[]));
     const channel = supabase.channel("video-collection-workbench")
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "artifacts" }, load)
@@ -125,6 +127,30 @@ function VideoCollectionContent() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [userId, query, status, minFollowers, minComments, bookQuery, page]);
+
+  useEffect(() => {
+    const profile = voiceProfiles.find(item => item.id === selectedVoiceProfileId);
+    if (!profile?.sample_path) {
+      setVoiceSampleUrl(null);
+      setVoiceSampleState(profile ? "missing" : "idle");
+      return;
+    }
+    let active = true;
+    setVoiceSampleUrl(null);
+    setVoiceSampleState("loading");
+    fetch(`/api/signed-url?path=${encodeURIComponent(profile.sample_path)}`)
+      .then(async response => {
+        if (!response.ok) throw new Error("sample unavailable");
+        return response.json() as Promise<{ signedUrl?: string }>;
+      })
+      .then(result => {
+        if (!active || !result.signedUrl) return;
+        setVoiceSampleUrl(result.signedUrl);
+        setVoiceSampleState("idle");
+      })
+      .catch(() => { if (active) setVoiceSampleState("error"); });
+    return () => { active = false; };
+  }, [selectedVoiceProfileId, voiceProfiles]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -168,7 +194,7 @@ function VideoCollectionContent() {
     if (selectedVoiceProfileId !== "system-default") {
       const { data, error: profileError } = await supabase
         .from("voice_profiles")
-        .select("id,display_name,provider,model,voice_id,enabled")
+        .select("id,display_name,provider,model,voice_id,sample_path,enabled")
         .eq("id", selectedVoiceProfileId)
         .eq("enabled", true)
         .maybeSingle();
@@ -242,7 +268,7 @@ function VideoCollectionContent() {
   return <AppShell tasks={tasks}>
     <div className="collection-page anim-fade-in">
       <header className="collection-heading"><div><p className="eyebrow">素材运营台</p><h1>视频采集工作台</h1><p>批量导入来源视频，按采集结果、互动数据和任务进度统一查看。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
-      <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色"><option value="system-default">系统默认 Edge 音色</option>{voiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.provider}</option>)}</select><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
+      <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色"><option value="system-default">系统默认 Edge 音色</option>{voiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.provider}</option>)}</select>{selectedVoiceProfileId === "system-default" ? <small>未选择音色档案，将使用 Worker 默认 Edge 音色。</small> : voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : "该音色未登记样本，无法试听。"}</small>}</div><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
       {message && <p className="collection-notice" role="status">{message}</p>}
       {loading && <div className="collection-loading" role="status"><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>}
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}
