@@ -29,6 +29,28 @@ def _clean_output_issue(raw: str, cleaned: str) -> str | None:
     return None
 
 
+def _extract_opening_hook(transcript: dict, seconds: float = 10.0) -> str:
+    """Use transcript timestamps to preserve the tested opening hook."""
+    parts = []
+    for segment in transcript.get("segments") or []:
+        if float(segment.get("start") or 0) >= seconds:
+            break
+        text = str(segment.get("text") or "").strip()
+        if text:
+            parts.append(text)
+    return "".join(parts).strip()
+
+
+def _hook_preservation_issue(hook: str, cleaned: str) -> str | None:
+    if not hook:
+        return None
+    hook_key = "".join(hook.split())
+    opening_key = "".join((cleaned or "")[: max(len(hook) * 2, 80)].split())
+    if SequenceMatcher(None, hook_key, opening_key, autojunk=False).ratio() < 0.45:
+        return "清洗结果疑似删除或重写了前约 10 秒的开头钩子"
+    return None
+
+
 def _summarize_changes(raw: str, cleaned: str, limit: int = 24) -> dict:
     """Keep a compact, reviewable record of deleted/replaced source spans."""
     segments = []
@@ -114,6 +136,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     try:
         tr = json.load(open(local, encoding="utf-8"))
         raw_text = tr.get("text", "")
+        opening_hook = _extract_opening_hook(tr)
     finally:
         try:
             os.remove(local)
@@ -130,12 +153,13 @@ def run(stage: dict) -> tuple[str, str | None]:
         f"主题关键词：{context['keyword']}\n"
         f"原视频标题：{context['title']}\n"
         f"原作者标识：{context['author']}\n\n"
+        f"前约 10 秒开头钩子（必须保留，只允许修复 ASR 错字和标点）：\n{opening_hook or '未取得时间戳钩子'}\n\n"
         f"请基于下面的原始逐字稿，返回修复清洗后的正文。硬性长度约束：逐句对应原文，"
         f"不得新增任何原文没有的语义内容；除必要标点外，清洗稿字符数应不超过原文。\n{raw_text}"
     )
 
     cleaned = _request_clean(prompt, user_prompt)
-    quality_issue = _clean_output_issue(raw_text, cleaned)
+    quality_issue = _clean_output_issue(raw_text, cleaned) or _hook_preservation_issue(opening_hook, cleaned)
     if quality_issue and _EXPANSION_RETRY and "异常扩写" in quality_issue:
         retry_prompt = (
             prompt
@@ -145,13 +169,15 @@ def run(stage: dict) -> tuple[str, str | None]:
         )
         retry_user = user_prompt + "\n\n上一版超长输出（仅用于定位新增内容，不得照抄）：\n" + cleaned
         cleaned = _request_clean(retry_prompt, retry_user)
-        quality_issue = _clean_output_issue(raw_text, cleaned)
+        quality_issue = _clean_output_issue(raw_text, cleaned) or _hook_preservation_issue(opening_hook, cleaned)
 
     data = json.dumps(
         {
             "raw": raw_text,
             "cleaned": cleaned,
             "context": context,
+            "opening_hook": opening_hook,
+            "opening_hook_seconds": 10,
             "change_summary": _summarize_changes(raw_text, cleaned),
             "quality_issue": quality_issue,
         },
@@ -165,6 +191,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "clean_chars": len(cleaned),
         "model": config.CLEAN_MODEL,
         "content_category": context["category"],
+        "opening_hook": opening_hook[:500],
         "quality_issue": quality_issue,
     })
     if quality_issue:

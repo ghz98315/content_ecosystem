@@ -172,10 +172,10 @@ def _build_grid_prompt(scenes: list[str]) -> str:
     return (
         "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
         "每个格子描绘对应的独立场景，所有格子共享同一套色彩、光线、镜头、材质和时代感。"
-        "固定风格为明亮、克制的生活方式艺术画面，带轻微油画笔触和纸张质感但保留真实比例，"
-        "人物面部不过度写实、不做可识别肖像，暖白、浅木色、柔和灰蓝和低饱和绿色，"
-        "窗边自然光或清晨傍晚柔光，35mm或50mm人文构图，普通成年人，优先背影、侧影、手部动作和生活场景。"
-        "整体适合中老年观众和图书健康知识内容，禁止卡通、动漫、儿童插画、3D医疗模型和夸张广告视觉。"
+        "固定风格为明亮、温润、真实的现代生活摄影感，保留自然肤色和真实比例，避免油画、纸张、陈旧滤镜。"
+        "人物精神饱满而自然，不做可识别肖像；暖白、浅木色、清爽浅绿和柔和蓝色，色彩干净但不刺眼，"
+        "窗边自然日光或柔和晨光，35mm或50mm人文构图，普通中老年人与家人，优先背影、侧影、手部动作和舒适生活场景。"
+        "整体适合中老年观众和图书健康知识内容；避免泛黄、褪色、昏暗、破败、过度怀旧、沉重疾病感、卡通、动漫、儿童插画、3D医疗模型和夸张广告视觉。"
         "每格按4:3画面构图，主体完整并保持在格子中央安全区域。"
         "九个画面必须无缝、无间距地铺满画布，格子之间不要绘制任何分隔线、白线、黑线、边框或留白。"
         "只生成视觉画面，不得把场景描述绘制进图片；所有书籍封面、屏幕、招牌、包装和背景均保持无字。"
@@ -494,11 +494,12 @@ def process_replacement_request(request: dict) -> str:
         raise ValueError("image sentence missing")
     client, image_model = config.image_client()
     prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
-    raw = _generate_grid_bytes(client, image_model, _build_grid_prompt([prompt_scene]), stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}")
+    prompt = _build_grid_prompt([prompt_scene])
+    raw = _generate_grid_bytes(client, image_model, prompt, stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}")
     piece = _split_grid(raw, 1)[0]
     path = _replacement_path(task_id, image_index)
     storage.upload_bytes(path, piece, "image/png")
-    storage.add_artifact(task_id, "image", "image_replacement", path, meta={"index": image_index, "source_image": entry.get("path"), "sentence": scene, "replacement_request_id": request["id"], "note": note, "split_version": _IMAGE_SPLIT_VERSION})
+    storage.add_artifact(task_id, "image", "image_replacement", path, meta={"index": image_index, "source_image": entry.get("path"), "sentence": scene, "prompt_scene": prompt_scene, "prompt": prompt, "image_model": image_model, "replacement_request_id": request["id"], "note": note, "split_version": _IMAGE_SPLIT_VERSION})
     return path
 
 
@@ -555,6 +556,9 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
             "text_policy": "no_visible_text",
             "validated": True,
+            "prompt": prompt,
+            "prompt_scenes": batch,
+            "image_model": image_model,
         })
 
         pieces = _split_grid(raw, len(batch))
@@ -576,9 +580,12 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
                 "cell_ratio": "4:3",
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
+                "prompt": prompt,
+                "prompt_scene": shot["text"],
+                "image_model": image_model,
             })
             image_paths.append(sp)
-            meta_list.append({**shot, "path": sp, "sentence": shot["text"], "source_grid": grid_path})
+            meta_list.append({**shot, "path": sp, "sentence": shot["text"], "source_grid": grid_path, "prompt": prompt, "prompt_scene": shot["text"], "image_model": image_model})
 
     # 存索引文件
     sp_idx = f"{task_id}/images_index.json"
@@ -623,10 +630,12 @@ def run(stage: dict) -> tuple[str, str | None]:
         ):
             for shot, path in zip(batch, expected_paths):
                 image_paths.append(path)
-                meta_list.append({**shot, "path": path, "sentence": shot["text"]})
+                artifact_meta = existing_artifacts[path]
+                meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model")})
             continue
 
         raw: bytes | None = None
+        grid_prompt: str | None = None
         if grid_path in existing_paths:
             local_grid = storage.download_artifact(grid_path, ".png")
             try:
@@ -637,11 +646,11 @@ def run(stage: dict) -> tuple[str, str | None]:
                 except OSError:
                     pass
         else:
-            prompt = _build_grid_prompt([shot["text"] for shot in batch])
+            grid_prompt = _build_grid_prompt([shot["text"] for shot in batch])
             raw = _generate_grid_bytes(
                 client,
                 image_model,
-                prompt,
+                grid_prompt,
                 stage_id=stage["id"],
                 batch_key=f"grid_{batch_start // (_GRID * _GRID):03d}",
             )
@@ -649,6 +658,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
                 "grid": f"{_GRID}x{_GRID}",
                 "text_policy": "no_visible_text",
+                "prompt": grid_prompt,
+                "prompt_scenes": [shot["text"] for shot in batch],
+                "image_model": image_model,
             })
 
         assert raw is not None
@@ -656,6 +668,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
         _validate_grid_source(*grid_size)
+        source_meta = existing_artifacts.get(grid_path) or {}
+        actual_prompt = grid_prompt or source_meta.get("prompt")
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
             "grid": "3x3",
@@ -665,8 +679,10 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
             "text_policy": "no_visible_text",
             "validated": True,
+            "prompt": actual_prompt,
+            "prompt_scenes": [shot["text"] for shot in batch],
+            "image_model": image_model,
         })
-        source_meta = existing_artifacts.get(grid_path) or {}
         source_cells = len(source_meta.get("cell_bounds_x") or []) or _GRID
         for i, piece_bytes in enumerate(_split_grid(raw, len(batch), source_cells)):
             idx = batch_start + i
@@ -682,9 +698,12 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "cell_ratio": "4:3",
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
+                "prompt": actual_prompt,
+                "prompt_scene": shot["text"],
+                "image_model": image_model,
             })
             image_paths.append(path)
-            meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": grid_path})
+            meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")

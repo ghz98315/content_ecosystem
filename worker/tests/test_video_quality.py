@@ -14,7 +14,7 @@ import httpx
 import db
 import main as worker_main
 from compliance import check_text, scan_text
-from stages.clean import _clean_output_issue, _summarize_changes
+from stages.clean import _clean_output_issue, _extract_opening_hook, _hook_preservation_issue, _summarize_changes
 from prompt_profiles import (
     derive_keyword,
     load_compliance_rules,
@@ -59,7 +59,7 @@ from stages.render import (
     RenderTimeout,
     _run_ffmpeg,
 )
-from stages.rewrite import _candidate_issues, _parse_candidates
+from stages.rewrite import _candidate_issues, _parse_candidates, _rewrite_structure
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize, _synthesize_detailed
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
@@ -92,6 +92,18 @@ class RewriteQualityTests(unittest.TestCase):
         issues = _candidate_issues([rewritten], source, "stop")
         self.assertIn("改写幅度过大，未保持原文主体", issues)
 
+    def test_rewrite_structure_keeps_model_hook_metadata(self):
+        raw = json.dumps({
+            "text": "第一段钩子。\n\n第二段展开。",
+            "hook": "越省心的做法，可能越伤身体。",
+            "hook_strategy": "contrast",
+            "paragraphs": ["第一段钩子。", "第二段展开。"],
+        }, ensure_ascii=False)
+        structure = _rewrite_structure(raw, "第一段钩子。\n\n第二段展开。")
+        self.assertEqual("越省心的做法，可能越伤身体。", structure["hook"])
+        self.assertEqual("contrast", structure["hook_strategy"])
+        self.assertEqual(["第一段钩子。", "第二段展开。"], structure["paragraphs"])
+
 
 class CleanSummaryTests(unittest.TestCase):
     def test_clean_summary_lists_deleted_source_spans(self):
@@ -110,6 +122,18 @@ class CleanSummaryTests(unittest.TestCase):
 
     def test_clean_output_rejects_empty_result(self):
         self.assertIn("空正文", _clean_output_issue("原文", "") or "")
+
+    def test_opening_hook_uses_timestamped_first_ten_seconds(self):
+        transcript = {"segments": [
+            {"start": 0, "text": "开头反常识。"},
+            {"start": 8.5, "text": "先别急着相信。"},
+            {"start": 10, "text": "这里不应被包含。"},
+        ]}
+        self.assertEqual("开头反常识。先别急着相信。", _extract_opening_hook(transcript))
+
+    def test_clean_rejects_when_opening_hook_is_missing(self):
+        issue = _hook_preservation_issue("先别急着相信，这个习惯可能有问题。", "正文从第二个观点开始。")
+        self.assertIn("开头钩子", issue or "")
 
 
 class PromptProfileTests(unittest.TestCase):

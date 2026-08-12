@@ -61,6 +61,22 @@ def _parse_candidates(raw: str) -> list[str]:
     return matches if matches else []
 
 
+def _rewrite_structure(raw: str, text: str) -> dict:
+    """Optional presentation metadata; the plain text contract stays canonical."""
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        payload = {}
+    hook = str(payload.get("hook") or "").strip() if isinstance(payload, dict) else ""
+    strategy = str(payload.get("hook_strategy") or "").strip() if isinstance(payload, dict) else ""
+    paragraphs = payload.get("paragraphs") if isinstance(payload, dict) else None
+    if not isinstance(paragraphs, list) or not all(isinstance(item, str) and item.strip() for item in paragraphs):
+        paragraphs = [item.strip() for item in re.split(r"\n\s*\n|\n", text) if item.strip()]
+    if not hook:
+        hook = paragraphs[0] if paragraphs else text[:120]
+    return {"hook": hook, "hook_strategy": strategy or "counter_intuitive", "paragraphs": paragraphs}
+
+
 def _candidate_issues(
     candidates: list[str],
     source: str,
@@ -105,7 +121,7 @@ def _generate_candidates(
     context: dict[str, str],
     rewrite_notes: str = "",
     mode: str = "initial_dedup",
-) -> tuple[list[str], list[int]]:
+) -> tuple[list[str], list[int], dict]:
     source_len = _text_len(source)
     prompt = load_prompt(context["category"], rewrite_prompt_kind(mode))
     source_label = "首发版本最终确认稿" if mode == "repost_dedup" else "已清洗正文"
@@ -143,7 +159,11 @@ def _generate_candidates(
             candidates, source, getattr(choice, "finish_reason", None), mode
         )
         if not last_issues:
-            return candidates, [_text_len(text) for text in candidates]
+            return (
+                candidates,
+                [_text_len(text) for text in candidates],
+                _rewrite_structure(raw, candidates[0]),
+            )
     raise ValueError("改写稿完整性检查失败：" + "；".join(last_issues))
 
 
@@ -293,7 +313,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             db.get_client().table("stages").update({"error": None}).eq("id", stage["id"]).execute()
             return "done", sp
 
-    candidates, lengths = _generate_candidates(
+    candidates, lengths, structure = _generate_candidates(
         source,
         context,
         str(params.get("rewrite_notes") or "").strip(),
@@ -314,6 +334,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "rewrite_mode": mode,
         "source_task_id": source_task_id or None,
         "compliance": report,
+        **structure,
     }
     sp = f"{task_id}/rewrite.json"
     _upload_rewrite(sp, payload)
@@ -327,6 +348,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "complete": True,
         "content_category": context["category"],
         "compliance_status": report["status"],
+        "hook_strategy": structure["hook_strategy"],
     })
     db.get_client().table("stages").update({
         "status": "needs_review",

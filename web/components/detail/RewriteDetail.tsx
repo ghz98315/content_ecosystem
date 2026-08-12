@@ -13,6 +13,9 @@ interface RewriteData {
   final_text?: string | null;
   content_category?: string;
   compliance?: ComplianceReport;
+  hook?: string;
+  hook_strategy?: string;
+  paragraphs?: string[];
 }
 
 interface ComplianceIssue {
@@ -126,6 +129,7 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
             <div><span>预计口播</span><strong>{Math.floor(estimatedSeconds / 60)}:{String(estimatedSeconds % 60).padStart(2, "0")}</strong><small>按当前文案估算</small></div>
             <div><span>合规状态</span><strong>{report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
           </section>
+          {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
 
           <div className="rewrite-workspace">
           <aside className="rewrite-advice" aria-label="合规检查建议">
