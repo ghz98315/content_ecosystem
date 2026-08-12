@@ -32,7 +32,7 @@ from stages.image import (
     _validate_grid_source,
     _visual_scene,
 )
-from stages.ingest import _requires_manual_upload
+from stages.ingest import _is_wechat_channels_url, _requires_manual_upload
 from stages.image import _apimart_result_url
 from quality import EXPECTED_STAGES, evaluate_render_quality
 from stages.render import (
@@ -203,6 +203,8 @@ class StoryboardTests(unittest.TestCase):
     def test_wechat_channels_uses_authorized_manual_upload_path(self):
         self.assertTrue(_requires_manual_upload("wechat_channels"))
         self.assertFalse(_requires_manual_upload("douyin"))
+        self.assertTrue(_is_wechat_channels_url("https://weixin.qq.com/sph/AAhaArJeEf"))
+        self.assertTrue(_is_wechat_channels_url("https://channels.weixin.qq.com/foo"))
 
     def test_bgm_mix_keeps_narration_primary_and_uses_fade(self):
         filter_graph = _audio_mix_filter(True, 0.08, 1.0, 42.0)

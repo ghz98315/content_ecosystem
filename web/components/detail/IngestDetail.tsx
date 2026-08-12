@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Task } from "@/lib/types";
 import { DetailShell, DetailCommon } from "./_shell";
+import { ManualUpload } from "@/components/ManualUpload";
 
 interface Meta {
   digg_count?: number;
@@ -61,9 +62,11 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const purchaseComments = meta?.purchase_intent_comments || [];
   const purchaseTexts = new Set(purchaseComments.map(c => c.text.trim()));
   const hotComments = (meta?.hot_comments || []).filter(c => !purchaseTexts.has(c.text.trim()));
+  const isWechatChannels = task.source_platform === "wechat_channels" || /(?:channels\.weixin\.qq\.com|weixin\.qq\.com\/(?:channels|sph)\/)/i.test(task.source_url || "");
 
   return (
     <DetailShell title="采集" stage={stage} onRerun={onRerun}>
+      {isWechatChannels && stage?.status === "needs_review" && <section style={{ marginBottom: 24 }}><Label>视频号授权上传</Label><p style={{ margin: "0 0 10px", color: "var(--text-secondary)", fontSize: 13 }}>该链接不会自动下载。确认拥有内容使用授权后，上传视频或音频，系统将继续后续生产流程。</p><ManualUpload taskId={taskId} stage={stage} /></section>}
       {/* 视频信息 */}
       <section style={{ marginBottom: 24 }}>
         <Label>视频信息</Label>

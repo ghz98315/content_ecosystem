@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import db
 import storage
@@ -28,6 +29,10 @@ def _write_task_meta(task_id: str, res) -> None:
 
 def _requires_manual_upload(source_platform: str) -> bool:
     return source_platform == "wechat_channels"
+
+
+def _is_wechat_channels_url(source_url: str) -> bool:
+    return bool(re.search(r"(?:channels\.weixin\.qq\.com|weixin\.qq\.com/(?:channels|sph)/)", source_url or "", re.IGNORECASE))
 
 
 def run(stage: dict) -> tuple[str, str | None]:
@@ -74,7 +79,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     pass
         return "done", sp
 
-    if _requires_manual_upload(source_platform):
+    if _requires_manual_upload(source_platform) or _is_wechat_channels_url(source_url):
         db.set_stage(stage["id"], "needs_review", error="视频号链接暂不支持自动下载。请确认内容授权后，使用手动上传视频或音频；上传后将复用逐字稿、清洗、改写、配音、生图和成片链路。")
         return "needs_review", None
 

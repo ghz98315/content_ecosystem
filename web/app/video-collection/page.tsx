@@ -45,7 +45,7 @@ function currentStage(stages: Stage[]) {
 }
 
 function sourcePlatformForUrl(url: string): "douyin" | "wechat_channels" {
-  return /(?:channels\.weixin\.qq\.com|weixin\.qq\.com\/channels)/i.test(url)
+  return /(?:channels\.weixin\.qq\.com|weixin\.qq\.com\/(?:channels|sph)\/)/i.test(url)
     ? "wechat_channels"
     : "douyin";
 }
