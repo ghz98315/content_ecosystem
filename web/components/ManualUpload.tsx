@@ -27,30 +27,14 @@ export function ManualUpload({
     setBusy(true);
     setErr(null);
     try {
-      const isAudio = file.type.startsWith("audio");
-      const ext = file.name.split(".").pop() || (isAudio ? "mp3" : "mp4");
-      const path = `${taskId}/manual.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, file, { upsert: true });
-      if (upErr) throw upErr;
-
-      // 写 params + 推回 pending，worker 会走 manual_file 分支
-      const { error: dbErr } = await supabase
-        .from("stages")
-        .update({
-          status: "pending",
-          error: null,
-          params: {
-            ...(stage.params || {}),
-            manual_file: path,
-            manual_is_audio: isAudio,
-            manual_title: title || null,
-            manual_author: author || null,
-          },
-        })
-        .eq("id", stage.id);
-      if (dbErr) throw dbErr;
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.access_token) throw new Error("登录会话已失效，请刷新页面后重试");
+      const form = new FormData();
+      form.set("file", file); form.set("taskId", taskId); form.set("stageId", stage.id);
+      form.set("title", title); form.set("author", author);
+      const response = await fetch("/api/manual-upload", { method: "POST", headers: { Authorization: `Bearer ${sessionData.session.access_token}` }, body: form });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "上传失败");
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
