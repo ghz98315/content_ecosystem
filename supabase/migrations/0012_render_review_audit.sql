@@ -25,7 +25,7 @@ begin
    where s.id = p_stage_id and s.kind = 'render' and s.status = 'needs_review' and t.owner = auth.uid() for update of s;
   if v_task_id is null then raise exception 'render stage is no longer awaiting review'; end if;
   insert into public.render_reviews(task_id, stage_id, reviewer, decision, note) values (v_task_id, p_stage_id, auth.uid(), p_decision, nullif(btrim(p_note), '')) returning * into v_review;
-  update public.stages set status = case when p_decision = 'approved' then 'done' else 'pending' end, error = case when p_decision = 'approved' then null else coalesce(nullif(btrim(p_note), ''), '人工审核要求重新生成') end where id = p_stage_id;
+  update public.stages set status = (case when p_decision = 'approved' then 'done' else 'pending' end)::public.stage_status, error = case when p_decision = 'approved' then null else coalesce(nullif(btrim(p_note), ''), '人工审核要求重新生成') end where id = p_stage_id;
   update public.tasks set status = case when p_decision = 'approved' then 'done' else 'processing' end where id = v_task_id and status = 'needs_review';
   return v_review;
 end;
