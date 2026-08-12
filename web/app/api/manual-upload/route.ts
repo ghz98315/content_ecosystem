@@ -52,6 +52,8 @@ export async function PATCH(request: Request) {
       params: { ...(stage.params || {}), manual_file: path, manual_is_audio: mime.startsWith("audio/"), manual_is_text: TEXT_TYPES.has(mime) || /\.(txt|md|markdown)$/i.test(path), manual_title: String(body.title || "").trim() || null, manual_author: String(body.author || "").trim() || null },
     }).eq("id", stageId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const { error: taskError } = await sb.from("tasks").update({ status: "processing" }).eq("id", stage.task_id).eq("status", "needs_review");
+    if (taskError) return NextResponse.json({ error: taskError.message }, { status: 500 });
     return NextResponse.json({ path });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "确认上传失败" }, { status: 401 });
