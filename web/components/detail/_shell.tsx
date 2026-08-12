@@ -1,5 +1,5 @@
 "use client";
-import { Stage, Task } from "@/lib/types";
+import { Stage, Task, STAGES } from "@/lib/types";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "等待中", processing: "处理中", done: "完成",
@@ -47,6 +47,13 @@ export function DetailShell({
   const diagnosticBackground = errorTone === "warning" ? "#fffbeb" : "#fff5f5";
   const diagnosticBorder = errorTone === "warning" ? "#fde68a" : "#fecaca";
   const diagnosticColor = errorTone === "warning" ? "#a16207" : "var(--status-failed)";
+  const stageIndex = stage ? STAGES.findIndex(item => item.kind === stage.kind) : -1;
+  const downstreamCount = stageIndex >= 0 ? STAGES.length - stageIndex - 1 : 0;
+  const recoveryText = isFailed
+    ? `可恢复：重跑${downstreamCount > 0 ? `当前阶段及下游 ${downstreamCount} 个阶段` : "当前阶段"}；已完成的上游产物不会被重跑。`
+    : isReview
+      ? "下一步：确认当前内容后继续处理；确认不会重跑已经完成的上游阶段。"
+      : "";
 
   return (
     <div className="detail-shell">
@@ -76,7 +83,9 @@ export function DetailShell({
           color: diagnosticColor, fontSize: 12,
           fontFamily: "monospace", wordBreak: "break-all", marginBottom: 16,
         }}>
-          {stage.error}
+          <strong style={{ display: "block", marginBottom: 4 }}>{isFailed ? "阶段失败" : "等待人工确认"}</strong>
+          <span style={{ display: "block", fontFamily: "inherit" }}>{stage.error}</span>
+          <span style={{ display: "block", marginTop: 6, fontFamily: "inherit" }}>{recoveryText}</span>
         </div>
       )}
 
@@ -122,6 +131,7 @@ export function TextBtn({
   const fg = variant === "primary" ? "#fff" : variant === "danger" ? "var(--status-failed)" : "var(--text-secondary)";
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       className="text-action"

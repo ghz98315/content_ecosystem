@@ -177,6 +177,29 @@ def set_task_status(task_id: str, status: str) -> None:
     retry(lambda: get_client().table("tasks").update({"status": status}).eq("id", task_id).execute())
 
 
+def claim_next_image_replacement() -> dict | None:
+    sb = get_client()
+    res = retry(lambda: sb.table("image_replacement_requests").select("*").eq("status", "pending").order("requested_at").limit(20).execute())
+    if not res.data:
+        return None
+    for request in res.data:
+        task = retry(lambda request=request: sb.table("tasks").select("status").eq("id", request["task_id"]).single().execute())
+        if not task.data or task.data.get("status") == "cancelled":
+            continue
+        upd = retry(lambda request=request: sb.table("image_replacement_requests").update({"status": "processing", "error": None}).eq("id", request["id"]).eq("status", "pending").execute())
+        if upd.data:
+            return upd.data[0]
+    return None
+
+
+def complete_image_replacement(request_id: str, replacement_path: str) -> None:
+    retry(lambda: get_client().table("image_replacement_requests").update({"status": "done", "replacement_path": replacement_path, "completed_at": datetime.now(timezone.utc).isoformat(), "error": None}).eq("id", request_id).execute())
+
+
+def fail_image_replacement(request_id: str, error: str) -> None:
+    retry(lambda: get_client().table("image_replacement_requests").update({"status": "failed", "error": error[:500], "completed_at": datetime.now(timezone.utc).isoformat()}).eq("id", request_id).execute())
+
+
 def touch_stage(stage_id: str) -> None:
     """Refresh the lease timestamp while a handler is still running."""
     retry(

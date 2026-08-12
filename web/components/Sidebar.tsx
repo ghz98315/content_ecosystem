@@ -8,6 +8,7 @@ import { STATUS_COLOR } from "@/lib/types";
 const TOOLS = [
   { id: "projects", label: "内容项目库", icon: "▦", href: "/", active: true },
   { id: "collection", label: "视频采集", icon: "◉", href: "/video-collection", active: true },
+  { id: "book-library", label: "书籍库", icon: "▤", href: "/book-library", active: true },
   { id: "knowledge", label: "知识图文", icon: "▤", href: "/xhs", active: true },
   { id: "voice", label: "音色与声音复刻", icon: "◉", href: "/voice-cloning", active: true },
 ];

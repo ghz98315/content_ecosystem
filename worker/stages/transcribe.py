@@ -7,11 +7,38 @@
 from __future__ import annotations
 import json
 import os
+import re
 from functools import lru_cache
 
 import config
 import db
 import storage
+
+
+def _infer_book_signal(text: str) -> dict:
+    """Extract only explicit book-title signals; never invent a title."""
+    source = text or ""
+    bracketed = re.search(r"《([^》]{2,80})》", source)
+    if bracketed:
+        return {"title": bracketed.group(1).strip(), "confidence": "medium", "evidence": "transcript_book_brackets"}
+    labeled = re.search(r"(?:书名|这本书|本书)\s*(?:是|为|叫|：|:)\s*([^\n，。！？]{2,80})", source)
+    if labeled:
+        return {"title": labeled.group(1).strip("《》 \t"), "confidence": "low", "evidence": "transcript_title_label"}
+    return {"title": None, "confidence": "low", "evidence": "no_explicit_title_signal"}
+
+
+def _persist_book_signal(task_id: str, signal: dict) -> None:
+    """Best-effort persistence; missing migration must not fail transcription."""
+    try:
+        db.get_client().table("task_book_signals").upsert({
+            "task_id": task_id,
+            "detected_title": signal.get("title"),
+            "confidence": signal.get("confidence") or "low",
+            "evidence": signal.get("evidence"),
+            "source_stage": "transcribe",
+        }, on_conflict="task_id").execute()
+    except Exception:
+        pass
 
 
 @lru_cache(maxsize=1)
@@ -78,12 +105,15 @@ def run(stage: dict) -> tuple[str, str | None]:
         data = json.dumps(transcript, ensure_ascii=False, indent=2).encode("utf-8")
         sp = f"{task_id}/transcript.json"
         storage.upload_bytes(sp, data, "application/json")
+        book_signal = _infer_book_signal(transcript["text"])
         storage.add_artifact(task_id, "transcribe", "transcript", sp, meta={
             "language": info.language,
             "duration": round(info.duration, 3),
             "segment_count": len(seg_list),
             "char_count": len(transcript["text"]),
+            "book_signal": book_signal,
         })
+        _persist_book_signal(task_id, book_signal)
         return "done", sp
     finally:
         try:

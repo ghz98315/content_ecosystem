@@ -5,7 +5,8 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from stages.image import _download_image, _generate_grid_bytes
+from stages.image import _download_image, _generate_grid_bytes, _replacement_path, process_replacement_request
+from stages.render import _apply_image_replacements
 
 
 class APIMartIdempotencyTests(unittest.TestCase):
@@ -105,6 +106,51 @@ class ImageDownloadRetryTests(unittest.TestCase):
 
         self.assertEqual(2, urlopen.call_count)
         sleep.assert_called_once_with(2)
+
+
+class ImageReplacementRequestTests(unittest.TestCase):
+    def test_replacement_path_versions_increment(self):
+        table = MagicMock()
+        table.select.return_value = table
+        table.eq.return_value = table
+        getattr(table, 'not_').is_.return_value.execute.return_value = MagicMock(data=[{"replacement_path": "a"}, {"replacement_path": "b"}])
+        client = MagicMock()
+        client.table.return_value = table
+        with patch("stages.image.db.get_client", return_value=client):
+            self.assertEqual("task-1/replacements/img_003_v003.png", _replacement_path("task-1", 3))
+
+    def test_process_replacement_request_uses_note_and_persists_artifact(self):
+        request = {"id": "req-1", "task_id": "task-1", "stage_id": "stage-1", "image_index": 0, "note": "人物不要正脸"}
+        with patch("stages.image._load_image_index", return_value=[{"sentence": "清晨厨房里准备早餐", "path": "task-1/img_000.png"}]), patch(
+            "stages.image.config.image_client", return_value=(MagicMock(), "gpt-image-2")
+        ), patch("stages.image._generate_grid_bytes", return_value=b"grid-bytes") as gen, patch(
+            "stages.image._split_grid", return_value=[b"single-image"]
+        ), patch("stages.image._replacement_path", return_value="task-1/replacements/img_000_v001.png"), patch(
+            "stages.image.storage.upload_bytes"
+        ) as upload_bytes, patch("stages.image.storage.add_artifact") as add_artifact:
+            result = process_replacement_request(request)
+
+        self.assertEqual("task-1/replacements/img_000_v001.png", result)
+        self.assertIn("人物不要正脸", gen.call_args.args[2])
+        upload_bytes.assert_called_once_with("task-1/replacements/img_000_v001.png", b"single-image", "image/png")
+        add_artifact.assert_called_once()
+
+
+    def test_render_prefers_latest_done_replacement(self):
+        table = MagicMock()
+        table.select.return_value = table
+        table.eq.return_value = table
+        table.order.return_value = table
+        table.execute.return_value = MagicMock(data=[
+            {"image_index": 1, "replacement_path": "task-1/replacements/img_001_v002.png", "status": "done", "requested_at": "2026-08-12T10:00:00Z"},
+            {"image_index": 1, "replacement_path": "task-1/replacements/img_001_v001.png", "status": "done", "requested_at": "2026-08-12T09:00:00Z"},
+        ])
+        client = MagicMock()
+        client.table.return_value = table
+        images = [{"path": "task-1/img_000.png"}, {"path": "task-1/img_001.png"}]
+        with patch("stages.render.db.get_client", return_value=client):
+            result = _apply_image_replacements("task-1", images)
+        self.assertEqual("task-1/replacements/img_001_v002.png", result[1]["path"])
 
 
 if __name__ == "__main__":

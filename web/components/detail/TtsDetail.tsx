@@ -30,9 +30,22 @@ interface TtsData {
 export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
   const [data, setData]     = useState<TtsData | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [activeBatch, setActiveBatch] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!stage?.output_ref) return;
+    if (!stage?.output_ref) {
+      setData(null);
+      setAudioUrl(null);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadError(null);
+    setData(null);
+    setAudioUrl(null);
     // 加载字幕/元数据 JSON
     const subsPath = stage.output_ref.replace("tts.mp3", "tts_subtitles.json");
     fetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
@@ -48,13 +61,33 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
           }
         }));
         setData({ ...payload, batches });
-      }).catch(() => {});
+      }).catch(() => { setLoadError("字幕与分段数据暂时无法加载"); });
 
     // 加载音频
     fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
-      .then(r => r.json()).then(({ signedUrl }) => setAudioUrl(signedUrl))
-      .catch(() => {});
+      .then(r => r.json()).then(({ signedUrl }) => {
+        if (!signedUrl) throw new Error("missing audio url");
+        setAudioUrl(signedUrl);
+      })
+      .catch(() => setLoadError(current => current || "生产音频暂时无法加载"))
+      .finally(() => setLoading(false));
   }, [stage?.output_ref]);
+
+  const retry = () => {
+    if (!stage?.output_ref) return;
+    setData(null);
+    setAudioUrl(null);
+    setLoadError(null);
+    setLoading(true);
+    const subsPath = stage.output_ref.replace("tts.mp3", "tts_subtitles.json");
+    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+      .then(r => r.json()).then(({ signedUrl }) => { if (!signedUrl) throw new Error(); setAudioUrl(signedUrl); })
+      .catch(() => setLoadError("生产音频暂时无法加载"))
+      .finally(() => setLoading(false));
+    fetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
+      .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl)).then(r => r.json()).then((payload: TtsData) => setData(payload))
+      .catch(() => setLoadError(current => current || "字幕与分段数据暂时无法加载"));
+  };
 
   function fmtDur(s?: number) {
     if (!s) return "—";
@@ -63,6 +96,9 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
 
   return (
     <DetailShell title="配音" stage={stage} onRerun={onRerun}>
+      {loading && <div className="tts-state" role="status" aria-live="polite">正在加载配音产物…</div>}
+      {loadError && <div className="tts-state is-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={retry}>重试</button></div>}
+      {!loading && !loadError && !stage?.output_ref && <div className="tts-state" role="status">当前阶段尚未生成配音产物。</div>}
       {data && (
         <section className="media-workbench-heading tts-workbench-heading">
           <div><p className="eyebrow">AUDIO</p><h2>音频生成与时长预估</h2><p>使用当前任务快照中的 Provider、音色和语速生成配音，并按真实边界校准字幕。</p></div>
@@ -71,7 +107,8 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
       )}
       {audioUrl && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>完整配音</div>
+          <div className="tts-snapshot-note" role="note"><strong>任务配音快照</strong><span>以下生产音频与音色来自任务创建时的配置，不会随全局音色 profile 后续修改而变化。</span></div>
+          <div className="tts-audio-heading"><div><strong>完整配音</strong><small>当前任务生产音频快照 · 不会被试听或后续对比覆盖</small></div><a className="secondary-action" href={audioUrl} download="tts.mp3">下载音频</a></div>
           <audio
             controls src={audioUrl}
             style={{ width: "100%", borderRadius: "var(--radius-md)" }}
@@ -118,7 +155,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
                     </div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 8 }}>{batch.text}</div>
-                      {batch.audioUrl && <audio controls src={batch.audioUrl} style={{ width: "100%", height: 32 }} />}
+                      {batch.audioUrl && <><button type="button" className="tts-preview-trigger" onClick={() => setActiveBatch(activeBatch === batch.index ? null : batch.index)}>{activeBatch === batch.index ? "收起试听" : "试听本段"}</button>{activeBatch === batch.index && <audio autoPlay controls src={batch.audioUrl} style={{ width: "100%", height: 32 }} />}</>}
                     </div>
                   </div>
                 ))}

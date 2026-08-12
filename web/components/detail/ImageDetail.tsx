@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
+import { supabase } from "@/lib/supabase";
 
 interface IndexEntry {
   index: number;
@@ -11,15 +12,24 @@ interface IndexEntry {
   motion?: string;
   source_grid?: string;
 }
+interface ImageReview { image_index: number; decision: "approved" | "replace_requested"; note: string | null; created_at: string }
+interface ReplacementRequest { image_index: number; status: "pending" | "processing" | "done" | "failed"; replacement_path: string | null; error: string | null; requested_at: string }
 
 export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [entries, setEntries] = useState<IndexEntry[]>([]);
   const [urls,    setUrls]    = useState<Record<number, string>>({});
-  const [big,     setBig]     = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<IndexEntry | null>(null);
+  const [filter, setFilter] = useState<"all" | "ready" | "missing">("all");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reviews, setReviews] = useState<Record<number, ImageReview>>({});
+  const [replacements, setReplacements] = useState<Record<number, ReplacementRequest>>({});
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [replacementRequested, setReplacementRequested] = useState(false);
+  const [reviewNote, setReviewNote] = useState("");
   const providerParams = (stage?.params || {}) as Record<string, unknown>;
   const providerName = String(providerParams.image_provider || providerParams.provider || "主生图通道");
   const imageModel = String(providerParams.image_model || providerParams.model || "任务配置模型");
+  const visibleEntries = entries.filter(entry => filter === "all" || (filter === "ready" ? Boolean(urls[entry.index]) : !urls[entry.index]));
 
   // 1. 下载索引 JSON
   useEffect(() => {
@@ -36,12 +46,57 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   useEffect(() => {
     if (!entries.length) return;
     entries.forEach(e => {
-      fetch(`/api/signed-url?path=${encodeURIComponent(e.path)}`)
+      const preferredPath = replacements[e.index]?.replacement_path || e.path;
+      fetch(`/api/signed-url?path=${encodeURIComponent(preferredPath)}`)
         .then(r => r.json())
         .then(({ signedUrl }) => setUrls(prev => ({ ...prev, [e.index]: signedUrl })))
         .catch(() => {});
     });
-  }, [entries]);
+  }, [entries, replacements]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    supabase.from("image_reviews").select("image_index,decision,note,created_at").eq("task_id", taskId).order("created_at", { ascending: false }).then(({ data }) => {
+      const next: Record<number, ImageReview> = {};
+      (data || []).forEach(row => { if (next[row.image_index] === undefined) next[row.image_index] = row as ImageReview; });
+      setReviews(next);
+    });
+  }, [taskId, stage?.id]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    supabase.from("image_replacement_requests").select("image_index,status,replacement_path,error,requested_at").eq("task_id", taskId).order("requested_at", { ascending: false }).then(({ data }) => {
+      const next: Record<number, ReplacementRequest> = {};
+      (data || []).forEach(row => { if (next[row.image_index] === undefined) next[row.image_index] = row as ReplacementRequest; });
+      setReplacements(next);
+    });
+  }, [taskId, stage?.id]);
+
+  const reviewSelected = async (decision: "approved" | "replace_requested") => {
+    if (!selectedEntry || !stage?.id || reviewBusy) return;
+    setReviewBusy(true);
+    const { data, error } = await supabase.rpc("review_image_frame", { p_stage_id: stage.id, p_image_index: selectedEntry.index, p_decision: decision, p_note: reviewNote.trim() || null });
+    setReviewBusy(false);
+    if (error) { setLoadError(`镜头审核失败：${error.message}`); return; }
+    if (data) setReviews(current => ({ ...current, [selectedEntry.index]: data as ImageReview }));
+    setReviewNote("");
+  };
+
+  const requestReplacement = async () => {
+    if (!selectedEntry || !stage?.id || replacementRequested) return;
+    setReplacementRequested(true);
+    const { error } = await supabase.rpc("request_image_replacement", { p_stage_id: stage.id, p_image_index: selectedEntry.index, p_note: reviewNote.trim() || null });
+    setReplacementRequested(false);
+    if (error) { setLoadError(`替换请求提交失败：${error.message}`); return; }
+    setReplacements(current => ({ ...current, [selectedEntry.index]: { image_index: selectedEntry.index, status: "pending", replacement_path: null, error: null, requested_at: new Date().toISOString() } }));
+    setLoadError(null); setReviewNote("");
+  };
+
+  const replacementReadyCount = Object.values(replacements).filter(item => item.status === "done" && item.replacement_path).length;
+  const rerunDownstreamWithReplacement = async () => {
+    if (!stage?.id) return;
+    await onRerun(stage.id);
+  };
 
   return (
     <DetailShell title="生图" stage={stage} onRerun={onRerun}>
@@ -65,16 +120,18 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
           </section>
           <div className="image-workbench-toolbar">
             <div><strong>镜头与文案对应</strong><span>点击图片放大检查，卡片下方显示该镜头实际对应的字幕内容。</span></div>
-            <span className="image-ready-badge">{Object.keys(urls).length}/{entries.length} 已加载</span>
+            <div className="image-review-filters" role="tablist" aria-label="图片状态筛选">
+              {([["all", "全部"], ["ready", "已加载"], ["missing", "待加载"]] as const).map(([id, label]) => <button key={id} type="button" className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)} role="tab" aria-selected={filter === id}>{label} {id === "all" ? entries.length : id === "ready" ? Object.keys(urls).length : entries.length - Object.keys(urls).length}</button>)}
+            </div>
           </div>
           <div className="image-review-grid" style={{ marginBottom: 10 }}>
-            {entries.map(e => {
+            {visibleEntries.map(e => {
               const url = urls[e.index];
               return (
                 <button
                   type="button"
                   key={e.index}
-                  onClick={() => url && setBig(url)}
+                  onClick={() => url && setSelectedEntry(e)}
                   disabled={!url}
                   title={e.sentence}
                   className="image-review-card"
@@ -97,6 +154,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
               );
             })}
           </div>
+          {visibleEntries.length === 0 && <p className="state-panel compact">当前筛选没有对应图片。</p>}
           <p className="capability-note">共 {entries.length} 张 · 当前版本按完整九宫格批次生成并切分。<span>后续能力：镜头级提示词编辑、单图重生成和违规替换记录，需要 Worker 镜头级任务接口后开放。</span></p>
         </>
       ) : (
@@ -107,18 +165,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
 
       {loadError && <p role="alert" style={{ color: "var(--status-failed)", fontSize: 12, marginTop: 8 }}>{loadError}</p>}
 
-      {big && (
-        <div
-          onClick={() => setBig(null)}
-          className="media-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-label="图片放大预览"
-        >
-          <button type="button" className="media-dialog-close" aria-label="关闭图片预览" onClick={() => setBig(null)}>×</button>
-          <img src={big} alt="放大" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
-        </div>
-      )}
+      {selectedEntry && urls[selectedEntry.index] && <div className="media-dialog" role="dialog" aria-modal="true" aria-label="单图检查" onClick={() => setSelectedEntry(null)}><div className="image-inspect-drawer" onClick={event => event.stopPropagation()}><button type="button" className="media-dialog-close" aria-label="关闭单图检查" onClick={() => setSelectedEntry(null)}>×</button><img src={urls[selectedEntry.index]} alt={`镜头${selectedEntry.index + 1}预览`} /><p className="eyebrow">镜头 {String(selectedEntry.index + 1).padStart(2, "0")}</p><h3>{selectedEntry.sentence}</h3><dl><div><dt>预计时长</dt><dd>{selectedEntry.estimated_duration?.toFixed(1) || "—"} 秒</dd></div><div><dt>字数</dt><dd>{selectedEntry.char_count ?? "—"}</dd></div><div><dt>动效</dt><dd>{selectedEntry.motion || "zoom_in"}</dd></div><div><dt>来源批次</dt><dd>{selectedEntry.source_grid || "—"}</dd></div></dl><p className={`image-review-decision ${reviews[selectedEntry.index]?.decision === "approved" ? "is-approved" : reviews[selectedEntry.index] ? "is-replace" : ""}`}>{reviews[selectedEntry.index] ? (reviews[selectedEntry.index].decision === "approved" ? "最近审核：通过" : "最近审核：要求替换") : "尚未审核"}</p>{replacements[selectedEntry.index] && <p className={`image-replacement-state status-${replacements[selectedEntry.index].status}`}>替换请求：{replacements[selectedEntry.index].status === "pending" ? "等待处理" : replacements[selectedEntry.index].status === "processing" ? "处理中" : replacements[selectedEntry.index].status === "done" ? "已生成新版本" : `失败 · ${replacements[selectedEntry.index].error || "请重试"}`}</p>}<textarea className="image-review-note-input" value={reviewNote} onChange={event => setReviewNote(event.target.value)} placeholder="可选：记录画面问题或通过依据" aria-label="镜头审核备注" /><div className="image-review-actions"><button type="button" className="secondary-action" disabled={reviewBusy} onClick={() => reviewSelected("replace_requested")}>记录替换意见</button><button type="button" className="secondary-action" disabled={replacementRequested} onClick={requestReplacement}>{replacementRequested ? "提交中…" : "提交重生成请求"}</button><button type="button" className="primary-action" disabled={reviewBusy} onClick={() => reviewSelected("approved")}>确认通过</button></div><p className="capability-note">提交请求后由 Worker 生成新版本；当前图片和历史成片保持不变。</p></div></div>}
     </DetailShell>
   );
 }

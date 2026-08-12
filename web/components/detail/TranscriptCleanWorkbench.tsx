@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Stage, STATUS_LABEL } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
 
 interface ChangeSegment {
   kind: "delete" | "replace";
@@ -58,6 +59,8 @@ export function TranscriptCleanWorkbench({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const [editedCleanText, setEditedCleanText] = useState("");
+  const [savingClean, setSavingClean] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -71,6 +74,7 @@ export function TranscriptCleanWorkbench({
       const parsedClean = cleanPayload as CleanPayload | null;
       setTranscript(transcriptPayload ? extractTranscript(transcriptPayload as Record<string, unknown>) : parsedClean?.raw || "");
       setClean(parsedClean);
+      setEditedCleanText(parsedClean?.cleaned || "");
     }).catch(reason => {
       if (active) setError(reason instanceof Error ? reason.message : "文本产物加载失败");
     }).finally(() => {
@@ -103,6 +107,23 @@ export function TranscriptCleanWorkbench({
     } catch {
       setCopyNotice("复制失败，请手动选择文本");
     }
+  };
+
+  const saveCleanRevision = async () => {
+    if (!cleanStage || !editedCleanText.trim() || savingClean) return;
+    setSavingClean(true);
+    setError(null);
+    const { error: saveError } = await supabase.rpc("confirm_clean_revision", {
+      p_stage_id: cleanStage.id,
+      p_cleaned_text: editedCleanText.trim(),
+    });
+    if (saveError) {
+      setError(saveError.message || "人工清洗稿保存失败");
+    } else {
+      setCopyNotice("人工清洗稿已保存，下游阶段将按新版本继续处理");
+      window.setTimeout(() => setCopyNotice(null), 2600);
+    }
+    setSavingClean(false);
   };
 
   return (
@@ -139,8 +160,11 @@ export function TranscriptCleanWorkbench({
             <pre>{rawText || (transcriptStage?.status === "processing" ? "逐字稿正在生成…" : "暂无逐字稿产物")}</pre>
           </article>
           <article className={`text-review-pane pane-clean${activePane === "clean" ? " is-mobile-active" : ""}`}>
-            <header><div><strong>清洗后文案</strong><StageState stage={cleanStage} /></div><button onClick={() => copyText(cleanText, "清洗稿")} disabled={!cleanText}>复制</button></header>
-            <pre>{cleanText || (cleanStage?.status === "processing" ? "清洗稿正在生成…" : "等待逐字稿完成后生成清洗稿")}</pre>
+            <header><div><strong>清洗后文案</strong><StageState stage={cleanStage} /></div><button onClick={() => copyText(editedCleanText, "清洗稿")} disabled={!editedCleanText}>复制</button></header>
+            {cleanStage?.status === "done" ? <>
+              <textarea value={editedCleanText} onChange={event => setEditedCleanText(event.target.value)} aria-label="人工清洗稿" />
+              <div className="text-pane-footer"><span>保存后将保留原始 clean.json，并重新处理改写及下游阶段。</span><button className="primary-action" onClick={saveCleanRevision} disabled={savingClean || !editedCleanText.trim()}> {savingClean ? "保存中…" : "保存人工版本"}</button></div>
+            </> : <pre>{cleanText || (cleanStage?.status === "processing" ? "清洗稿正在生成…" : "等待逐字稿完成后生成清洗稿")}</pre>}
           </article>
         </div>
       )}

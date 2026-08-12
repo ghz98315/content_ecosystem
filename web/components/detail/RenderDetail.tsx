@@ -25,6 +25,8 @@ interface QualityReport {
     file_size: number;
   };
 }
+interface TimelineEntry { index: number; path?: string; sentence?: string; start?: number; end?: number; duration: number }
+interface ReviewEntry { decision: string; note: string | null; created_at: string }
 
 const QUALITY_LABEL = { passed: "通过", warning: "需复核", failed: "未通过" } as const;
 const QUALITY_COLOR = { passed: "#15803d", warning: "#b45309", failed: "#b91c1c" } as const;
@@ -38,6 +40,8 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const [quality, setQuality] = useState<QualityReport | null>(null);
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityUnavailable, setQualityUnavailable] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [review, setReview] = useState<ReviewEntry | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -110,6 +114,28 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
     loadQuality()
       .catch(() => active && setQualityUnavailable(true))
       .finally(() => active && setQualityLoading(false));
+    return () => { active = false; };
+  }, [stage?.status, taskId]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    supabase.from("render_reviews").select("decision,note,created_at").eq("task_id", taskId).order("created_at", { ascending: false }).limit(1)
+      .then(({ data }) => setReview((data?.[0] || null) as ReviewEntry | null));
+  }, [taskId, stage?.status]);
+
+  useEffect(() => {
+    if (!stage || !["done", "failed", "needs_review"].includes(stage.status)) { setTimeline([]); return; }
+    let active = true;
+    (async () => {
+      try {
+        const result = await supabase.from("artifacts").select("storage_path").eq("task_id", taskId).eq("stage_kind", "render").eq("type", "timeline").order("created_at", { ascending: false }).limit(1);
+        const path = result.data?.[0]?.storage_path; if (!path) return;
+        const signed = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(response => response.json());
+        if (!signed.signedUrl) return;
+        const data = await fetch(signed.signedUrl).then(response => response.json());
+        if (active && Array.isArray(data)) setTimeline(data as TimelineEntry[]);
+      } catch { /* timeline is optional for older render artifacts */ }
+    })();
     return () => { active = false; };
   }, [stage?.status, taskId]);
 
@@ -254,6 +280,9 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
           )}
         </section>
       )}
+
+      {timeline.length > 0 && <section className="render-timeline-panel" aria-labelledby="render-timeline-title"><div className="render-panel-heading"><div><strong id="render-timeline-title">画面与字幕时间轴</strong><span>读取本次成片实际使用的 render timeline，历史成片保持只读。</span></div><span>{timeline.length} 个镜头</span></div><div className="render-timeline-list">{timeline.map((item, index) => { const start = Number(item.start || 0); const end = Number(item.end ?? start + Number(item.duration || 0)); return <article key={`${item.index}-${index}`}><span className="render-timeline-index">{String(item.index + 1).padStart(2, "0")}</span><div><strong>{item.sentence || `镜头 ${item.index + 1}`}</strong><small>{start.toFixed(2)}s - {end.toFixed(2)}s · 持续 {Number(item.duration || end - start).toFixed(2)}s</small></div><span className="render-timeline-bar"><i style={{ width: `${Math.max(4, Math.min(100, Number(item.duration || 0) * 12))}%` }} /></span></article>; })}</div></section>}
+      {review && <p className="render-review-note" role="status">最近审核：{review.decision === "approved" ? "已通过" : "要求重新生成"} · {new Date(review.created_at).toLocaleString("zh-CN", { hour12: false })}{review.note ? ` · ${review.note}` : ""}</p>}
 
     </DetailShell>
   );

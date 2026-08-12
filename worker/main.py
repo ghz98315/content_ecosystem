@@ -13,6 +13,7 @@ import time
 import config
 import db
 from stages import REAL_HANDLERS
+from stages.image import process_replacement_request
 
 
 class StageHeartbeat:
@@ -88,6 +89,18 @@ def maybe_finish_task(task_id: str) -> None:
 
 def tick() -> bool:
     """处理一个 stage。返回是否处理了任务。"""
+    replacement = db.claim_next_image_replacement()
+    if replacement:
+        print(f"璁ら replacement: task={replacement['task_id'][:8]} image={replacement['image_index']}", flush=True)
+        try:
+            path = process_replacement_request(replacement)
+            db.complete_image_replacement(replacement["id"], path)
+            print(f"  [OK] replacement done -> {path}", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            db.fail_image_replacement(replacement["id"], str(exc))
+            print(f"  [FAIL] replacement failed: {exc}", flush=True)
+        return True
+
     stage = db.claim_next_stage(config.WORKER_TASK_ID)
     if not stage:
         return False

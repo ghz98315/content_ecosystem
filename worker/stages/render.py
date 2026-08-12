@@ -93,6 +93,25 @@ def _load_json_artifact(task_id: str, artifact_type: str) -> dict | list | None:
             pass
 
 
+def _apply_image_replacements(task_id: str, images: list[dict]) -> list[dict]:
+    rows = db.retry(
+        lambda: db.get_client().table("image_replacement_requests")
+        .select("image_index,replacement_path,status,requested_at")
+        .eq("task_id", task_id)
+        .eq("status", "done")
+        .order("requested_at", desc=True)
+        .execute()
+    ).data or []
+    latest: dict[int, str] = {}
+    for row in rows:
+        image_index = int(row.get("image_index", -1))
+        if image_index >= 0 and image_index not in latest and row.get("replacement_path"):
+            latest[image_index] = str(row["replacement_path"])
+    if not latest:
+        return images
+    return [({**image, "path": latest[index], "replacement_path": latest[index]} if index in latest else image) for index, image in enumerate(images)]
+
+
 def _load_audio(task_id: str) -> str | None:
     res = db.retry(
         lambda: db.get_client().table("artifacts")
@@ -491,7 +510,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error="缺少图片或音频产物（请确认 image/tts 阶段已完成）")
         return "failed", None
 
-    images: list[dict] = images_data if isinstance(images_data, list) else []
+    images: list[dict] = _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
     segments: list[dict] = subs_data.get("segments", []) if isinstance(subs_data, dict) else []
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "") or "本书"

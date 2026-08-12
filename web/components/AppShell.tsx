@@ -20,6 +20,7 @@ export function AppShell({
   const primary = [
     { href: "/", label: "内容项目", short: "项目" },
     { href: "/video-collection", label: "视频采集", short: "采集" },
+    { href: "/book-library", label: "书籍库", short: "书籍" },
     { href: "/xhs", label: "知识图文", short: "图文" },
   ];
 

@@ -458,6 +458,50 @@ def _existing_image_artifacts(task_id: str) -> dict[str, dict]:
     }
 
 
+def _load_image_index(task_id: str) -> list[dict]:
+    res = db.retry(lambda: db.get_client().table("artifacts").select("storage_path").eq("task_id", task_id).eq("stage_kind", "image").eq("type", "image_index").order("created_at", desc=True).limit(1).execute())
+    if not res.data:
+        raise ValueError("missing image index")
+    local = storage.download_artifact(res.data[0]["storage_path"], ".json")
+    try:
+        data = json.load(open(local, encoding="utf-8"))
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
+    if not isinstance(data, list):
+        raise ValueError("invalid image index")
+    return data
+
+
+def _replacement_path(task_id: str, image_index: int) -> str:
+    rows = db.retry(lambda: db.get_client().table("image_replacement_requests").select("replacement_path").eq("task_id", task_id).eq("image_index", image_index).not_.is_("replacement_path", "null").execute()).data or []
+    version = len([row for row in rows if row.get("replacement_path")]) + 1
+    return f"{task_id}/replacements/img_{image_index:03d}_v{version:03d}.png"
+
+
+def process_replacement_request(request: dict) -> str:
+    task_id = request["task_id"]
+    image_index = int(request["image_index"])
+    note = str(request.get("note") or "").strip()
+    entries = _load_image_index(task_id)
+    if image_index >= len(entries):
+        raise ValueError("image index out of range")
+    entry = entries[image_index]
+    scene = str(entry.get("sentence") or entry.get("text") or "").strip()
+    if not scene:
+        raise ValueError("image sentence missing")
+    client, image_model = config.image_client()
+    prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
+    raw = _generate_grid_bytes(client, image_model, _build_grid_prompt([prompt_scene]), stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}")
+    piece = _split_grid(raw, 1)[0]
+    path = _replacement_path(task_id, image_index)
+    storage.upload_bytes(path, piece, "image/png")
+    storage.add_artifact(task_id, "image", "image_replacement", path, meta={"index": image_index, "source_image": entry.get("path"), "sentence": scene, "replacement_request_id": request["id"], "note": note, "split_version": _IMAGE_SPLIT_VERSION})
+    return path
+
+
 def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     text = clean_tts_text(_find_chosen_text(task_id, stage) or "")

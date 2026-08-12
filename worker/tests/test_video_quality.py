@@ -60,7 +60,7 @@ from stages.render import (
     _run_ffmpeg,
 )
 from stages.rewrite import _candidate_issues, _parse_candidates
-from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize
+from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize, _synthesize_detailed
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
 from narration import (
@@ -507,7 +507,7 @@ class TtsInputTests(unittest.TestCase):
                 yield {"type": "audio", "data": b"audio"}
                 yield {"type": "SentenceBoundary", "text": "纯正文。", "offset": 0, "duration": 10_000_000}
 
-        with patch("edge_tts.Communicate", FakeCommunicate):
+        with patch("stages.tts.config.TTS_PROVIDER", "edge"), patch("edge_tts.Communicate", FakeCommunicate):
             audio, segments = asyncio.run(_synthesize("纯正文。", "test-voice"))
 
         self.assertEqual(b"audio", audio)
@@ -515,6 +515,25 @@ class TtsInputTests(unittest.TestCase):
         self.assertNotIn("<speak", captured["text"])
         self.assertEqual("SentenceBoundary", captured["boundary"])
         self.assertEqual(1.0, segments[0]["end"])
+
+    def test_explicit_provider_override_uses_selected_provider(self):
+        class FakeProvider:
+            def __init__(self):
+                self.voice = None
+
+            async def synthesize(self, text, voice):
+                self.voice = voice
+                return b"audio", [{"text": text, "start": 0.0, "end": 1.0}], 1.0
+
+        fake_provider = FakeProvider()
+        with patch("stages.tts.get_tts_provider", return_value=fake_provider) as get_provider:
+            audio, segments, batches = asyncio.run(_synthesize_detailed("纯正文。", "snapshot-voice", "edge"))
+
+        self.assertEqual(b"audio", audio)
+        self.assertEqual("snapshot-voice", fake_provider.voice)
+        self.assertEqual("edge", get_provider.call_args.args[0])
+        self.assertEqual(1.0, segments[0]["end"])
+        self.assertEqual(1, len(batches))
 
     def test_long_script_splits_without_changing_a_character(self):
         text = "第一段说明一个观点，并保留正常停顿。第二段继续解释原因，让内容自然推进。" * 12

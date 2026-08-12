@@ -161,6 +161,19 @@ def _find_clean(task_id: str) -> str | None:
 
 
 def _load_clean_text(task_id: str) -> str:
+    stage_res = (
+        db.get_client().table("stages")
+        .select("params")
+        .eq("task_id", task_id)
+        .eq("kind", "clean")
+        .limit(1)
+        .execute()
+    )
+    stage_data = stage_res.data if isinstance(stage_res.data, list) else []
+    params = (stage_data[0].get("params") or {}) if stage_data and isinstance(stage_data[0], dict) else {}
+    if isinstance(params, dict) and params.get("manual_clean_confirmed") and params.get("manual_clean_text"):
+        return str(params["manual_clean_text"]).strip()
+
     cl_path = _find_clean(task_id)
     if not cl_path:
         return ""
