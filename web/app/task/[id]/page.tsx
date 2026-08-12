@@ -118,13 +118,30 @@ export default function TaskDetail() {
   };
 
   const approve = async (stageId: string, kind: string) => {
+    if (actionBusy) return;
     setActionBusy(true);
-    const result = kind === "render"
-      ? await supabase.rpc("review_render_stage", { p_stage_id: stageId, p_decision: "approved" })
-      : await supabase.from("stages").update({ status: kind === "book" ? "done" : "pending", error: null }).eq("id", stageId);
-    if (!result.error && kind !== "render") await supabase.from("tasks").update({ status: "processing" }).eq("id", id).eq("status", "needs_review");
-    setActionBusy(false);
-    if (result.error) setAction(result.error.message, false); else { setAction("已确认当前阶段"); await load(); }
+    try {
+      const result = kind === "render"
+        ? await supabase.rpc("review_render_stage", { p_stage_id: stageId, p_decision: "approved" })
+        : await supabase.from("stages").update({ status: kind === "book" ? "done" : "pending", error: null }).eq("id", stageId);
+      if (result.error) {
+        setAction(result.error.message, false);
+        return;
+      }
+      if (kind !== "render") {
+        const { error } = await supabase.from("tasks").update({ status: "processing" }).eq("id", id).eq("status", "needs_review");
+        if (error) {
+          setAction(error.message, false);
+          return;
+        }
+      }
+      setAction("已确认当前阶段");
+      await load();
+    } catch (error) {
+      setAction(error instanceof Error ? error.message : "审核请求失败，请重试", false);
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const cancelTask = async () => {

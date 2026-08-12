@@ -813,6 +813,16 @@ class NetworkRetryTests(unittest.TestCase):
             self.assertEqual("ok", db.retry(flaky, attempts=3))
         self.assertEqual(3, calls)
 
+    def test_reset_client_does_not_close_a_client_used_by_heartbeat(self):
+        client = MagicMock()
+        db._http_client = client
+        db.get_client.cache_clear()
+
+        db.reset_client()
+
+        client.close.assert_not_called()
+        self.assertIsNone(db._http_client)
+
     def test_stale_recovery_rebuilds_query_after_client_reset(self):
         first_query = MagicMock()
         first_query.select.return_value = first_query

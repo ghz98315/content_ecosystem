@@ -54,12 +54,12 @@ def get_client() -> Client:
 def reset_client() -> None:
     global _http_client
     get_client.cache_clear()
-    if _http_client is not None:
-        try:
-            _http_client.close()
-        except Exception:  # noqa: BLE001
-            pass
-        _http_client = None
+    # Heartbeats run in a separate thread.  A retry in the main loop may happen
+    # while that thread is still issuing a request with this client, so closing
+    # it here races active requests and produces "client has been closed".
+    # Drop our reference instead; the retired client is reclaimed on process
+    # exit after any in-flight request has completed.
+    _http_client = None
 
 
 def is_transient_error(exc: BaseException) -> bool:
