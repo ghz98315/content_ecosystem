@@ -163,19 +163,23 @@ def _visual_scene(scene: str) -> str:
     scene = re.sub(r"\d+(?:\.\d+)?", "", scene)
     return _medical_safe(scene).strip() or "安静明亮的自然生活空镜"
 
-def _build_grid_prompt(scenes: list[str]) -> str:
+def _build_grid_prompt(scenes: list[str], category: str = "health") -> str:
     """构建9宫格提示词：1张图包含3×3=9个独立场景，从左到右从上到下编号。"""
     padded = list(scenes[:_GRID * _GRID])
     while len(padded) < _GRID * _GRID:
         padded.append("安静明亮的书房或自然生活空镜，主体居中，画面简洁")
     numbered = "\n".join(f"场景{i+1}：{_visual_scene(s)}" for i, s in enumerate(padded))
+    category_direction = {
+        "social_science": "整体改为清晰、克制、有史料感的当代纪实摄影风格；可使用书房、档案、城市、人文场景，避免戏剧化战争、仇恨符号和伪造史料文字。",
+        "education": "整体改为清爽、现代、可信赖的商业阅读与工作场景；可使用书桌、会议、图表隐喻和城市办公空间，避免股票涨跌画面、财富炫耀和保证收益暗示。",
+    }.get(category, "整体适合中老年观众和图书健康知识内容；避免泛黄、褪色、昏暗、破败、过度怀旧、沉重疾病感、卡通、动漫、儿童插画、3D医疗模型和夸张广告视觉。")
     return (
         "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
         "每个格子描绘对应的独立场景，所有格子共享同一套色彩、光线、镜头、材质和时代感。"
         "固定风格为明亮、温润、真实的现代生活摄影感，保留自然肤色和真实比例，避免油画、纸张、陈旧滤镜。"
         "人物精神饱满而自然，不做可识别肖像；暖白、浅木色、清爽浅绿和柔和蓝色，色彩干净但不刺眼，"
         "窗边自然日光或柔和晨光，35mm或50mm人文构图，普通中老年人与家人，优先背影、侧影、手部动作和舒适生活场景。"
-        "整体适合中老年观众和图书健康知识内容；避免泛黄、褪色、昏暗、破败、过度怀旧、沉重疾病感、卡通、动漫、儿童插画、3D医疗模型和夸张广告视觉。"
+        f"{category_direction}"
         "每格按4:3画面构图，主体完整并保持在格子中央安全区域。"
         "九个画面必须无缝、无间距地铺满画布，格子之间不要绘制任何分隔线、白线、黑线、边框或留白。"
         "只生成视觉画面，不得把场景描述绘制进图片；所有书籍封面、屏幕、招牌、包装和背景均保持无字。"
@@ -610,6 +614,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "failed", None
 
     client, image_model = config.image_client()
+    task_context = db.get_task_prompt_context(task_id)
+    content_category = str(task_context.get("content_category") or "health")
     storyboard = _split_storyboard(text)
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
@@ -646,7 +652,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 except OSError:
                     pass
         else:
-            grid_prompt = _build_grid_prompt([shot["text"] for shot in batch])
+            grid_prompt = _build_grid_prompt([shot["text"] for shot in batch], content_category)
             raw = _generate_grid_bytes(
                 client,
                 image_model,

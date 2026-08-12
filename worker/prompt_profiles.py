@@ -12,8 +12,11 @@ SKILL_REFERENCE_ROOT = (
     / "wechat-video-book-compliance"
     / "references"
 )
-ACTIVE_CATEGORIES = {"health"}
-RESERVED_CATEGORIES = {"social_science", "education"}
+ACTIVE_CATEGORIES = {"health", "social_science", "education"}
+_CATEGORY_APPENDIX = {
+    "social_science": "\n\n当前为历史社科流程：保持史实、年代、人物与引文边界；不得把推测写成事实，不煽动对立，不用群体刻板印象。叙事应克制、清晰、有史料感。",
+    "education": "\n\n当前为经管书籍流程：保持企业、人物、数据和因果边界；不得承诺收益、预测市场、给出个性化投资建议或把个案包装为必然规律。叙事应强调方法、条件和适用边界。",
+}
 
 
 def normalize_category(value: object) -> str:
@@ -26,9 +29,12 @@ def normalize_category(value: object) -> str:
 def load_prompt(category: str, kind: str) -> str:
     category = normalize_category(category)
     path = PROMPT_ROOT / category / f"{kind}.txt"
-    if not path.is_file():
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    fallback = PROMPT_ROOT / "health" / f"{kind}.txt"
+    if not fallback.is_file():
         raise ValueError(f"未配置 {category} 分类的 {kind} 提示词")
-    return path.read_text(encoding="utf-8").strip()
+    return fallback.read_text(encoding="utf-8").strip() + _CATEGORY_APPENDIX.get(category, "")
 
 
 def rewrite_prompt_kind(mode: object) -> str:
@@ -39,7 +45,7 @@ def rewrite_prompt_kind(mode: object) -> str:
 def load_compliance_rules(category: str) -> str:
     category = normalize_category(category)
     if category != "health":
-        raise ValueError(f"未配置 {category} 分类的合规规则")
+        return _CATEGORY_APPENDIX[category]
     paths = (
         SKILL_REFERENCE_ROOT / "health-rules.md",
         SKILL_REFERENCE_ROOT / "prohibited-terms.md",

@@ -148,8 +148,10 @@ class PromptProfileTests(unittest.TestCase):
         self.assertEqual("repost_dedup", rewrite_prompt_kind("repost_dedup"))
         self.assertIn("首次去重", load_prompt("health", "rewrite"))
         self.assertIn("疗效和安全承诺", load_compliance_rules("health"))
-        with self.assertRaisesRegex(ValueError, "尚未开放"):
-            normalize_category("social_science")
+        self.assertEqual("social_science", normalize_category("social_science"))
+        self.assertEqual("education", normalize_category("education"))
+        self.assertIn("史实", load_prompt("social_science", "clean"))
+        self.assertIn("投资建议", load_compliance_rules("education"))
 
     def test_prompt_context_preserves_book_numbers_and_keyword(self):
         source = "《控糖方法》建议连续观察14天，变化约为12%。"
@@ -305,6 +307,12 @@ class StoryboardTests(unittest.TestCase):
         self.assertNotIn("监护仪", _build_grid_prompt(["医院、器官、伤口和监护仪"]))
         self.assertNotIn("带货", safe_prompt)
         self.assertEqual("一本素色无字封面的书介绍三个健康方法", _visual_scene("《身体重置》介绍三个健康方法123"))
+
+    def test_category_visual_directions_are_distinct(self):
+        history = _build_grid_prompt(["一段历史叙事"], "social_science")
+        business = _build_grid_prompt(["一本经管书的方法"], "education")
+        self.assertIn("史料感", history)
+        self.assertIn("保证收益", business)
 
     def test_grid_source_rejects_unexpected_square_canvas(self):
         _validate_grid_source(1536, 1024)
