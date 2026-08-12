@@ -334,6 +334,57 @@ async def _synthesize(text: str, voice: str) -> tuple[bytes, list[dict]]:
     return audio, segments
 
 
+def _dialogue_turns(text: str) -> list[tuple[str, str]]:
+    """Split a reviewed podcast script into explicitly labelled speaker turns."""
+    turns: list[tuple[str, str]] = []
+    for line in re.split(r"\n+", text or ""):
+        line = line.strip()
+        if not line:
+            continue
+        match = re.match(r"^(主持人|嘉宾)\s*[：:]+\s*(.+)$", line)
+        if not match:
+            raise ValueError("双人口播稿每段必须以“主持人：”或“嘉宾：”开头")
+        turns.append((match.group(1), match.group(2).strip()))
+    if len(turns) < 2 or len({speaker for speaker, _ in turns}) < 2:
+        raise ValueError("双人口播稿至少需要主持人和嘉宾各一段")
+    return turns
+
+
+async def _synthesize_dialogue_detailed(
+    text: str, primary_voice: str, secondary_voice: str,
+    provider: str | None = None, model: str | None = None,
+    secondary_provider: str | None = None, secondary_model: str | None = None,
+) -> tuple[bytes, list[dict], list[dict]]:
+    audio_parts: list[bytes] = []
+    merged_segments: list[dict] = []
+    batches: list[dict] = []
+    time_offset = 0.0
+    char_offset = 0
+    for index, (speaker, turn) in enumerate(_dialogue_turns(text)):
+        use_secondary = speaker == "嘉宾"
+        audio, segments, turn_batches = await _synthesize_detailed(
+            turn,
+            secondary_voice if use_secondary else primary_voice,
+            secondary_provider if use_secondary else provider,
+            secondary_model if use_secondary else model,
+        )
+        duration = sum(float(batch["duration"]) for batch in turn_batches)
+        audio_parts.append(audio)
+        for segment in segments:
+            merged_segments.append({
+                **segment,
+                "speaker": speaker,
+                "start": round(float(segment.get("start", 0)) + time_offset, 3),
+                "end": round(float(segment.get("end", 0)) + time_offset, 3),
+                "char_start": int(segment.get("char_start", 0)) + char_offset,
+                "char_end": int(segment.get("char_end", 0)) + char_offset,
+            })
+        batches.append({"index": index, "speaker": speaker, "text": turn, "duration": round(duration, 3), "start": round(time_offset, 3), "end": round(time_offset + duration, 3), "audio": audio})
+        time_offset += duration
+        char_offset += visible_len(turn)
+    return _concat_mp3(audio_parts), merged_segments, batches
+
+
 def _get_cta(task_id: str) -> str | None:
     """从 book.json 读取 CTA 文案（book 阶段在 tts 之前完成）。"""
     res = (
@@ -399,7 +450,21 @@ def run(stage: dict) -> tuple[str, str | None]:
     provider = tts_params.get("provider") or config.TTS_PROVIDER
     voice = tts_params.get("voice") or (config.COSYVOICE2_VOICE if provider in {"cosyvoice2", "cosyvoice"} else _VOICE)
     model = tts_params.get("model") or None
-    audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice, provider, model))
+    narration_mode = str(tts_params.get("narration_mode") or "single")
+    secondary_voice = str(tts_params.get("secondary_voice") or "").strip()
+    if narration_mode == "dual_dialogue" and not secondary_voice:
+        db.set_stage(stage["id"], "failed", error="双人口播需要配置第二音色")
+        return "failed", None
+    if narration_mode == "dual_dialogue":
+        audio, sentence_segments, batches = asyncio.run(_synthesize_dialogue_detailed(
+            rewrite_text, voice, secondary_voice, provider, model,
+            tts_params.get("secondary_provider") or provider,
+            tts_params.get("secondary_model") or model,
+        ))
+        text = "\n".join(turn for _speaker, turn in _dialogue_turns(rewrite_text))
+        cta = ""
+    else:
+        audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice, provider, model))
     duration = round(sum(float(batch["duration"]) for batch in batches), 3)
     cues = _build_subtitle_cues(
         text,
@@ -429,6 +494,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         "segment_count": len(cues),
         "synthesis_batches": len(batch_data),
         "input_format": "timeline_v3",
+        "narration_mode": narration_mode,
+        "secondary_voice": secondary_voice or None,
     })
 
     # 上传字幕时间戳

@@ -32,6 +32,7 @@ from stages.image import (
     _validate_grid_source,
     _visual_scene,
 )
+from stages.ingest import _requires_manual_upload
 from stages.image import _apimart_result_url
 from quality import EXPECTED_STAGES, evaluate_render_quality
 from stages.render import (
@@ -61,7 +62,7 @@ from stages.render import (
     _audio_mix_filter,
 )
 from stages.rewrite import _candidate_issues, _parse_candidates, _rewrite_structure
-from stages.tts import _build_subtitle_cues, _clean_tts_text, _split_tts_segments, _synthesize, _synthesize_detailed
+from stages.tts import _build_subtitle_cues, _clean_tts_text, _dialogue_turns, _split_tts_segments, _synthesize, _synthesize_detailed
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
 from narration import (
@@ -104,6 +105,12 @@ class RewriteQualityTests(unittest.TestCase):
         self.assertEqual("越省心的做法，可能越伤身体。", structure["hook"])
         self.assertEqual("contrast", structure["hook_strategy"])
         self.assertEqual(["第一段钩子。", "第二段展开。"], structure["paragraphs"])
+
+    def test_dialogue_turns_require_two_labelled_speakers(self):
+        turns = _dialogue_turns("主持人：这个结论为什么反常识？\n嘉宾：因为它忽略了前提条件。")
+        self.assertEqual(["主持人", "嘉宾"], [speaker for speaker, _ in turns])
+        with self.assertRaisesRegex(ValueError, "至少需要"):
+            _dialogue_turns("主持人：只有一段。")
 
 
 class CleanSummaryTests(unittest.TestCase):
@@ -190,6 +197,10 @@ class ComplianceTests(unittest.TestCase):
 
 
 class StoryboardTests(unittest.TestCase):
+
+    def test_wechat_channels_uses_authorized_manual_upload_path(self):
+        self.assertTrue(_requires_manual_upload("wechat_channels"))
+        self.assertFalse(_requires_manual_upload("douyin"))
 
     def test_bgm_mix_keeps_narration_primary_and_uses_fade(self):
         filter_graph = _audio_mix_filter(True, 0.08, 1.0, 42.0)

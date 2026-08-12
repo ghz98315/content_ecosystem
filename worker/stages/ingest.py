@@ -26,6 +26,10 @@ def _write_task_meta(task_id: str, res) -> None:
         db.get_client().table("tasks").update(patch).eq("id", task_id).execute()
 
 
+def _requires_manual_upload(source_platform: str) -> bool:
+    return source_platform == "wechat_channels"
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     """处理 ingest。返回 (status, output_ref)。
 
@@ -35,8 +39,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     params = stage.get("params") or {}
 
     # 拿 source_url
-    task = db.get_client().table("tasks").select("source_url").eq("id", task_id).single().execute()
+    task = db.get_client().table("tasks").select("source_url,source_platform").eq("id", task_id).single().execute()
     source_url = (task.data or {}).get("source_url") or ""
+    source_platform = str((task.data or {}).get("source_platform") or "douyin")
 
     # --- 手动上传兜底：前端已上传文件到 Storage，params 里带路径 ---
     if params.get("manual_file"):
@@ -68,6 +73,10 @@ def run(stage: dict) -> tuple[str, str | None]:
                 except OSError:
                     pass
         return "done", sp
+
+    if _requires_manual_upload(source_platform):
+        db.set_stage(stage["id"], "needs_review", error="视频号链接暂不支持自动下载。请确认内容授权后，使用手动上传视频或音频；上传后将复用逐字稿、清洗、改写、配音、生图和成片链路。")
+        return "needs_review", None
 
     # --- 一级：自研解析 ---
     res = self_resolver.resolve(source_url)

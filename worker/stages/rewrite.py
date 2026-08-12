@@ -275,6 +275,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error=message)
         return "failed", None
     context = _task_context(task_id, source)
+    narration_mode = str(params.get("narration_mode") or "single")
 
     if chosen is not None:
         res = (
@@ -313,10 +314,13 @@ def run(stage: dict) -> tuple[str, str | None]:
             db.get_client().table("stages").update({"error": None}).eq("id", stage["id"]).execute()
             return "done", sp
 
+    rewrite_notes = str(params.get("rewrite_notes") or "").strip()
+    if narration_mode == "dual_dialogue":
+        rewrite_notes = (rewrite_notes + "\n改为双人播客对话：使用“主持人：”和“嘉宾：”交替开头；保留事实边界，首段仍须有反差、反常识或悬念钩子。不要增加角色设定以外的事实。 ").strip()
     candidates, lengths, structure = _generate_candidates(
         source,
         context,
-        str(params.get("rewrite_notes") or "").strip(),
+        rewrite_notes,
         mode,
     )
     report = compliance.check_text(
@@ -332,6 +336,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "final_text": None,
         "content_category": context["category"],
         "rewrite_mode": mode,
+        "narration_mode": narration_mode,
         "source_task_id": source_task_id or None,
         "compliance": report,
         **structure,
