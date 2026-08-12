@@ -105,6 +105,11 @@ export default function TaskDetail() {
 
   const rerun = async (stageId: string) => {
     if (actionBusy) return;
+    const stage = stages.find(item => item.id === stageId);
+    const stageIndex = stage ? STAGES.findIndex(item => item.kind === stage.kind) : -1;
+    const downstreamCount = stageIndex >= 0 ? STAGES.length - stageIndex - 1 : 0;
+    const scope = downstreamCount > 0 ? `当前阶段及下游 ${downstreamCount} 个阶段` : "当前阶段";
+    if (!window.confirm(`确认重跑${scope}？已完成的上游产物不会被重跑。`)) return;
     setActionBusy(true);
     const { data, error } = await supabase.rpc("rerun_stage", { p_stage_id: stageId });
     setActionBusy(false);

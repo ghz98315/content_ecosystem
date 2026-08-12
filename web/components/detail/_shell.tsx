@@ -70,7 +70,7 @@ export function DetailShell({
         <div className="detail-actions">
           {actions}
           {canRerun && (
-            <TextBtn onClick={() => onRerun(stage!.id)}>重跑</TextBtn>
+            <TextBtn onClick={() => onRerun(stage!.id)} ariaLabel={`重跑${downstreamCount > 0 ? `当前阶段及下游 ${downstreamCount} 个阶段` : "当前阶段"}`}>重跑</TextBtn>
           )}
         </div>
       </div>
@@ -120,12 +120,13 @@ export function DetailShell({
 }
 
 export function TextBtn({
-  children, onClick, disabled, variant = "default",
+  children, onClick, disabled, variant = "default", ariaLabel,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   variant?: "default" | "primary" | "danger";
+  ariaLabel?: string;
 }) {
   const bg = variant === "primary" ? "#111827" : variant === "danger" ? "#fee2e2" : "var(--bg-hover)";
   const fg = variant === "primary" ? "#fff" : variant === "danger" ? "var(--status-failed)" : "var(--text-secondary)";
@@ -134,6 +135,7 @@ export function TextBtn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className="text-action"
       style={{
         border: "none",
