@@ -12,6 +12,8 @@ type Artifact = { task_id: string; meta: Record<string, unknown> | null; created
 type Stage = { task_id: string; kind: string; seq: number; status: string };
 type BookSignal = { task_id: string; detected_title: string | null; detected_author: string | null; confidence: string; evidence: string | null; confirmed_title: string | null; confirmed_author: string | null };
 type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2"; model: string | null; voice_id: string; sample_path: string | null; enabled: boolean };
+const DEFAULT_EDGE_VOICE_ID = "zh-CN-XiaoxiaoNeural";
+const DEFAULT_EDGE_LABEL = "晓晓 · edge-tts";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "待处理", processing: "处理中", done: "已完成", failed: "异常",
@@ -67,6 +69,8 @@ function VideoCollectionContent() {
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("system-default");
   const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
   const [voiceSampleState, setVoiceSampleState] = useState<"idle" | "loading" | "missing" | "error">("idle");
+  const defaultEdgeProfile = useMemo(() => voiceProfiles.find(profile => profile.provider === "edge" && profile.voice_id === DEFAULT_EDGE_VOICE_ID), [voiceProfiles]);
+  const selectableVoiceProfiles = useMemo(() => voiceProfiles.filter(profile => profile.id !== defaultEdgeProfile?.id), [defaultEdgeProfile, voiceProfiles]);
 
   const load = async () => {
     setLoading(true);
@@ -129,7 +133,9 @@ function VideoCollectionContent() {
   }, [userId, query, status, minFollowers, minComments, bookQuery, page]);
 
   useEffect(() => {
-    const profile = voiceProfiles.find(item => item.id === selectedVoiceProfileId);
+    const profile = selectedVoiceProfileId === "system-default"
+      ? defaultEdgeProfile
+      : voiceProfiles.find(item => item.id === selectedVoiceProfileId);
     if (!profile?.sample_path) {
       setVoiceSampleUrl(null);
       setVoiceSampleState(profile ? "missing" : "idle");
@@ -150,7 +156,7 @@ function VideoCollectionContent() {
       })
       .catch(() => { if (active) setVoiceSampleState("error"); });
     return () => { active = false; };
-  }, [selectedVoiceProfileId, voiceProfiles]);
+  }, [defaultEdgeProfile, selectedVoiceProfileId, voiceProfiles]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -206,15 +212,22 @@ function VideoCollectionContent() {
       }
       selectedProfile = data as VoiceProfile;
     }
+    const taskVoice = selectedProfile ?? {
+      id: null,
+      display_name: DEFAULT_EDGE_LABEL,
+      provider: "edge" as const,
+      model: "edge-tts",
+      voice_id: DEFAULT_EDGE_VOICE_ID,
+    };
     const { error } = await supabase.from("tasks").insert(urls.map(source_url => ({
       owner: userId,
       source_url,
       status: "pending",
-      tts_voice_profile_id: selectedProfile?.id ?? null,
-      tts_provider: selectedProfile?.provider ?? null,
-      tts_model: selectedProfile?.model ?? null,
-      tts_voice: selectedProfile?.voice_id ?? null,
-      tts_voice_label: selectedProfile?.display_name ?? null,
+      tts_voice_profile_id: taskVoice.id,
+      tts_provider: taskVoice.provider,
+      tts_model: taskVoice.model,
+      tts_voice: taskVoice.voice_id,
+      tts_voice_label: taskVoice.display_name,
     })));
     setCreating(false);
     if (error) setMessage(`导入失败：${error.message}`);
@@ -268,7 +281,7 @@ function VideoCollectionContent() {
   return <AppShell tasks={tasks}>
     <div className="collection-page anim-fade-in">
       <header className="collection-heading"><div><p className="eyebrow">素材运营台</p><h1>视频采集工作台</h1><p>批量导入来源视频，按采集结果、互动数据和任务进度统一查看。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
-      <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色"><option value="system-default">Edge · 晓晓（系统默认）</option>{voiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.provider}</option>)}</select>{selectedVoiceProfileId === "system-default" ? <small>使用 `zh-CN-XiaoxiaoNeural`，无需音色档案或样本。</small> : voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : "该音色未登记样本，无法试听。"}</small>}</div><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
+      <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色"><option value="system-default">{DEFAULT_EDGE_LABEL}（系统默认）</option>{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? "使用 `zh-CN-XiaoxiaoNeural`，当前未登记可试听样本。" : "该音色未登记样本，无法试听。"}</small>}</div><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
       {message && <p className="collection-notice" role="status">{message}</p>}
       {loading && <div className="collection-loading" role="status"><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>}
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}
