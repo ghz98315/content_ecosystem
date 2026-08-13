@@ -17,10 +17,12 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 DEEPSEEK_TIMEOUT = float(os.environ.get("DEEPSEEK_TIMEOUT", "110"))
 DEEPSEEK_RETRIES = max(0, int(os.environ.get("DEEPSEEK_RETRIES", "1")))
+REWRITE_PROVIDER = os.environ.get("REWRITE_PROVIDER", "deepseek").strip().lower()
+REWRITE_TIMEOUT = float(os.environ.get("REWRITE_TIMEOUT", "150"))
 REWRITE_RETRIES = max(0, int(os.environ.get("REWRITE_RETRIES", "2")))
 
 CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "deepseek-chat")
-REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-5.5")
+REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "deepseek-chat" if REWRITE_PROVIDER == "deepseek" else "gpt-5.5")
 BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "gpt-5.5")
 
 # ---- 生图（可独立于文字模型，支持 openai / doubao 两个后端）----
@@ -68,6 +70,22 @@ def clean_client():
     if not DEEPSEEK_API_KEY:
         raise RuntimeError("清洗阶段缺少 DEEPSEEK_API_KEY，请在 worker/.env 中配置")
     return openai_client(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL, timeout=DEEPSEEK_TIMEOUT, max_retries=0)
+
+
+def rewrite_client():
+    """Keep long-form rewriting off a third-party proxy by default."""
+    if REWRITE_PROVIDER == "deepseek":
+        if not DEEPSEEK_API_KEY:
+            raise RuntimeError("改写阶段缺少 DEEPSEEK_API_KEY，请在 worker/.env 中配置")
+        return openai_client(
+            api_key=DEEPSEEK_API_KEY,
+            base_url=DEEPSEEK_BASE_URL,
+            timeout=REWRITE_TIMEOUT,
+            max_retries=0,
+        )
+    if REWRITE_PROVIDER == "openai":
+        return openai_client(timeout=REWRITE_TIMEOUT, max_retries=0)
+    raise RuntimeError(f"不支持的 REWRITE_PROVIDER：{REWRITE_PROVIDER}")
 
 # ---- 轮询 ----
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))

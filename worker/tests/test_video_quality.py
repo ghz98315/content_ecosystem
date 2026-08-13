@@ -208,6 +208,22 @@ class CleanSummaryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "DEEPSEEK_API_KEY"):
                 config.clean_client()
 
+    def test_rewrite_client_uses_official_deepseek_configuration(self):
+        with patch.object(config, "REWRITE_PROVIDER", "deepseek"), patch.object(
+            config, "DEEPSEEK_API_KEY", "deepseek-key"
+        ), patch.object(config, "DEEPSEEK_BASE_URL", "https://api.deepseek.example/v1"), patch.object(
+            config, "REWRITE_TIMEOUT", 150.0
+        ), patch("config.openai_client") as openai_client:
+            client = config.rewrite_client()
+
+        self.assertEqual(openai_client.return_value, client)
+        openai_client.assert_called_once_with(
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.example/v1",
+            timeout=150.0,
+            max_retries=0,
+        )
+
     def test_clean_summary_lists_deleted_source_spans(self):
         summary = _summarize_changes("栏目口号。正文第一句。关注我获取更多。", "正文第一句。")
         self.assertEqual(19, summary["raw_chars"])
