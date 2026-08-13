@@ -286,6 +286,7 @@ class PromptProfileTests(unittest.TestCase):
         self.assertIn("禁止借补标点之名添加", clean_prompt)
         self.assertIn("首发独立表达", load_prompt("health", "initial_dedup"))
         self.assertIn("日常比喻", load_prompt("health", "dual_dialogue_initial_dedup"))
+        self.assertIn("咱们说句实在话", load_prompt("health", "dual_dialogue_initial_dedup"))
         self.assertIn("渲染自伤自杀", load_prompt("health", "initial_dedup"))
         self.assertIn("二次发布", load_prompt("health", "repost_dedup"))
         self.assertEqual("initial_dedup", rewrite_prompt_kind("initial_dedup"))

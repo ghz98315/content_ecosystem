@@ -408,7 +408,7 @@ def run(stage: dict) -> tuple[str, str | None]:
 
     rewrite_notes = str(params.get("rewrite_notes") or "").strip()
     if narration_mode == "dual_dialogue":
-        rewrite_notes = (rewrite_notes + "\n改为双人播客对话：使用“主持人：”和“嘉宾：”交替开头；保留事实边界，首段仍须有反差、反常识或悬念钩子。不要增加角色设定以外的事实。 ").strip()
+        rewrite_notes = (rewrite_notes + "\n改为双人播客对话：每段以“主持人：”或“嘉宾：”开头，嘉宾可连续展开；保留事实边界，首段仍须有反差、反常识或悬念钩子。不要增加角色设定以外的事实。 ").strip()
     candidates, lengths, structure = _generate_candidates(
         source,
         context,
