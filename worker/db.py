@@ -89,7 +89,7 @@ def get_task_prompt_context(task_id: str) -> dict:
     """Read prompt context while remaining compatible before migration 0003 runs."""
     # Keep first-publication tasks readable before optional migrations are applied.
     selects = (
-        "title,author,content_category,rewrite_mode,source_task_id,version_no",
+        "title,author,content_category,rewrite_mode,source_task_id,version_no,narration_mode",
         "title,author,content_category",
         "title,author",
     )

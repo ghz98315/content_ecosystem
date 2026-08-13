@@ -7,9 +7,15 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from stages import rewrite
+from stages import book
 
 
 class RewriteConfirmationTests(unittest.TestCase):
+    def test_dialogue_title_instruction_only_applies_to_dialogue_tasks(self):
+        with patch("stages.book.db.get_task_prompt_context", return_value={"narration_mode": "dual_dialogue"}):
+            self.assertIn("双人对谈", book._dialogue_title_instruction("task-id"))
+        with patch("stages.book.db.get_task_prompt_context", return_value={"narration_mode": "single"}):
+            self.assertEqual("", book._dialogue_title_instruction("task-id"))
     def test_confirmed_draft_does_not_run_compliance_a_second_time(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "rewrite.json"

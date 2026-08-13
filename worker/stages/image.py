@@ -96,6 +96,18 @@ def _safe_fallback_scenes(count: int, category: str) -> list[str]:
         scene = "明亮居家环境中的情绪支持、家人陪伴与规律生活场景"
     return [scene] * count
 
+
+def _dialogue_visual_scene(category: str) -> str:
+    """Stable, reusable visual for a two-person dialogue render."""
+    directions = {
+        "social_science": "安静书房中的两位成年人隔桌对谈，桌上只有无字书籍和档案，克制纪实感",
+        "education": "明亮现代工作室中的两位成年人隔桌交流，桌上只有无字书籍和笔记本，理性可信赖",
+    }
+    return directions.get(
+        category,
+        "明亮温暖的居家书房中两位成年人隔桌交流，桌上只有无字书籍和茶杯，舒缓可信赖",
+    )
+
 # ── 语义分镜 ───────────────────────────────────────────────────────────────
 _MAJOR_BREAKS = set("。！？!?…")
 _MINOR_BREAKS = set("，,；;：:")
@@ -493,6 +505,40 @@ def _existing_image_artifacts(task_id: str) -> dict[str, dict]:
     }
 
 
+def _run_dialogue_visual(stage: dict, text: str, category: str, client, image_model: str) -> tuple[str, str | None]:
+    """Generate one dialogue key visual; render reuses it for the full narration."""
+    task_id = stage["task_id"]
+    path = f"{task_id}/dialogue_key_visual.png"
+    index_path = f"{task_id}/images_index.json"
+    existing = _existing_image_artifacts(task_id)
+    prompt = _build_grid_prompt([_dialogue_visual_scene(category)], category)
+    if path not in existing:
+        raw = _generate_grid_bytes(
+            client, image_model, prompt, stage_id=stage["id"], batch_key="dialogue_key_visual",
+        )
+        piece = _split_grid(raw, 1)[0]
+        storage.upload_bytes(path, piece, "image/png")
+        storage.add_artifact(task_id, "image", "image", path, meta={
+            "index": 0, "sentence": "双人对谈主视觉", "char_count": max(1, _char_count(text)),
+            "char_start": 0, "char_end": max(1, _char_count(text)), "motion": "zoom_in",
+            "narration_mode": "dual_dialogue", "visual_mode": "dialogue_key_visual",
+            "prompt": prompt, "prompt_scene": _dialogue_visual_scene(category), "image_model": image_model,
+        })
+    entry = {
+        "index": 0, "path": path, "sentence": "双人对谈主视觉",
+        "char_count": max(1, _char_count(text)), "char_start": 0,
+        "char_end": max(1, _char_count(text)), "motion": "zoom_in",
+        "narration_mode": "dual_dialogue", "visual_mode": "dialogue_key_visual",
+        "prompt": prompt, "prompt_scene": _dialogue_visual_scene(category), "image_model": image_model,
+    }
+    storage.upload_bytes(index_path, json.dumps([entry], ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+    storage.add_artifact(task_id, "image", "image_index", index_path, meta={
+        "total": 1, "narration_char_count": _char_count(text), "narration_mode": "dual_dialogue",
+        "visual_mode": "dialogue_key_visual",
+    })
+    return "done", index_path
+
+
 def _load_image_index(task_id: str) -> list[dict]:
     res = db.retry(lambda: db.get_client().table("artifacts").select("storage_path").eq("task_id", task_id).eq("stage_kind", "image").eq("type", "image_index").order("created_at", desc=True).limit(1).execute())
     if not res.data:
@@ -647,6 +693,8 @@ def run(stage: dict) -> tuple[str, str | None]:
     client, image_model = config.image_client()
     task_context = db.get_task_prompt_context(task_id)
     content_category = str(task_context.get("content_category") or "health")
+    if str(task_context.get("narration_mode") or "single") == "dual_dialogue":
+        return _run_dialogue_visual(stage, text, content_category, client, image_model)
     storyboard = _split_storyboard(text)
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")

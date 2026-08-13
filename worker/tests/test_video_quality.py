@@ -34,6 +34,7 @@ from stages.image import (
     _visual_scene,
     _is_safety_block,
     _safe_fallback_scenes,
+    _dialogue_visual_scene,
 )
 from stages.ingest import _is_wechat_channels_url, _requires_manual_upload
 from stages.image import _apimart_result_url
@@ -380,6 +381,14 @@ class StoryboardTests(unittest.TestCase):
         business = _build_grid_prompt(["一本经管书的方法"], "education")
         self.assertIn("史料感", history)
         self.assertIn("保证收益", business)
+
+    def test_dialogue_visuals_are_category_specific_and_safe(self):
+        health = _dialogue_visual_scene("health")
+        history = _dialogue_visual_scene("social_science")
+        business = _dialogue_visual_scene("education")
+        self.assertIn("两位成年人", health)
+        self.assertIn("档案", history)
+        self.assertIn("工作室", business)
 
     def test_grid_source_rejects_unexpected_square_canvas(self):
         _validate_grid_source(1536, 1024)

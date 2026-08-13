@@ -97,6 +97,16 @@ def _find_rewrite_text(task_id: str, stage: dict) -> str | None:
     return candidates[int(idx)] if int(idx) < len(candidates) else None
 
 
+def _dialogue_title_instruction(task_id: str) -> str:
+    context = db.get_task_prompt_context(task_id)
+    if str(context.get("narration_mode") or "single") != "dual_dialogue":
+        return ""
+    return (
+        "\n\n本任务是双人对谈。title_long 和 title_short 均使用问题、追问、反差或争议式口吻，"
+        "让标题体现两个人正在讨论一个反常识问题；不得虚构对话结论，也不得使用收益或疗效承诺。"
+    )
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
@@ -111,7 +121,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     resp = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _PROMPT},
+            {"role": "system", "content": _PROMPT + _dialogue_title_instruction(task_id)},
             {"role": "user", "content": text},
         ],
         temperature=0.1,
