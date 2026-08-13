@@ -58,13 +58,43 @@ _MEDICAL_MAP = {
     "减肥药": "均衡饮食与规律生活的日常场景",
 }
 
+_SELF_HARM_MAP = {
+    "自我伤害": "情绪支持与日常陪伴的温暖生活场景",
+    "自残": "情绪支持与日常陪伴的温暖生活场景",
+    "自伤": "情绪支持与日常陪伴的温暖生活场景",
+    "自杀": "珍惜生命、获得支持与温暖陪伴的生活场景",
+    "轻生": "珍惜生命、获得支持与温暖陪伴的生活场景",
+    "寻死": "珍惜生命、获得支持与温暖陪伴的生活场景",
+    "结束生命": "珍惜生命、获得支持与温暖陪伴的生活场景",
+    "割腕": "安静陪伴、舒缓情绪的居家生活场景",
+    "跳楼": "安静陪伴、舒缓情绪的居家生活场景",
+}
+
 def _medical_safe(sentence: str) -> str:
     """把敏感病症替换为生活隐喻，避免平台限流。"""
     desc = sentence
     for kw in sorted(_MEDICAL_MAP, key=len, reverse=True):
         if kw in desc:
             desc = desc.replace(kw, _MEDICAL_MAP[kw])
+    for kw in sorted(_SELF_HARM_MAP, key=len, reverse=True):
+        if kw in desc:
+            desc = desc.replace(kw, _SELF_HARM_MAP[kw])
     return desc
+
+
+def _is_safety_block(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(token in message for token in ("safety_violation", "moderation_blocked", "self-harm"))
+
+
+def _safe_fallback_scenes(count: int, category: str) -> list[str]:
+    if category == "social_science":
+        scene = "明亮书房中的史料阅读与安静思考场景"
+    elif category == "education":
+        scene = "现代工作空间中的阅读、笔记与理性交流场景"
+    else:
+        scene = "明亮居家环境中的情绪支持、家人陪伴与规律生活场景"
+    return [scene] * count
 
 # ── 语义分镜 ───────────────────────────────────────────────────────────────
 _MAJOR_BREAKS = set("。！？!?…")
@@ -339,6 +369,7 @@ def _generate_grid_bytes(
             and job.get("prompt_sha256") == prompt_sha256
             and job.get("model") == image_model
             and job.get("size") == _GRID_SIZE
+            and job.get("status") not in {"failed", "safety_blocked"}
         )
         if reusable:
             provider_task_id = str(job["provider_task_id"])
@@ -653,13 +684,20 @@ def run(stage: dict) -> tuple[str, str | None]:
                     pass
         else:
             grid_prompt = _build_grid_prompt([shot["text"] for shot in batch], content_category)
-            raw = _generate_grid_bytes(
-                client,
-                image_model,
-                grid_prompt,
-                stage_id=stage["id"],
-                batch_key=f"grid_{batch_start // (_GRID * _GRID):03d}",
-            )
+            batch_key = f"grid_{batch_start // (_GRID * _GRID):03d}"
+            try:
+                raw = _generate_grid_bytes(
+                    client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
+                )
+            except Exception as exc:
+                if not _is_safety_block(exc):
+                    raise
+                grid_prompt = _build_grid_prompt(
+                    _safe_fallback_scenes(len(batch), content_category), content_category
+                )
+                raw = _generate_grid_bytes(
+                    client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
+                )
             storage.upload_bytes(grid_path, raw, "image/png")
             storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
                 "grid": f"{_GRID}x{_GRID}",

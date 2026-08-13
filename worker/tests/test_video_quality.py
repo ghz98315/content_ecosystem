@@ -32,6 +32,8 @@ from stages.image import (
     _split_storyboard,
     _validate_grid_source,
     _visual_scene,
+    _is_safety_block,
+    _safe_fallback_scenes,
 )
 from stages.ingest import _is_wechat_channels_url, _requires_manual_upload
 from stages.image import _apimart_result_url
@@ -361,6 +363,15 @@ class StoryboardTests(unittest.TestCase):
         self.assertNotIn("监护仪", _build_grid_prompt(["医院、器官、伤口和监护仪"]))
         self.assertNotIn("带货", safe_prompt)
         self.assertEqual("一本素色无字封面的书介绍三个健康方法", _visual_scene("《身体重置》介绍三个健康方法123"))
+
+    def test_health_self_harm_terms_are_replaced_before_image_generation(self):
+        prompt = _build_grid_prompt(["有人因自伤和轻生想法需要支持"])
+        self.assertNotIn("自伤", prompt)
+        self.assertNotIn("轻生", prompt)
+        self.assertIn("情绪支持", prompt)
+        self.assertTrue(_is_safety_block(RuntimeError("safety_violation: self-harm")))
+        self.assertFalse(_is_safety_block(RuntimeError("network timeout")))
+        self.assertEqual(2, len(_safe_fallback_scenes(2, "health")))
 
     def test_category_visual_directions_are_distinct(self):
         history = _build_grid_prompt(["一段历史叙事"], "social_science")
