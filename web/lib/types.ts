@@ -24,6 +24,7 @@ export interface Task {
   id: string;
   source_url: string | null;
   title: string | null;
+  source_tags?: string[] | null;
   play_count: number | null;
   author: Record<string, unknown> | null;
   tts_voice_profile_id?: string | null;

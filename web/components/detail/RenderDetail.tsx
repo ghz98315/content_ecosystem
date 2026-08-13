@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { DetailShell, TextBtn, DetailCommon } from "./_shell";
+import { splitSourceDescription } from "@/lib/sourceMetadata";
 
 interface QualityCheck {
   id: string;
@@ -27,7 +28,13 @@ interface QualityReport {
 }
 interface TimelineEntry { index: number; path?: string; sentence?: string; start?: number; end?: number; duration: number }
 interface ReviewEntry { decision: string; note: string | null; created_at: string }
-interface BookArtifact { book_name?: string }
+interface BookArtifact {
+  book_name?: string;
+  source_title?: string;
+  source_tags?: string[];
+  publish_title?: string;
+  title_short?: string;
+}
 
 const BGM_MAX_BYTES = 25 * 1024 * 1024;
 const BGM_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a"]);
@@ -41,6 +48,8 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [bookName, setBookName] = useState("");
+  const [publication, setPublication] = useState<BookArtifact | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
   const [creatingRepost, setCreatingRepost] = useState(false);
   const [repostError, setRepostError] = useState<string | null>(null);
@@ -107,9 +116,12 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         const signed = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(response => response.json());
         if (!signed.signedUrl) return;
         const book = await fetch(signed.signedUrl).then(response => response.json()) as BookArtifact;
-        if (active) setBookName(book.book_name?.trim() || "");
+        if (active) {
+          setBookName(book.book_name?.trim() || "");
+          setPublication(book);
+        }
       } catch {
-        if (active) setBookName("");
+        if (active) { setBookName(""); setPublication(null); }
       }
     })();
     return () => { active = false; };
@@ -264,6 +276,29 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
     router.push(`/task/${data}`);
   };
 
+  const copyPublication = async (label: string, value: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyNotice(`已复制${label}`);
+      window.setTimeout(() => setCopyNotice(null), 1_500);
+    } catch {
+      setCopyNotice("复制失败，请检查剪贴板权限");
+    }
+  };
+
+  const legacySource = splitSourceDescription(task.title);
+  const sourceTitle = publication?.source_title?.trim() || legacySource.title;
+  const sourceTags = Array.isArray(publication?.source_tags) && publication.source_tags.length
+    ? publication.source_tags.filter(Boolean)
+    : (task.source_tags?.length ? task.source_tags : legacySource.tags);
+  const publishTitle = publication?.publish_title?.trim() || publication?.title_short?.trim() || "";
+  const publicationText = [
+    `原标题：${sourceTitle}`,
+    `标签：${sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ")}`,
+    `建议发布标题：${publishTitle}`,
+  ].join("\n");
+
   const canCreateRepost = stage?.status === "done" && task.rewrite_mode !== "repost_dedup";
   const canApprove = stage?.status === "needs_review";
 
@@ -331,6 +366,18 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
               <span>失败后保留视频：当前已支持人工检查</span>
             </div>
           </aside>
+        </section>
+      )}
+
+      {(sourceTitle || sourceTags.length > 0 || publishTitle) && (
+        <section className="publication-panel" aria-labelledby="publication-title">
+          <div className="render-panel-heading"><div><strong id="publication-title">发布内容表</strong><span>成片完成后可直接复制使用；标签保持来源数据，建议标题不超过16字且不含标点。</span></div><TextBtn onClick={() => void copyPublication("发布内容表", publicationText)}>复制整表</TextBtn></div>
+          <dl>
+            <div><dt>原标题</dt><dd>{sourceTitle || "—"}</dd><button type="button" onClick={() => void copyPublication("原标题", sourceTitle)}>复制</button></div>
+            <div><dt>来源标签</dt><dd>{sourceTags.length ? sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ") : "—"}</dd><button type="button" disabled={!sourceTags.length} onClick={() => void copyPublication("标签", sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" "))}>复制</button></div>
+            <div><dt>建议发布标题</dt><dd>{publishTitle || "等待书籍阶段生成"}</dd><button type="button" disabled={!publishTitle} onClick={() => void copyPublication("建议发布标题", publishTitle)}>复制</button></div>
+          </dl>
+          {copyNotice && <p className="publication-copy-notice" role="status">{copyNotice}</p>}
         </section>
       )}
 

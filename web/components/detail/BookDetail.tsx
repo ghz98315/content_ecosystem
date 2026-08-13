@@ -86,16 +86,15 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
     setBusy(true);
     setError(null);
     const params = { ...(stage.params || {}) } as Record<string, unknown>;
-    if (editing) {
-      const bookName = draft.book_name?.trim();
-      const author = draft.author?.trim();
-      const nationality = draft.nationality?.trim();
-      if (bookName) params.manual_book_name = bookName;
-      if (author) params.manual_book_author = author;
-      if (nationality) params.manual_book_nationality = nationality;
-      const ctaText = draft.cta_text?.trim();
-      if (ctaText) params.manual_cta_text = ctaText;
-    }
+    const reviewed = editing ? draft : data;
+    const bookName = reviewed?.book_name?.trim();
+    const author = reviewed?.author?.trim();
+    const nationality = reviewed?.nationality?.trim();
+    const ctaText = reviewed?.cta_text?.trim();
+    if (bookName) params.manual_book_name = bookName;
+    if (author) params.manual_book_author = author;
+    if (nationality) params.manual_book_nationality = nationality;
+    if (ctaText) params.manual_cta_text = ctaText;
     if (coverPath) params.manual_book_cover_path = coverPath;
     params.book_confirmed = true;
     const { error: updateError } = await supabase

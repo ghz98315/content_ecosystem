@@ -11,6 +11,7 @@ import { AppShell } from "@/components/AppShell";
 import { PipelineBar } from "@/components/PipelineBar";
 import { StageDetail } from "@/components/StageDetail";
 import { PreflightPanel } from "@/components/PreflightPanel";
+import { compactTitle, splitSourceDescription } from "@/lib/sourceMetadata";
 
 interface SourceMeta {
   duration?: number;
@@ -18,6 +19,7 @@ interface SourceMeta {
   comment_count?: number;
   share_count?: number;
   collect_count?: number;
+  source_tags?: string[];
 }
 
 function formatCount(value?: number | null) {
@@ -87,6 +89,8 @@ export default function TaskDetail() {
   const currentStage = stages.find(stage => stage.kind === selected);
   const doneCount = stages.filter(stage => stage.status === "done").length;
   const taskStatusLabel = task ? (STATUS_LABEL[task.status as keyof typeof STATUS_LABEL] || task.status) : "";
+  const sourceTitle = task ? splitSourceDescription(task.title) : { title: "", tags: [] as string[] };
+  const sourceTags = task?.source_tags?.length ? task.source_tags : sourceTitle.tags;
   const sourceSummary = useMemo(() => {
     if (!task) return [] as Array<[string, string]>;
     const author = task.author as Record<string, unknown> | null;
@@ -161,13 +165,14 @@ export default function TaskDetail() {
   return <AppShell tasks={tasks} currentTaskId={id}>
     <div className="task-workspace">
       <div className="task-header">
-        <div className="task-header-copy"><span className="task-header-kicker">任务 {task.id.slice(0, 8)}</span><strong>{task.title || task.source_url || task.id}</strong></div>
+        <div className="task-header-copy"><span className="task-header-kicker">任务 {task.id.slice(0, 8)}</span><button type="button" className="task-title-copy" title={`${sourceTitle.title || task.source_url || task.id}\n点击复制完整标题`} onClick={() => navigator.clipboard.writeText(sourceTitle.title || task.source_url || task.id)}>{compactTitle(sourceTitle.title || task.source_url || task.id)}</button></div>
         <div className="task-header-progress"><div><span>{taskStatusLabel}</span><b>{doneCount} / {STAGES.length}</b></div><span className="task-progress-track"><i style={{ width: `${Math.round(doneCount / STAGES.length * 100)}%` }} /></span></div>
         {!['done', 'cancelled', 'failed'].includes(task.status) && <button className="task-cancel" onClick={cancelTask} disabled={actionBusy} aria-busy={actionBusy}>{actionBusy ? "处理中..." : "取消任务"}</button>}
       </div>
       <div className="task-source-summary" aria-label="任务来源摘要">
         {sourceSummary.map(([label, value]) => <span key={label}><b>{label}</b>{value}</span>)}
         <span className="task-source-url"><b>来源链接</b>{task.source_url || "-"}</span>
+        {sourceTags.length > 0 && <span className="task-source-tags"><b>来源标签</b>{sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ")}</span>}
       </div>
       {notice && <div className={`task-notice ${notice.ok ? "is-ok" : "is-error"}`} role="status">{notice.text}</div>}
       {loadError && <div className="task-notice is-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading}>重试</button></div>}

@@ -14,18 +14,28 @@ import json
 import db
 import storage
 from resolvers import self_resolver
+from source_metadata import split_source_description
 
 
 def _write_task_meta(task_id: str, res) -> None:
     patch = {}
     if res.title:
-        patch["title"] = res.title
+        title, tags = split_source_description(res.title)
+        patch["title"] = title or res.title
+        patch["source_tags"] = tags
     if res.play_count is not None:
         patch["play_count"] = res.play_count
     if res.author:
         patch["author"] = res.author
     if patch:
-        db.get_client().table("tasks").update(patch).eq("id", task_id).execute()
+        try:
+            db.get_client().table("tasks").update(dict(patch)).eq("id", task_id).execute()
+        except Exception as exc:
+            message = str(exc)
+            if "source_tags" not in patch or ("42703" not in message and "source_tags" not in message):
+                raise
+            patch.pop("source_tags", None)
+            db.get_client().table("tasks").update(dict(patch)).eq("id", task_id).execute()
 
 
 def _requires_manual_upload(source_platform: str) -> bool:
@@ -106,6 +116,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "needs_review", None
 
     _write_task_meta(task_id, res)
+    source_title, source_tags = split_source_description(res.title)
 
     # 热门评论（best-effort，失败不阻塞流程）
     comments = []
@@ -128,6 +139,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             "video_url": res.video_url,
             "hot_comments": self_resolver.select_hot_comments(comments),
             "purchase_intent_comments": self_resolver.select_purchase_intent_comments(comments),
+            "source_title": source_title,
+            "source_tags": source_tags,
+            "raw_description": res.title,
             **res.raw,
         })
     finally:

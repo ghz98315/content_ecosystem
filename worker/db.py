@@ -89,6 +89,7 @@ def get_task_prompt_context(task_id: str) -> dict:
     """Read prompt context while remaining compatible before migration 0003 runs."""
     # Keep first-publication tasks readable before optional migrations are applied.
     selects = (
+        "title,source_tags,author,content_category,rewrite_mode,source_task_id,version_no,narration_mode",
         "title,author,content_category,rewrite_mode,source_task_id,version_no,narration_mode",
         "title,author,content_category",
         "title,author",
@@ -106,7 +107,8 @@ def get_task_prompt_context(task_id: str) -> dict:
             return result.data or {}
         except Exception as exc:  # noqa: BLE001
             last_error = exc
-            if "42703" not in str(exc):
+            message = str(exc)
+            if "42703" not in message and "source_tags" not in message:
                 raise
     raise last_error or RuntimeError("读取任务上下文失败")
 

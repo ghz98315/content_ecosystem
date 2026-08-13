@@ -13,6 +13,7 @@ from pathlib import Path
 import config
 import db
 import storage
+from source_metadata import publication_title, split_source_description
 
 _PROMPT = (Path(__file__).parent.parent / "prompts" / "book.txt").read_text(encoding="utf-8")
 _CTA_PROMPT_TMPL = (Path(__file__).parent.parent / "prompts" / "cta.txt").read_text(encoding="utf-8")
@@ -143,6 +144,40 @@ def _dialogue_title_instruction(task_id: str) -> str:
     )
 
 
+def _publication_metadata(task_id: str, info: dict) -> dict:
+    context = db.get_task_prompt_context(task_id)
+    source_title, fallback_tags = split_source_description(context.get("title"))
+    tags = context.get("source_tags")
+    if not isinstance(tags, list) or not tags:
+        tags = fallback_tags
+    candidate = info.get("publish_title") or info.get("title_short") or info.get("theme")
+    return {
+        "source_title": source_title,
+        "source_tags": [str(tag).strip().lstrip("#") for tag in tags if str(tag).strip()],
+        "publish_title": publication_title(candidate),
+    }
+
+
+def _sync_book_signal(task_id: str, info: dict, confirmed: bool) -> None:
+    title = str(info.get("book_name") or "").strip().strip("《》")
+    if not title or title == "未知":
+        return
+    payload = {
+        "task_id": task_id,
+        "detected_title": title,
+        "detected_author": str(info.get("author") or "").strip() or None,
+        "confidence": str(info.get("confidence") or "low"),
+        "evidence": "book_stage_final",
+        "source_stage": "book",
+    }
+    if confirmed:
+        payload.update({"confirmed_title": title, "confirmed_author": payload["detected_author"]})
+    try:
+        db.get_client().table("task_book_signals").upsert(payload, on_conflict="task_id").execute()
+    except Exception:
+        pass
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
@@ -188,6 +223,9 @@ def run(stage: dict) -> tuple[str, str | None]:
 
     # Apply reviewer edits after generation so a manual CTA is authoritative.
     _apply_manual_overrides(info, params)
+    info.update(_publication_metadata(task_id, info))
+    info["title_short"] = info["publish_title"]
+    _sync_book_signal(task_id, info, bool(params.get("book_confirmed") or params.get("manual_book_name")))
 
     data = json.dumps(info, ensure_ascii=False, indent=2).encode("utf-8")
     sp = f"{task_id}/book.json"
