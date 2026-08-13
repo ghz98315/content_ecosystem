@@ -364,7 +364,16 @@ class StoryboardTests(unittest.TestCase):
         self.assertNotIn("伤口", _build_grid_prompt(["医院、器官、伤口和监护仪"]))
         self.assertNotIn("监护仪", _build_grid_prompt(["医院、器官、伤口和监护仪"]))
         self.assertNotIn("带货", safe_prompt)
+        self.assertIn("温暖叙事油画插画风", safe_prompt)
+        self.assertIn("现代轻英伦", safe_prompt)
         self.assertEqual("一本素色无字封面的书介绍三个健康方法", _visual_scene("《身体重置》介绍三个健康方法123"))
+
+    def test_uniform_and_enforcement_terms_are_removed_from_health_image_prompt(self):
+        prompt = _build_grid_prompt(["警察戴着警帽巡逻，展示制服徽章和执法过程"])
+        for forbidden in ("警察", "警帽", "巡逻", "制服", "徽章", "执法"):
+            self.assertNotIn(forbidden, prompt)
+        self.assertIn("普通成年人", prompt)
+        self.assertIn("日常便装", prompt)
 
     def test_health_self_harm_terms_are_replaced_before_image_generation(self):
         prompt = _build_grid_prompt(["有人因自伤和轻生想法需要支持"])
