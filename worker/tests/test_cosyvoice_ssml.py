@@ -12,10 +12,16 @@ from tts_providers import get_tts_provider
 class CosyVoiceSsmlTests(unittest.TestCase):
     def test_warm_narrative_ssml_uses_restrained_prosody_and_escapes_text(self):
         ssml = _cosyvoice_ssml("先听我说。A&B", "hook")
-        self.assertIn('<speak rate="0.94" pitch="1.03" volume="54">', ssml)
-        self.assertIn('<break time="260ms"/>', ssml)
+        self.assertIn('<speak rate="0.93" pitch="1.03" volume="54">', ssml)
+        self.assertIn('<break time="340ms"/>', ssml)
         self.assertIn("A&amp;B", ssml)
-        self.assertEqual("cosy_warm_narrative_v1", _COSY_WARM_NARRATIVE)
+        self.assertEqual("cosy_warm_narrative_v2", _COSY_WARM_NARRATIVE)
+
+    def test_warm_narrative_adds_semantic_pauses_without_unsupported_tags(self):
+        ssml = _cosyvoice_ssml("重点是，不是忍着，而是照顾好自己。", "hook")
+        self.assertIn('<break time="120ms"/>', ssml)
+        self.assertIn('<break time="180ms"/>', ssml)
+        self.assertNotIn("<emphasis", ssml)
 
     def test_dashscope_request_enables_ssml_and_keeps_plain_alignment_text(self):
         captured = {}

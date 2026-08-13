@@ -26,21 +26,23 @@ _PART_ATTEMPTS = max(1, int(os.environ.get("TTS_PART_ATTEMPTS", "3")))
 
 
 _clean_tts_text = clean_tts_text
-_COSY_WARM_NARRATIVE = "cosy_warm_narrative_v1"
+_COSY_WARM_NARRATIVE = "cosy_warm_narrative_v2"
 
 
 def _cosyvoice_ssml(text: str, position: str) -> str:
-    """Use restrained prosody for comfortable long-form older-audience listening."""
+    """Use semantic pauses and restrained prosody for comfortable long-form narration."""
     presets = {
-        "hook": ("0.94", "1.03", "54"),
-        "body": ("0.98", "1.00", "52"),
-        "close": ("0.95", "1.01", "52"),
+        "hook": ("0.93", "1.03", "54"),
+        "body": ("0.97", "1.00", "52"),
+        "close": ("0.94", "1.01", "52"),
     }
     rate, pitch, volume = presets.get(position, presets["body"])
     escaped = html.escape(text.strip(), quote=False)
-    # One measured pause after a completed thought improves clarity without
-    # turning the narration into exaggerated dramatic speech.
-    escaped = re.sub(r"([。！？])\s*", r'\1<break time="260ms"/>', escaped)
+    # Short rhetorical pauses make turns and comparisons intelligible. Keep
+    # them constrained so long-form narration does not become theatrical.
+    escaped = re.sub(r"([，、；：])\s*", r'\1<break time="120ms"/>', escaped)
+    escaped = re.sub(r"(但是|可其实|其实|所以|因此|反而|不是|而是|别急|注意|重点是|换句话说)", r'<break time="180ms"/>\1', escaped)
+    escaped = re.sub(r"([。！？])\s*", r'\1<break time="340ms"/>', escaped)
     return f'<speak rate="{rate}" pitch="{pitch}" volume="{volume}">{escaped}</speak>'
 
 
