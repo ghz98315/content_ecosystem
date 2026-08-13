@@ -107,17 +107,23 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
     const confirmed = window.confirm("按当前风格全量重新生成图片？这会删除当前图片和最终成片，保留逐字稿、清洗稿、改写稿、配音及审核记录。");
     if (!confirmed) return;
     setRegenerating(true);
-    const { data, error } = await supabase.rpc("regenerate_image_stage", { p_stage_id: stage.id });
-    setRegenerating(false);
-    if (error || !data?.length) {
-      setLoadError(error?.message || "全量重新生成排队失败");
-      return;
-    }
-    setEntries([]);
-    setUrls({});
-    setReplacements({});
-    setSelectedEntry(null);
     setLoadError(null);
+    try {
+      const { data, error } = await supabase.rpc("regenerate_image_stage", { p_stage_id: stage.id });
+      if (error || !data?.length) {
+        setLoadError(error?.message || "全量重新生成排队失败，请检查数据库迁移是否已执行。");
+        return;
+      }
+      setEntries([]);
+      setUrls({});
+      setReplacements({});
+      setSelectedEntry(null);
+      await new Promise(resolve => window.setTimeout(resolve, 200));
+    } catch (error) {
+      setLoadError(error instanceof Error ? `全量重新生成请求未送达：${error.message}` : "全量重新生成请求未送达，请检查浏览器网络后重试。");
+    } finally {
+      setRegenerating(false);
+    }
   };
 
   return (
