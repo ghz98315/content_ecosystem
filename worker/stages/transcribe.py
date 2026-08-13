@@ -15,6 +15,36 @@ import db
 import storage
 
 
+def _content_without_punctuation(text: str) -> str:
+    return re.sub(r"[\s\.,，。！？!?；;：:、（）()【】\[\]「」『』“”\"'‘’…—\-_/\\·~@#$%^&*+=<>|`]", "", text or "")
+
+
+def _punctuate_for_reading(text: str) -> str:
+    """Create a display-only reading version without changing ASR source text."""
+    source = (text or "").strip()
+    if not source:
+        return ""
+    prompt = (
+        "你是中文逐字稿排版助手。只允许按语义补充中文标点和自然分段，"
+        "不得增删、替换、纠正、改写任何原文汉字、数字、英文或词语。"
+        "不要标题、说明、Markdown 或 JSON；只输出排版后的逐字稿。\n\n原始逐字稿：\n"
+        + source
+    )
+    try:
+        response = config.clean_client().chat.completions.create(
+            model=config.CLEAN_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        result = (response.choices[0].message.content or "").strip()
+        if result and _content_without_punctuation(result) == _content_without_punctuation(source):
+            return result
+        return source
+    except Exception:
+        # Readability enhancement must never block the actual transcription artifact.
+        return source
+
+
 def _infer_book_signal(text: str) -> dict:
     """Extract only explicit book-title signals; never invent a title."""
     source = text or ""
@@ -96,10 +126,12 @@ def run(stage: dict) -> tuple[str, str | None]:
             })
             full_text.append(s.text)
 
+        raw_text = "".join(full_text).strip()
         transcript = {
             "language": info.language,
             "duration": round(info.duration, 3),
-            "text": "".join(full_text).strip(),
+            "text": raw_text,
+            "reading_text": _punctuate_for_reading(raw_text),
             "segments": seg_list,
         }
         data = json.dumps(transcript, ensure_ascii=False, indent=2).encode("utf-8")

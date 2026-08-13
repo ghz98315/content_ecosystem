@@ -24,6 +24,12 @@ interface CleanPayload {
   };
 }
 
+interface TranscriptPayload extends Record<string, unknown> {
+  text?: string;
+  transcription?: string;
+  reading_text?: string;
+}
+
 async function loadJson(path: string) {
   const signedResponse = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`);
   if (!signedResponse.ok) throw new Error("产物地址获取失败");
@@ -34,7 +40,7 @@ async function loadJson(path: string) {
   return response.json();
 }
 
-function extractTranscript(payload: Record<string, unknown>) {
+function extractTranscript(payload: TranscriptPayload) {
   const value = payload.transcription ?? payload.text;
   return typeof value === "string" ? value : "";
 }
@@ -54,6 +60,8 @@ export function TranscriptCleanWorkbench({
   const transcriptStage = stages.find(stage => stage.kind === "transcribe");
   const cleanStage = stages.find(stage => stage.kind === "clean");
   const [transcript, setTranscript] = useState("");
+  const [rawTranscript, setRawTranscript] = useState("");
+  const [showRawTranscript, setShowRawTranscript] = useState(false);
   const [clean, setClean] = useState<CleanPayload | null>(null);
   const [activePane, setActivePane] = useState<"raw" | "clean">("clean");
   const [loading, setLoading] = useState(true);
@@ -72,7 +80,10 @@ export function TranscriptCleanWorkbench({
     ]).then(([transcriptPayload, cleanPayload]) => {
       if (!active) return;
       const parsedClean = cleanPayload as CleanPayload | null;
-      setTranscript(transcriptPayload ? extractTranscript(transcriptPayload as Record<string, unknown>) : parsedClean?.raw || "");
+      const parsedTranscript = transcriptPayload as TranscriptPayload | null;
+      const original = parsedTranscript ? extractTranscript(parsedTranscript) : parsedClean?.raw || "";
+      setRawTranscript(original);
+      setTranscript(parsedTranscript?.reading_text || original);
       setClean(parsedClean);
       setEditedCleanText(parsedClean?.cleaned || "");
     }).catch(reason => {
@@ -84,6 +95,7 @@ export function TranscriptCleanWorkbench({
   }, [transcriptStage?.output_ref, transcriptStage?.updated_at, cleanStage?.output_ref, cleanStage?.updated_at]);
 
   const rawText = transcript || clean?.raw || "";
+  const originalRawText = rawTranscript || clean?.raw || rawText;
   const cleanText = clean?.cleaned || "";
   const summary = clean?.change_summary;
   const rawChars = summary?.raw_chars ?? rawText.length;
@@ -156,8 +168,8 @@ export function TranscriptCleanWorkbench({
       {loading ? <div className="text-review-grid" aria-busy="true"><div className="skeleton text-pane-skeleton" /><div className="skeleton text-pane-skeleton" /></div> : (
         <div className="text-review-grid">
           <article className={`text-review-pane pane-raw${activePane === "raw" ? " is-mobile-active" : ""}`}>
-            <header><div><strong>原始逐字稿</strong><StageState stage={transcriptStage} /></div><button onClick={() => copyText(rawText, "逐字稿")} disabled={!rawText}>复制</button></header>
-            <pre>{rawText || (transcriptStage?.status === "processing" ? "逐字稿正在生成…" : "暂无逐字稿产物")}</pre>
+            <header><div><strong>{showRawTranscript ? "原始 ASR 逐字稿" : "逐字稿阅读版"}</strong><StageState stage={transcriptStage} /></div><div><button onClick={() => setShowRawTranscript(value => !value)} disabled={!originalRawText}>{showRawTranscript ? "阅读版" : "原始稿"}</button><button onClick={() => copyText(showRawTranscript ? originalRawText : rawText, "逐字稿")} disabled={!rawText}>复制</button></div></header>
+            <pre>{(showRawTranscript ? originalRawText : rawText) || (transcriptStage?.status === "processing" ? "逐字稿正在生成…" : "暂无逐字稿产物")}</pre>
           </article>
           <article className={`text-review-pane pane-clean${activePane === "clean" ? " is-mobile-active" : ""}`}>
             <header><div><strong>清洗后文案</strong><StageState stage={cleanStage} /></div><button onClick={() => copyText(editedCleanText, "清洗稿")} disabled={!editedCleanText}>复制</button></header>
