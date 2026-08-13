@@ -20,6 +20,7 @@ DEEPSEEK_RETRIES = max(0, int(os.environ.get("DEEPSEEK_RETRIES", "1")))
 REWRITE_PROVIDER = os.environ.get("REWRITE_PROVIDER", "deepseek").strip().lower()
 REWRITE_TIMEOUT = float(os.environ.get("REWRITE_TIMEOUT", "150"))
 REWRITE_RETRIES = max(0, int(os.environ.get("REWRITE_RETRIES", "2")))
+REWRITE_MAX_TOKENS = max(1024, int(os.environ.get("REWRITE_MAX_TOKENS", "8192")))
 
 CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "deepseek-chat")
 REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "deepseek-chat" if REWRITE_PROVIDER == "deepseek" else "gpt-5.5")

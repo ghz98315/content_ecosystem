@@ -246,6 +246,9 @@ class CleanSummaryTests(unittest.TestCase):
             max_retries=0,
         )
 
+    def test_rewrite_max_tokens_defaults_for_long_dialogue(self):
+        self.assertGreaterEqual(config.REWRITE_MAX_TOKENS, 8192)
+
     def test_clean_summary_lists_deleted_source_spans(self):
         summary = _summarize_changes("栏目口号。正文第一句。关注我获取更多。", "正文第一句。")
         self.assertEqual(19, summary["raw_chars"])
@@ -282,6 +285,7 @@ class PromptProfileTests(unittest.TestCase):
         self.assertIn("长度优先不超过原文", clean_prompt)
         self.assertIn("禁止借补标点之名添加", clean_prompt)
         self.assertIn("首发独立表达", load_prompt("health", "initial_dedup"))
+        self.assertIn("日常比喻", load_prompt("health", "dual_dialogue_initial_dedup"))
         self.assertIn("渲染自伤自杀", load_prompt("health", "initial_dedup"))
         self.assertIn("二次发布", load_prompt("health", "repost_dedup"))
         self.assertEqual("initial_dedup", rewrite_prompt_kind("initial_dedup"))

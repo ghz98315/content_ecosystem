@@ -241,6 +241,7 @@ def _generate_candidates(
                 },
             ],
             temperature=temperature,
+            max_tokens=config.REWRITE_MAX_TOKENS if narration_mode == "dual_dialogue" else None,
             response_format={"type": "json_object"},
         )
         choice = resp.choices[0]
