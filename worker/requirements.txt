@@ -1,6 +1,7 @@
 # M0 骨架 + M1 采集依赖
 supabase>=2.4.0
 python-dotenv>=1.0.0
+opencc-python-reimplemented>=0.1.7
 
 # HTTP / SSL（supabase-py 底层；certifi 修复 Windows SSL EOF 问题）
 httpx>=0.28.0

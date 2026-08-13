@@ -16,7 +16,7 @@ import db
 import main as worker_main
 import stages.image as image_stage
 from compliance import check_text, scan_text
-from stages.clean import _clean_output_issue, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes
+from stages.clean import _clean_output_issue, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes, _to_simplified_chinese
 from prompt_profiles import (
     derive_keyword,
     load_compliance_rules,
@@ -66,7 +66,7 @@ from stages.render import (
     _run_ffmpeg,
     _audio_mix_filter,
 )
-from stages.rewrite import _candidate_issues, _longest_common_run, _parse_candidates, _rewrite_structure
+from stages.rewrite import _candidate_issues, _dialogue_body, _longest_common_run, _parse_candidates, _rewrite_structure
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _dialogue_turns, _split_tts_segments, _synthesize, _synthesize_detailed
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
@@ -130,8 +130,36 @@ class RewriteQualityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "至少需要"):
             _dialogue_turns("主持人：只有一段。")
 
+    def test_dialogue_similarity_ignores_speaker_labels(self):
+        source = "越着急改变身体，越容易忽略真正的问题。因为生活节奏才是关键，所以先从习惯看起。最后别忘了照顾好自己。"
+        dialogue = (
+            "主持人：越着急改变身体，为什么反而越容易忽略真正的问题？\n"
+            "嘉宾：因为生活节奏才是关键，所以应该先从日常习惯看起。\n"
+            "主持人：那最后我们应该记住什么？\n"
+            "嘉宾：最后别忘了照顾好自己，这才是这段内容的落点。"
+        )
+        self.assertNotIn("改写幅度过大，未保持原文主体", _candidate_issues(
+            [dialogue], source, "stop", category="social_science", narration_mode="dual_dialogue"
+        ))
+        self.assertNotIn("主持人", _dialogue_body(dialogue))
+
+    def test_dialogue_still_rejects_overlong_turn(self):
+        source = "健康内容需要保留事实边界。" * 30
+        dialogue = (
+            "主持人：这个问题为什么值得注意？\n"
+            f"嘉宾：{'这是一段不能放在单轮里的过长回答' * 12}\n"
+            "主持人：那应该怎样理解边界？\n"
+            "嘉宾：因为原稿没有给出诊疗建议，所以不能自行补充。"
+        )
+        self.assertIn("双人播客单轮发言过长，应拆成追问和回答", _candidate_issues(
+            [dialogue], source, "stop", category="social_science", narration_mode="dual_dialogue"
+        ))
+
 
 class CleanSummaryTests(unittest.TestCase):
+    def test_clean_output_is_normalized_to_simplified_chinese(self):
+        self.assertEqual("繁体中文与健康生活", _to_simplified_chinese("繁體中文與健康生活"))
+
     def test_clean_length_ignores_punctuation_added_to_asr_text(self):
         raw = "甲乙丙丁戊己庚辛"
         cleaned = "甲，乙。丙！丁？戊；己：庚、辛。"

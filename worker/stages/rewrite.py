@@ -42,6 +42,21 @@ def _similarity(left: str, right: str) -> float:
     return SequenceMatcher(None, _normalized(left), _normalized(right)).ratio()
 
 
+def _dialogue_body(text: str) -> str:
+    """Remove speaker labels before comparing a dialogue rewrite with its source script."""
+    return re.sub(r"(?m)^\s*(?:主持人|嘉宾)\s*[：:]\s*", "", text or "").strip()
+
+
+def _dialogue_edge(text: str, *, opening: bool, turns: int = 2) -> str:
+    bodies = [
+        match.group(1).strip()
+        for match in re.finditer(r"(?m)^\s*(?:主持人|嘉宾)\s*[：:]\s*(.+)$", text or "")
+        if match.group(1).strip()
+    ]
+    selected = bodies[:turns] if opening else bodies[-turns:]
+    return "".join(selected)
+
+
 def _longest_common_run(left: str, right: str) -> int:
     """Return the longest verbatim normalized span shared by two scripts."""
     source = _normalized(left)
@@ -141,7 +156,8 @@ def _candidate_issues(
     for i, text in enumerate(candidates):
         if narration_mode == "dual_dialogue":
             issues.extend(_dialogue_structure_issues(text))
-        length = _text_len(text)
+        comparison_text = _dialogue_body(text) if narration_mode == "dual_dialogue" else text
+        length = _text_len(comparison_text)
         if length < min_len:
             issues.append(f"改写稿过短（{length}/{source_len} 字）")
         if length > max_len:
@@ -150,18 +166,24 @@ def _candidate_issues(
             issues.append("改写稿疑似被截断")
         if text.rstrip().endswith(("，", ",", "：", ":", "；", ";", "、")):
             issues.append("改写稿结尾不完整")
-        if _similarity(source, text) < 0.4:
+        minimum_similarity = 0.30 if narration_mode == "dual_dialogue" else 0.40
+        if _similarity(source, comparison_text) < minimum_similarity:
             issues.append("改写幅度过大，未保持原文主体")
         if category == "health" and mode == "initial_dedup":
-            similarity = _similarity(source, text)
+            similarity = _similarity(source, comparison_text)
             if similarity > 0.72:
                 issues.append(f"健康首发改写与原稿过近（相似度 {similarity:.2f}，目标不高于 0.72）")
-            common_run = _longest_common_run(source, text)
+            common_run = _longest_common_run(source, comparison_text)
             if common_run > 16:
                 issues.append(f"健康首发改写复用原句过多（连续 {common_run} 个有效字符）")
-        if _similarity(source[:50], text[:50]) < 0.35:
+        opening_text = _dialogue_edge(text, opening=True) if narration_mode == "dual_dialogue" else text[:50]
+        ending_text = _dialogue_edge(text, opening=False) if narration_mode == "dual_dialogue" else text[-50:]
+        source_opening = source[:120] if narration_mode == "dual_dialogue" else source[:50]
+        source_ending = source[-120:] if narration_mode == "dual_dialogue" else source[-50:]
+        edge_similarity = 0.20 if narration_mode == "dual_dialogue" else 0.35
+        if _similarity(source_opening, opening_text) < edge_similarity:
             issues.append("开头钩子改动过大")
-        if _similarity(source[-50:], text[-50:]) < 0.35:
+        if _similarity(source_ending, ending_text) < edge_similarity:
             issues.append("结尾改动过大")
         for title in re.findall(r"《([^》]+)》", source):
             if f"《{title}》" not in text:
@@ -190,10 +212,21 @@ def _generate_candidates(
     tolerance_label = "8%" if mode == "repost_dedup" else "12%"
     terms = "、".join(protected_terms(source)) or "无额外词语"
     last_issues: list[str] = []
-    for attempt in range(2):
+    attempts = 3 if narration_mode == "dual_dialogue" else 2
+    for attempt in range(attempts):
         correction = ""
         if attempt:
             correction = "\n上一次输出不合格：" + "；".join(last_issues) + "。请完整重写并严格输出 JSON。"
+            if narration_mode == "dual_dialogue":
+                correction += (
+                    "每轮正文控制在 12 到 70 字，绝不能超过 90 字；长回答必须拆成主持人追问和嘉宾续答。"
+                    "角色标签不计入正文长度。保持原文开头钩子的核心反差、结尾核心语义、全部事实和书名，"
+                    "只调整问答组织，不得新增原文没有的事实。"
+                )
+        if narration_mode == "dual_dialogue":
+            temperature = (0.55, 0.40, 0.25)[attempt]
+        else:
+            temperature = 0.35 if mode == "repost_dedup" else 0.7
         resp = _llm().chat.completions.create(
             model=config.REWRITE_MODEL,
             messages=[
@@ -211,7 +244,7 @@ def _generate_candidates(
                     ),
                 },
             ],
-            temperature=0.35 if mode == "repost_dedup" else 0.7,
+            temperature=temperature,
             response_format={"type": "json_object"},
         )
         choice = resp.choices[0]

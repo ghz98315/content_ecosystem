@@ -6,6 +6,8 @@ import re
 import time
 from difflib import SequenceMatcher
 
+from opencc import OpenCC
+
 import config
 import db
 import storage
@@ -14,6 +16,12 @@ from prompt_profiles import author_name, derive_keyword, load_prompt, normalize_
 _client = None
 _MAX_EXPANSION_RATIO = max(0.0, float(os.environ.get("CLEAN_MAX_EXPANSION_RATIO", "0.10")))
 _EXPANSION_RETRY = os.environ.get("CLEAN_EXPANSION_RETRY", "1").strip() != "0"
+_SIMPLIFIED_CONVERTER = OpenCC("t2s")
+
+
+def _to_simplified_chinese(text: str) -> str:
+    """Normalize model output so downstream review and rewriting always use Simplified Chinese."""
+    return _SIMPLIFIED_CONVERTER.convert(text or "")
 
 
 def _effective_chars(text: str) -> int:
@@ -180,7 +188,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         f"不得新增任何原文没有的语义内容；除必要标点外，清洗稿字符数应不超过原文。\n{raw_text}"
     )
 
-    cleaned = _request_clean(prompt, user_prompt)
+    cleaned = _to_simplified_chinese(_request_clean(prompt, user_prompt))
     quality_issue = _clean_output_issue(raw_text, cleaned) or _hook_preservation_issue(opening_hook, cleaned)
     if quality_issue and _EXPANSION_RETRY and "异常扩写" in quality_issue:
         retry_prompt = (
@@ -190,7 +198,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "任何新增的医学术语、解释、句子或对话都必须删除；输出长度必须不超过原文。"
         )
         retry_user = user_prompt + "\n\n上一版超长输出（仅用于定位新增内容，不得照抄）：\n" + cleaned
-        cleaned = _request_clean(retry_prompt, retry_user)
+        cleaned = _to_simplified_chinese(_request_clean(retry_prompt, retry_user))
         quality_issue = _clean_output_issue(raw_text, cleaned) or _hook_preservation_issue(opening_hook, cleaned)
 
     data = json.dumps(
