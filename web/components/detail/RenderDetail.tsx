@@ -37,6 +37,8 @@ const QUALITY_COLOR = { passed: "#15803d", warning: "#b45309", failed: "#b91c1c"
 export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: DetailCommon) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isPreviousVideo, setIsPreviousVideo] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
   const [creatingRepost, setCreatingRepost] = useState(false);
   const [repostError, setRepostError] = useState<string | null>(null);
@@ -193,12 +195,29 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
     return () => { active = false; };
   }, [stage?.status, taskId]);
 
-  const download = () => {
+  const download = async () => {
     if (!videoUrl) return;
-    const a = document.createElement("a");
-    a.href = videoUrl;
-    a.download = "output.mp4";
-    a.click();
+    setDownloadBusy(true);
+    setDownloadError(null);
+    try {
+      // Browsers may ignore `download` on the cross-origin Supabase signed URL
+      // and play the video instead. A same-origin Blob URL reliably downloads.
+      const response = await fetch(videoUrl);
+      if (!response.ok) throw new Error("视频文件读取失败");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(new Blob([blob], { type: "video/mp4" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${task.title?.trim() || "成片"}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "视频下载失败，请重试");
+    } finally {
+      setDownloadBusy(false);
+    }
   };
 
   const createRepost = async () => {
@@ -229,7 +248,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       errorTone="warning"
       actions={
         <>
-          {videoUrl && <TextBtn variant="primary" onClick={download}>下载视频</TextBtn>}
+          {videoUrl && <TextBtn variant="primary" onClick={() => void download()} disabled={downloadBusy}>{downloadBusy ? "正在下载…" : "下载视频"}</TextBtn>}
           {videoUrl && canApprove && (
             <TextBtn variant="primary" onClick={() => onApprove(stage!.id, "render")}>
               人工审核通过
@@ -252,6 +271,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
           {repostError}
         </div>
       )}
+      {downloadError && <p role="alert" className="bgm-error">{downloadError}</p>}
       {loading && (
         <div aria-busy="true" aria-label="正在加载成片">
           <div className="skeleton" style={{ height: 24, width: "42%", marginBottom: 10 }} />
