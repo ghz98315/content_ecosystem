@@ -27,6 +27,7 @@ interface QualityReport {
 }
 interface TimelineEntry { index: number; path?: string; sentence?: string; start?: number; end?: number; duration: number }
 interface ReviewEntry { decision: string; note: string | null; created_at: string }
+interface BookArtifact { book_name?: string }
 
 const BGM_MAX_BYTES = 25 * 1024 * 1024;
 const BGM_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a"]);
@@ -39,6 +40,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const [isPreviousVideo, setIsPreviousVideo] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [bookName, setBookName] = useState("");
   const [loading, setLoading]   = useState(false);
   const [creatingRepost, setCreatingRepost] = useState(false);
   const [repostError, setRepostError] = useState<string | null>(null);
@@ -87,6 +89,31 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
     loadVideo().catch(() => {}).finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [stage?.output_ref, stage?.status, taskId]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("artifacts")
+          .select("storage_path")
+          .eq("task_id", taskId)
+          .eq("stage_kind", "book")
+          .eq("type", "book")
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const path = data?.[0]?.storage_path;
+        if (!path) return;
+        const signed = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(response => response.json());
+        if (!signed.signedUrl) return;
+        const book = await fetch(signed.signedUrl).then(response => response.json()) as BookArtifact;
+        if (active) setBookName(book.book_name?.trim() || "");
+      } catch {
+        if (active) setBookName("");
+      }
+    })();
+    return () => { active = false; };
+  }, [taskId]);
 
   useEffect(() => {
     if (!stage || !["done", "failed", "needs_review"].includes(stage.status)) {
@@ -208,7 +235,9 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       const url = URL.createObjectURL(new Blob([blob], { type: "video/mp4" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${task.title?.trim() || "成片"}.mp4`;
+      const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+      const title = (bookName || task.title?.trim() || "成片").replace(/[\\\\/:*?"<>|]/g, "_");
+      link.download = `${title}_${date}.mp4`;
       document.body.appendChild(link);
       link.click();
       link.remove();
