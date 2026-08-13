@@ -14,6 +14,7 @@ import httpx
 import config
 import db
 import main as worker_main
+import stages.image as image_stage
 from compliance import check_text, scan_text
 from stages.clean import _clean_output_issue, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes
 from prompt_profiles import (
@@ -398,6 +399,51 @@ class StoryboardTests(unittest.TestCase):
         self.assertIn("两位成年人", health)
         self.assertIn("档案", history)
         self.assertIn("工作室", business)
+
+    def test_dialogue_visual_creates_one_image_covering_the_full_script(self):
+        text = "主持人：为什么越着急越容易忽略重点？\n嘉宾：因为注意范围会变窄。"
+        with (
+            patch("stages.image._existing_image_artifacts", return_value={}),
+            patch("stages.image._generate_grid_bytes", return_value=b"grid"),
+            patch("stages.image._split_grid", return_value=[b"image"]),
+            patch("stages.image.storage.upload_bytes") as upload,
+            patch("stages.image.storage.add_artifact") as add_artifact,
+        ):
+            status, index_path = image_stage._run_dialogue_visual(
+                {"id": "stage-id", "task_id": "task-id"},
+                text,
+                "health",
+                MagicMock(),
+                "image-model",
+            )
+
+        self.assertEqual("done", status)
+        self.assertEqual("task-id/images_index.json", index_path)
+        image_calls = [call for call in add_artifact.call_args_list if call.args[2] == "image"]
+        self.assertEqual(1, len(image_calls))
+        image_meta = image_calls[0].kwargs["meta"]
+        self.assertEqual(0, image_meta["char_start"])
+        self.assertEqual(image_meta["char_count"], image_meta["char_end"])
+        self.assertEqual("dialogue_key_visual", image_meta["visual_mode"])
+        index_payload = json.loads(upload.call_args_list[-1].args[1].decode("utf-8"))
+        self.assertEqual(1, len(index_payload))
+        self.assertEqual(image_meta["char_end"], index_payload[0]["char_end"])
+
+    def test_image_stage_routes_only_dialogue_tasks_to_the_single_visual(self):
+        stage = {"id": "stage-id", "task_id": "task-id", "params": {}}
+        with (
+            patch("stages.image._find_chosen_text", return_value="主持人：问题？\n嘉宾：因为这是回答。"),
+            patch("stages.image.config.image_client", return_value=(MagicMock(), "image-model")),
+            patch("stages.image.db.get_task_prompt_context", return_value={
+                "content_category": "health", "narration_mode": "dual_dialogue",
+            }),
+            patch("stages.image._run_dialogue_visual", return_value=("done", "index.json")) as dialogue,
+            patch("stages.image._split_storyboard") as storyboard,
+        ):
+            self.assertEqual(("done", "index.json"), image_stage.run(stage))
+
+        dialogue.assert_called_once()
+        storyboard.assert_not_called()
 
     def test_grid_source_rejects_unexpected_square_canvas(self):
         _validate_grid_source(1536, 1024)
