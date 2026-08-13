@@ -42,6 +42,17 @@ def _similarity(left: str, right: str) -> float:
     return SequenceMatcher(None, _normalized(left), _normalized(right)).ratio()
 
 
+def _longest_common_run(left: str, right: str) -> int:
+    """Return the longest verbatim normalized span shared by two scripts."""
+    source = _normalized(left)
+    rewritten = _normalized(right)
+    if not source or not rewritten:
+        return 0
+    return SequenceMatcher(None, source, rewritten, autojunk=False).find_longest_match(
+        0, len(source), 0, len(rewritten)
+    ).size
+
+
 def _parse_candidates(raw: str) -> list[str]:
     """Parse a new single draft while retaining legacy artifact compatibility."""
     try:
@@ -82,6 +93,7 @@ def _candidate_issues(
     source: str,
     finish_reason: str | None,
     mode: str = "initial_dedup",
+    category: str = "health",
 ) -> list[str]:
     issues: list[str] = []
     if finish_reason == "length":
@@ -106,6 +118,13 @@ def _candidate_issues(
             issues.append("改写稿结尾不完整")
         if _similarity(source, text) < 0.4:
             issues.append("改写幅度过大，未保持原文主体")
+        if category == "health" and mode == "initial_dedup":
+            similarity = _similarity(source, text)
+            if similarity > 0.72:
+                issues.append(f"健康首发改写与原稿过近（相似度 {similarity:.2f}，目标不高于 0.72）")
+            common_run = _longest_common_run(source, text)
+            if common_run > 16:
+                issues.append(f"健康首发改写复用原句过多（连续 {common_run} 个有效字符）")
         if _similarity(source[:50], text[:50]) < 0.35:
             issues.append("开头钩子改动过大")
         if _similarity(source[-50:], text[-50:]) < 0.35:
@@ -156,7 +175,7 @@ def _generate_candidates(
         raw = (choice.message.content or "").strip()
         candidates = _parse_candidates(raw)
         last_issues = _candidate_issues(
-            candidates, source, getattr(choice, "finish_reason", None), mode
+            candidates, source, getattr(choice, "finish_reason", None), mode, context["category"]
         )
         if not last_issues:
             return (

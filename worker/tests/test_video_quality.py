@@ -62,7 +62,7 @@ from stages.render import (
     _run_ffmpeg,
     _audio_mix_filter,
 )
-from stages.rewrite import _candidate_issues, _parse_candidates, _rewrite_structure
+from stages.rewrite import _candidate_issues, _longest_common_run, _parse_candidates, _rewrite_structure
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _dialogue_turns, _split_tts_segments, _synthesize, _synthesize_detailed
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
@@ -82,7 +82,7 @@ class RewriteQualityTests(unittest.TestCase):
         raw = json.dumps({"text": text}, ensure_ascii=False)
         candidates = _parse_candidates(raw)
         self.assertEqual(1, len(candidates))
-        self.assertEqual([], _candidate_issues(candidates, source, "stop"))
+        self.assertEqual([], _candidate_issues(candidates, source, "stop", category="social_science"))
 
     def test_length_finish_is_rejected(self):
         source = "完整原文。" * 20
@@ -94,6 +94,19 @@ class RewriteQualityTests(unittest.TestCase):
         rewritten = "今天分享一些完全不同的新鲜故事和人物经历，内容主题已经发生变化，最后也换成另一套营销引导。" * 3
         issues = _candidate_issues([rewritten], source, "stop")
         self.assertIn("改写幅度过大，未保持原文主体", issues)
+
+    def test_health_initial_rewrite_rejects_near_copy(self):
+        source = "很多人以为少吃一顿饭就能让身体轻松下来，其实真正的问题往往藏在每天的饮食节奏里。" * 3
+        rewritten = source.replace("真正的问题", "关键的问题", 1)
+        issues = _candidate_issues([rewritten], source, "stop", "initial_dedup", "health")
+        self.assertTrue(any("过近" in issue for issue in issues))
+        self.assertTrue(any("复用原句过多" in issue for issue in issues))
+
+    def test_repost_and_non_health_keep_existing_similarity_policy(self):
+        source = "历史材料需要保留年代人物和证据边界，不能把推测说成结论。" * 3
+        rewritten = source.replace("证据边界", "史料边界", 1)
+        self.assertFalse(any("过近" in issue for issue in _candidate_issues([rewritten], source, "stop", "initial_dedup", "social_science")))
+        self.assertGreater(_longest_common_run(source, rewritten), 16)
 
     def test_rewrite_structure_keeps_model_hook_metadata(self):
         raw = json.dumps({
@@ -175,7 +188,7 @@ class PromptProfileTests(unittest.TestCase):
         clean_prompt = load_prompt("health", "clean")
         self.assertIn("长度优先不超过原文", clean_prompt)
         self.assertIn("禁止借补标点之名添加", clean_prompt)
-        self.assertIn("首次去重", load_prompt("health", "initial_dedup"))
+        self.assertIn("首发独立表达", load_prompt("health", "initial_dedup"))
         self.assertIn("二次发布", load_prompt("health", "repost_dedup"))
         self.assertEqual("initial_dedup", rewrite_prompt_kind("initial_dedup"))
         self.assertEqual("repost_dedup", rewrite_prompt_kind("repost_dedup"))
