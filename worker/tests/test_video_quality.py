@@ -167,6 +167,17 @@ class RewriteQualityTests(unittest.TestCase):
         issues = _candidate_issues([dialogue], source, "stop", category="health", narration_mode="dual_dialogue")
         self.assertFalse(any("复用原句过多" in issue or "开头钩子改动过大" in issue for issue in issues))
 
+    def test_dialogue_does_not_apply_single_narration_length_limits(self):
+        source = "健康内容需要保留事实边界和原有信息。" * 80
+        dialogue = (
+            "主持人：这个问题最容易被忽略的地方是什么？\n"
+            "嘉宾：因为大家常把复杂问题想得太简单，所以要先看原文已经给出的边界。\n"
+            "主持人：那我们应该怎样理解这段内容？\n"
+            "嘉宾：不新增结论，只把原有事实放进自然问答中表达。"
+        )
+        issues = _candidate_issues([dialogue], source, "stop", category="social_science", narration_mode="dual_dialogue")
+        self.assertFalse(any("改写稿过短" in issue or "明显超出原文长度" in issue for issue in issues))
+
 
 class CleanSummaryTests(unittest.TestCase):
     def test_clean_output_is_normalized_to_simplified_chinese(self):

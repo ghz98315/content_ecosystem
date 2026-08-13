@@ -160,10 +160,11 @@ def _candidate_issues(
             issues.extend(_dialogue_structure_issues(text))
         comparison_text = _dialogue_body(text) if narration_mode == "dual_dialogue" else text
         length = _text_len(comparison_text)
-        if length < min_len:
-            issues.append(f"改写稿过短（{length}/{source_len} 字）")
-        if length > max_len:
-            issues.append(f"改写稿明显超出原文长度（{length}/{source_len} 字）")
+        if narration_mode != "dual_dialogue":
+            if length < min_len:
+                issues.append(f"改写稿过短（{length}/{source_len} 字）")
+            if length > max_len:
+                issues.append(f"改写稿明显超出原文长度（{length}/{source_len} 字）")
         if re.search(r"(?:未完待续|请继续|继续输出|\.\.\.|……)\s*$", text):
             issues.append("改写稿疑似被截断")
         if text.rstrip().endswith(("，", ",", "：", ":", "；", ";", "、")):
