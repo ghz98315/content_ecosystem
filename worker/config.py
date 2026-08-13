@@ -14,8 +14,9 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 OPENAI_API_KEY  = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")   # 第三方中转填此项，如 https://api.xcode.best/v1
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 
-CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "gpt-5.5")
+CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "deepseek-chat")
 REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-5.5")
 BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "gpt-5.5")
 
@@ -56,6 +57,13 @@ def openai_client(api_key: str = "", base_url: str = ""):
     if url:
         kwargs["base_url"] = url
     return OpenAI(**kwargs)
+
+
+def clean_client():
+    """Create the dedicated DeepSeek client used only by transcript cleaning."""
+    if not DEEPSEEK_API_KEY:
+        raise RuntimeError("清洗阶段缺少 DEEPSEEK_API_KEY，请在 worker/.env 中配置")
+    return openai_client(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
 # ---- 轮询 ----
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))

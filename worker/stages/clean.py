@@ -84,7 +84,7 @@ def _summarize_changes(raw: str, cleaned: str, limit: int = 24) -> dict:
 def _llm():
     global _client
     if not _client:
-        _client = config.openai_client()
+        _client = config.clean_client()
     return _client
 
 

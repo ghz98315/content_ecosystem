@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
+import config
 import db
 import main as worker_main
 from compliance import check_text, scan_text
@@ -114,6 +115,23 @@ class RewriteQualityTests(unittest.TestCase):
 
 
 class CleanSummaryTests(unittest.TestCase):
+    def test_clean_client_uses_dedicated_deepseek_configuration(self):
+        with patch.object(config, "DEEPSEEK_API_KEY", "deepseek-key"), patch.object(
+            config, "DEEPSEEK_BASE_URL", "https://deepseek.example/v1"
+        ), patch("config.openai_client") as openai_client:
+            client = config.clean_client()
+
+        self.assertEqual(openai_client.return_value, client)
+        openai_client.assert_called_once_with(
+            api_key="deepseek-key",
+            base_url="https://deepseek.example/v1",
+        )
+
+    def test_clean_client_requires_deepseek_key(self):
+        with patch.object(config, "DEEPSEEK_API_KEY", ""):
+            with self.assertRaisesRegex(RuntimeError, "DEEPSEEK_API_KEY"):
+                config.clean_client()
+
     def test_clean_summary_lists_deleted_source_spans(self):
         summary = _summarize_changes("栏目口号。正文第一句。关注我获取更多。", "正文第一句。")
         self.assertEqual(19, summary["raw_chars"])
