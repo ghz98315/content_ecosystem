@@ -128,11 +128,6 @@ def _dialogue_structure_issues(text: str) -> list[str]:
         return ["双人播客首轮必须由主持人以问题或反差钩子开启"]
     if not any(speaker == "主持人" and ("?" in content or "？" in content) for speaker, content in turns):
         return ["主持人至少需要提出一个明确问题"]
-    if not any(
-        speaker == "嘉宾" and re.search(r"(因为|所以|不过|但是|并不是|不等于|需要|建议|如果|关键|首先|其次)", content)
-        for speaker, content in turns
-    ):
-        return ["嘉宾至少需要有一轮解释、承接或边界澄清"]
     return []
 
 
@@ -169,8 +164,7 @@ def _candidate_issues(
             issues.append("改写稿疑似被截断")
         if text.rstrip().endswith(("，", ",", "：", ":", "；", ";", "、")):
             issues.append("改写稿结尾不完整")
-        minimum_similarity = 0.30 if narration_mode == "dual_dialogue" else 0.40
-        if _similarity(source, comparison_text) < minimum_similarity:
+        if narration_mode != "dual_dialogue" and _similarity(source, comparison_text) < 0.40:
             issues.append("改写幅度过大，未保持原文主体")
         if category == "health" and mode == "initial_dedup" and narration_mode != "dual_dialogue":
             similarity = _similarity(source, comparison_text)

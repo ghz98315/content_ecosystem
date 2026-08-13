@@ -178,6 +178,17 @@ class RewriteQualityTests(unittest.TestCase):
         issues = _candidate_issues([dialogue], source, "stop", category="social_science", narration_mode="dual_dialogue")
         self.assertFalse(any("改写稿过短" in issue or "明显超出原文长度" in issue for issue in issues))
 
+    def test_dialogue_does_not_require_fixed_explanation_words_or_similarity(self):
+        source = "原文讨论的是日常习惯和生活节奏，需要保留现有事实边界。" * 20
+        dialogue = (
+            "主持人：为什么很多人会忽略这个问题？\n"
+            "嘉宾：大家往往只看表面，没有把日常节奏放在一起考虑。\n"
+            "主持人：换个角度看，会有什么不同？\n"
+            "嘉宾：先回到原文提到的生活习惯，再慢慢梳理自己的状态。"
+        )
+        issues = _candidate_issues([dialogue], source, "stop", category="health", narration_mode="dual_dialogue")
+        self.assertFalse(any("嘉宾至少需要" in issue or "改写幅度过大" in issue for issue in issues))
+
 
 class CleanSummaryTests(unittest.TestCase):
     def test_clean_output_is_normalized_to_simplified_chinese(self):
