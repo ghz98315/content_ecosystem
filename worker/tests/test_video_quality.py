@@ -15,7 +15,7 @@ import config
 import db
 import main as worker_main
 from compliance import check_text, scan_text
-from stages.clean import _clean_output_issue, _extract_opening_hook, _hook_preservation_issue, _summarize_changes
+from stages.clean import _clean_output_issue, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes
 from prompt_profiles import (
     derive_keyword,
     load_compliance_rules,
@@ -115,6 +115,12 @@ class RewriteQualityTests(unittest.TestCase):
 
 
 class CleanSummaryTests(unittest.TestCase):
+    def test_clean_length_ignores_punctuation_added_to_asr_text(self):
+        raw = "甲乙丙丁戊己庚辛"
+        cleaned = "甲，乙。丙！丁？戊；己：庚、辛。"
+        self.assertEqual(_effective_chars(raw), _effective_chars(cleaned))
+        self.assertIsNone(_clean_output_issue(raw, cleaned))
+
     def test_clean_client_uses_dedicated_deepseek_configuration(self):
         with patch.object(config, "DEEPSEEK_API_KEY", "deepseek-key"), patch.object(
             config, "DEEPSEEK_BASE_URL", "https://deepseek.example/v1"
@@ -125,6 +131,8 @@ class CleanSummaryTests(unittest.TestCase):
         openai_client.assert_called_once_with(
             api_key="deepseek-key",
             base_url="https://deepseek.example/v1",
+            timeout=110.0,
+            max_retries=0,
         )
 
     def test_clean_client_requires_deepseek_key(self):

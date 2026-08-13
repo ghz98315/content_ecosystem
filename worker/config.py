@@ -15,6 +15,8 @@ OPENAI_API_KEY  = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")   # 第三方中转填此项，如 https://api.xcode.best/v1
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+DEEPSEEK_TIMEOUT = float(os.environ.get("DEEPSEEK_TIMEOUT", "110"))
+DEEPSEEK_RETRIES = max(0, int(os.environ.get("DEEPSEEK_RETRIES", "1")))
 
 CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "deepseek-chat")
 REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-5.5")
@@ -48,7 +50,7 @@ def image_client():
 THIRDPARTY_DOUYIN_KEY = os.environ.get("THIRDPARTY_DOUYIN_KEY", "")
 
 
-def openai_client(api_key: str = "", base_url: str = ""):
+def openai_client(api_key: str = "", base_url: str = "", **options):
     """创建 OpenAI 客户端，自动读取 base_url（支持第三方中转）。"""
     from openai import OpenAI
     key  = api_key  or OPENAI_API_KEY
@@ -56,6 +58,7 @@ def openai_client(api_key: str = "", base_url: str = ""):
     kwargs = {"api_key": key}
     if url:
         kwargs["base_url"] = url
+    kwargs.update(options)
     return OpenAI(**kwargs)
 
 
@@ -63,7 +66,7 @@ def clean_client():
     """Create the dedicated DeepSeek client used only by transcript cleaning."""
     if not DEEPSEEK_API_KEY:
         raise RuntimeError("清洗阶段缺少 DEEPSEEK_API_KEY，请在 worker/.env 中配置")
-    return openai_client(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+    return openai_client(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL, timeout=DEEPSEEK_TIMEOUT, max_retries=0)
 
 # ---- 轮询 ----
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))

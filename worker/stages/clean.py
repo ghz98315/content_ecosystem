@@ -2,6 +2,8 @@
 from __future__ import annotations
 import json
 import os
+import re
+import time
 from difflib import SequenceMatcher
 
 import config
@@ -14,14 +16,21 @@ _MAX_EXPANSION_RATIO = max(0.0, float(os.environ.get("CLEAN_MAX_EXPANSION_RATIO"
 _EXPANSION_RETRY = os.environ.get("CLEAN_EXPANSION_RETRY", "1").strip() != "0"
 
 
+def _effective_chars(text: str) -> int:
+    """Count content characters while ignoring whitespace and punctuation."""
+    return len(re.sub(r"[\s\.,，。！？!?；;：:、（）()【】\[\]「」『』“”\"'‘’…—\-_/\\·~@#$%^&*+=<>|`]", "", text or ""))
+
+
 def _clean_output_issue(raw: str, cleaned: str) -> str | None:
     """Reject empty output and silent model expansion beyond the review limit."""
     raw_chars = len((raw or "").strip())
     clean_chars = len((cleaned or "").strip())
+    raw_effective = _effective_chars(raw)
+    clean_effective = _effective_chars(cleaned)
     if not clean_chars:
         return "清洗模型返回空正文"
-    if raw_chars and clean_chars > raw_chars * (1 + _MAX_EXPANSION_RATIO):
-        ratio = (clean_chars - raw_chars) / raw_chars
+    if raw_effective and clean_effective > raw_effective * (1 + _MAX_EXPANSION_RATIO):
+        ratio = (clean_effective - raw_effective) / raw_effective
         return (
             f"清洗结果异常扩写：原文 {raw_chars} 字，清洗后 {clean_chars} 字，"
             f"增加 {ratio:.1%}，超过允许上限 {_MAX_EXPANSION_RATIO:.1%}"
@@ -72,9 +81,14 @@ def _summarize_changes(raw: str, cleaned: str, limit: int = 24) -> dict:
             })
     raw_chars = len(raw or "")
     clean_chars = len(cleaned or "")
+    raw_effective_chars = _effective_chars(raw)
+    clean_effective_chars = _effective_chars(cleaned)
     return {
         "raw_chars": raw_chars,
         "clean_chars": clean_chars,
+        "raw_effective_chars": raw_effective_chars,
+        "clean_effective_chars": clean_effective_chars,
+        "punctuation_chars_added": max(0, (clean_chars - clean_effective_chars) - (raw_chars - raw_effective_chars)),
         "removed_chars": removed_chars,
         "removed_ratio": round(max(0, raw_chars - clean_chars) / raw_chars, 4) if raw_chars else 0,
         "segments": segments,
@@ -89,14 +103,22 @@ def _llm():
 
 
 def _request_clean(system_prompt: str, user_prompt: str) -> str:
-    resp = _llm().chat.completions.create(
-        model=config.CLEAN_MODEL,
-        messages=[
+    kwargs = {
+        "model": config.CLEAN_MODEL,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.2,
-    )
+        "temperature": 0.2,
+    }
+    for attempt in range(config.DEEPSEEK_RETRIES + 1):
+        try:
+            resp = _llm().chat.completions.create(**kwargs)
+            break
+        except Exception as exc:
+            if attempt >= config.DEEPSEEK_RETRIES or "524" not in str(exc):
+                raise
+            time.sleep(min(10, 2 ** attempt))
     return (resp.choices[0].message.content or "").strip()
 
 
@@ -189,6 +211,8 @@ def run(stage: dict) -> tuple[str, str | None]:
     storage.add_artifact(task_id, "clean", "clean", sp, meta={
         "raw_chars": len(raw_text),
         "clean_chars": len(cleaned),
+        "raw_effective_chars": _effective_chars(raw_text),
+        "clean_effective_chars": _effective_chars(cleaned),
         "model": config.CLEAN_MODEL,
         "content_category": context["category"],
         "opening_hook": opening_hook[:500],
