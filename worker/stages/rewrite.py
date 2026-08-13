@@ -115,15 +115,13 @@ def _dialogue_structure_issues(text: str) -> list[str]:
         content = match.group(2).strip()
         if len(re.sub(r"\s+", "", content)) < 6:
             return ["双人播客单轮发言过短，无法形成自然问答"]
-        if len(re.sub(r"\s+", "", content)) > 90:
-            return ["双人播客单轮发言过长，应拆成追问和回答"]
+        if len(re.sub(r"\s+", "", content)) > 180:
+            return ["双人播客单轮发言过长，应控制在 180 字以内"]
         turns.append((match.group(1), content))
     if len(turns) < 4:
         return ["双人播客至少需要 4 个交替轮次"]
     if {speaker for speaker, _ in turns} != {"主持人", "嘉宾"}:
         return ["双人播客必须同时包含主持人和嘉宾"]
-    if any(left[0] == right[0] for left, right in zip(turns, turns[1:])):
-        return ["双人播客角色必须交替发言，避免连续独白"]
     if turns[0][0] != "主持人" or "?" not in turns[0][1] and "？" not in turns[0][1]:
         return ["双人播客首轮必须由主持人以问题或反差钩子开启"]
     if not any(speaker == "主持人" and ("?" in content or "？" in content) for speaker, content in turns):

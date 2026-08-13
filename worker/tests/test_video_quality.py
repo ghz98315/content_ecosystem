@@ -143,17 +143,28 @@ class RewriteQualityTests(unittest.TestCase):
         ))
         self.assertNotIn("主持人", _dialogue_body(dialogue))
 
-    def test_dialogue_still_rejects_overlong_turn(self):
+    def test_dialogue_allows_guest_explanation_but_rejects_overlong_turn(self):
         source = "健康内容需要保留事实边界。" * 30
         dialogue = (
             "主持人：这个问题为什么值得注意？\n"
-            f"嘉宾：{'这是一段不能放在单轮里的过长回答' * 12}\n"
+            f"嘉宾：{'这是一段不能放在单轮里的过长回答' * 24}\n"
             "主持人：那应该怎样理解边界？\n"
             "嘉宾：因为原稿没有给出诊疗建议，所以不能自行补充。"
         )
-        self.assertIn("双人播客单轮发言过长，应拆成追问和回答", _candidate_issues(
+        self.assertIn("双人播客单轮发言过长，应控制在 180 字以内", _candidate_issues(
             [dialogue], source, "stop", category="social_science", narration_mode="dual_dialogue"
         ))
+
+    def test_dialogue_allows_guest_to_continue_explanation(self):
+        source = "来源稿保留事实和边界。" * 20
+        dialogue = (
+            "主持人：这个反差为什么值得我们留意？\n"
+            "嘉宾：先看来源稿已经给出的生活节奏，再理解它和日常习惯之间的联系。\n"
+            "嘉宾：很多细节不需要拆成一个个问题，顺着原有案例讲清楚更容易理解。\n"
+            "主持人：这样听起来，重点确实更清楚了。"
+        )
+        issues = _candidate_issues([dialogue], source, "stop", category="health", narration_mode="dual_dialogue")
+        self.assertFalse(any("角色必须交替" in issue for issue in issues))
 
     def test_dialogue_health_allows_protected_hook_reuse(self):
         hook = "越着急改变身体，越容易忽略真正的问题。这个反差必须保留。"
