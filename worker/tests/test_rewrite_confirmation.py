@@ -11,6 +11,12 @@ from stages import book
 
 
 class RewriteConfirmationTests(unittest.TestCase):
+    def test_dialogue_structure_reuses_health_compliance_but_requires_turns(self):
+        valid = "主持人：为什么越着急越容易做错？\n嘉宾：因为注意范围会变窄。\n主持人：那应该怎么调整？\n嘉宾：先停一下，再确认关键条件。"
+        self.assertEqual([], rewrite._dialogue_structure_issues(valid))
+        self.assertTrue(rewrite._dialogue_structure_issues("主持人：这是独白。"))
+        self.assertTrue(rewrite._dialogue_structure_issues("主持人：为什么？\n主持人：我再说一句。\n嘉宾：回答。\n主持人：总结。"))
+
     def test_dialogue_title_instruction_only_applies_to_dialogue_tasks(self):
         with patch("stages.book.db.get_task_prompt_context", return_value={"narration_mode": "dual_dialogue"}):
             self.assertIn("双人对谈", book._dialogue_title_instruction("task-id"))

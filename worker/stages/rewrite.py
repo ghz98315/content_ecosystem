@@ -88,12 +88,34 @@ def _rewrite_structure(raw: str, text: str) -> dict:
     return {"hook": hook, "hook_strategy": strategy or "counter_intuitive", "paragraphs": paragraphs}
 
 
+def _dialogue_structure_issues(text: str) -> list[str]:
+    """Keep podcast scripts conversational while leaving domain compliance unchanged."""
+    turns: list[tuple[str, str]] = []
+    for line in re.split(r"\n+", text or ""):
+        match = re.match(r"^(主持人|嘉宾)\s*[：:]\s*(.+)$", line.strip())
+        if not match:
+            return ["双人播客每段必须以“主持人：”或“嘉宾：”开头"]
+        turns.append((match.group(1), match.group(2).strip()))
+    if len(turns) < 4:
+        return ["双人播客至少需要 4 个交替轮次"]
+    if {speaker for speaker, _ in turns} != {"主持人", "嘉宾"}:
+        return ["双人播客必须同时包含主持人和嘉宾"]
+    if any(left[0] == right[0] for left, right in zip(turns, turns[1:])):
+        return ["双人播客角色必须交替发言，避免连续独白"]
+    if turns[0][0] != "主持人" or "?" not in turns[0][1] and "？" not in turns[0][1]:
+        return ["双人播客首轮必须由主持人以问题或反差钩子开启"]
+    if not any(speaker == "主持人" and ("?" in content or "？" in content) for speaker, content in turns):
+        return ["主持人至少需要提出一个明确问题"]
+    return []
+
+
 def _candidate_issues(
     candidates: list[str],
     source: str,
     finish_reason: str | None,
     mode: str = "initial_dedup",
     category: str = "health",
+    narration_mode: str = "single",
 ) -> list[str]:
     issues: list[str] = []
     if finish_reason == "length":
@@ -107,6 +129,8 @@ def _candidate_issues(
     min_len = max(40, round(source_len * (1 - tolerance)))
     max_len = max(min_len + 20, round(source_len * (1 + tolerance)))
     for i, text in enumerate(candidates):
+        if narration_mode == "dual_dialogue":
+            issues.extend(_dialogue_structure_issues(text))
         length = _text_len(text)
         if length < min_len:
             issues.append(f"改写稿过短（{length}/{source_len} 字）")
@@ -140,6 +164,7 @@ def _generate_candidates(
     context: dict[str, str],
     rewrite_notes: str = "",
     mode: str = "initial_dedup",
+    narration_mode: str = "single",
 ) -> tuple[list[str], list[int], dict]:
     source_len = _text_len(source)
     prompt = load_prompt(context["category"], rewrite_prompt_kind(mode))
@@ -175,7 +200,7 @@ def _generate_candidates(
         raw = (choice.message.content or "").strip()
         candidates = _parse_candidates(raw)
         last_issues = _candidate_issues(
-            candidates, source, getattr(choice, "finish_reason", None), mode, context["category"]
+            candidates, source, getattr(choice, "finish_reason", None), mode, context["category"], narration_mode
         )
         if not last_issues:
             return (
@@ -341,6 +366,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         context,
         rewrite_notes,
         mode,
+        narration_mode,
     )
     report = compliance.check_text(
         _llm(), config.REWRITE_MODEL, context["category"], candidates[0], context
