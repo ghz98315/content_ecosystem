@@ -571,7 +571,7 @@ def _load_image_index(task_id: str) -> list[dict]:
 
 
 def _replacement_path(task_id: str, image_index: int) -> str:
-    rows = db.retry(lambda: db.get_client().table("image_replacement_requests").select("replacement_path").eq("task_id", task_id).eq("image_index", image_index).not_.is_("replacement_path", "null").execute()).data or []
+    rows = db.retry(lambda: db.get_client().table("image_replacement_requests").select("replacement_path").eq("task_id", task_id).eq("image_index", image_index).is_("invalidated_at", "null").not_.is_("replacement_path", "null").execute()).data or []
     version = len([row for row in rows if row.get("replacement_path")]) + 1
     return f"{task_id}/replacements/img_{image_index:03d}_v{version:03d}.png"
 

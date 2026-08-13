@@ -113,6 +113,7 @@ class ImageReplacementRequestTests(unittest.TestCase):
         table = MagicMock()
         table.select.return_value = table
         table.eq.return_value = table
+        table.is_.return_value = table
         getattr(table, 'not_').is_.return_value.execute.return_value = MagicMock(data=[{"replacement_path": "a"}, {"replacement_path": "b"}])
         client = MagicMock()
         client.table.return_value = table
@@ -140,6 +141,7 @@ class ImageReplacementRequestTests(unittest.TestCase):
         table = MagicMock()
         table.select.return_value = table
         table.eq.return_value = table
+        table.is_.return_value = table
         table.order.return_value = table
         table.execute.return_value = MagicMock(data=[
             {"image_index": 1, "replacement_path": "task-1/replacements/img_001_v002.png", "status": "done", "requested_at": "2026-08-12T10:00:00Z"},
@@ -151,6 +153,7 @@ class ImageReplacementRequestTests(unittest.TestCase):
         with patch("stages.render.db.get_client", return_value=client):
             result = _apply_image_replacements("task-1", images)
         self.assertEqual("task-1/replacements/img_001_v002.png", result[1]["path"])
+        table.is_.assert_called_with("invalidated_at", "null")
 
 
 if __name__ == "__main__":

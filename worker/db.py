@@ -186,7 +186,7 @@ def set_task_status(task_id: str, status: str) -> None:
 
 def claim_next_image_replacement() -> dict | None:
     sb = get_client()
-    res = retry(lambda: sb.table("image_replacement_requests").select("*").eq("status", "pending").order("requested_at").limit(20).execute())
+    res = retry(lambda: sb.table("image_replacement_requests").select("*").eq("status", "pending").is_("invalidated_at", "null").order("requested_at").limit(20).execute())
     if not res.data:
         return None
     for request in res.data:

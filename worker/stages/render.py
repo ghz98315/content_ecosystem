@@ -99,6 +99,7 @@ def _apply_image_replacements(task_id: str, images: list[dict]) -> list[dict]:
         .select("image_index,replacement_path,status,requested_at")
         .eq("task_id", task_id)
         .eq("status", "done")
+        .is_("invalidated_at", "null")
         .order("requested_at", desc=True)
         .execute()
     ).data or []

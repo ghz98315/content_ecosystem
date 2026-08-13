@@ -16,7 +16,7 @@ interface IndexEntry {
   image_model?: string;
 }
 interface ImageReview { image_index: number; decision: "approved" | "replace_requested"; note: string | null; created_at: string }
-interface ReplacementRequest { image_index: number; status: "pending" | "processing" | "done" | "failed"; replacement_path: string | null; error: string | null; requested_at: string }
+interface ReplacementRequest { image_index: number; status: "pending" | "processing" | "done" | "failed"; replacement_path: string | null; error: string | null; requested_at: string; invalidated_at?: string | null }
 
 export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [entries, setEntries] = useState<IndexEntry[]>([]);
@@ -28,6 +28,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [replacements, setReplacements] = useState<Record<number, ReplacementRequest>>({});
   const [reviewBusy, setReviewBusy] = useState(false);
   const [replacementRequested, setReplacementRequested] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const providerParams = (stage?.params || {}) as Record<string, unknown>;
   const providerName = String(providerParams.image_provider || providerParams.provider || "主生图通道");
@@ -68,7 +69,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
 
   useEffect(() => {
     if (!taskId) return;
-    supabase.from("image_replacement_requests").select("image_index,status,replacement_path,error,requested_at").eq("task_id", taskId).order("requested_at", { ascending: false }).then(({ data }) => {
+    supabase.from("image_replacement_requests").select("image_index,status,replacement_path,error,requested_at,invalidated_at").eq("task_id", taskId).is("invalidated_at", null).order("requested_at", { ascending: false }).then(({ data }) => {
       const next: Record<number, ReplacementRequest> = {};
       (data || []).forEach(row => { if (next[row.image_index] === undefined) next[row.image_index] = row as ReplacementRequest; });
       setReplacements(next);
@@ -101,13 +102,31 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
     await onRerun(stage.id);
   };
 
+  const regenerateAll = async () => {
+    if (!stage?.id || regenerating) return;
+    const confirmed = window.confirm("按当前风格全量重新生成图片？这会删除当前图片和最终成片，保留逐字稿、清洗稿、改写稿、配音及审核记录。");
+    if (!confirmed) return;
+    setRegenerating(true);
+    const { data, error } = await supabase.rpc("regenerate_image_stage", { p_stage_id: stage.id });
+    setRegenerating(false);
+    if (error || !data?.length) {
+      setLoadError(error?.message || "全量重新生成排队失败");
+      return;
+    }
+    setEntries([]);
+    setUrls({});
+    setReplacements({});
+    setSelectedEntry(null);
+    setLoadError(null);
+  };
+
   return (
     <DetailShell title="生图" stage={stage} onRerun={onRerun}>
       {entries.length > 0 ? (
         <>
           <section className="media-workbench-heading">
             <div><p className="eyebrow">IMAGE GENERATION</p><h2>AI 场景图生成</h2><p>九宫格批量生成后切分为分镜图片，按最终文案时间轴排列。</p></div>
-            <div className="media-workbench-actions"><span className="status-badge status-done">{stage?.status === "done" ? "图片已就绪" : "处理中"}</span>{stage && stage.status === "failed" && <button className="secondary-action" onClick={() => onRerun(stage.id)}>重跑失败批次</button>}</div>
+            <div className="media-workbench-actions"><span className="status-badge status-done">{stage?.status === "done" ? "图片已就绪" : "处理中"}</span>{stage?.status === "done" && <button type="button" className="secondary-action" disabled={regenerating} onClick={regenerateAll}>{regenerating ? "正在重新排队" : "按当前风格全量重新生成"}</button>}{stage && stage.status === "failed" && <button className="secondary-action" onClick={() => onRerun(stage.id)}>重跑失败批次</button>}</div>
           </section>
           <section className="image-workbench-summary" aria-label="图片生成摘要">
             <div><span>分镜图片</span><strong>{entries.length}</strong><small>按文案时间轴排列</small></div>
