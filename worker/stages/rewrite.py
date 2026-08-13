@@ -47,16 +47,6 @@ def _dialogue_body(text: str) -> str:
     return re.sub(r"(?m)^\s*(?:主持人|嘉宾)\s*[：:]\s*", "", text or "").strip()
 
 
-def _dialogue_edge(text: str, *, opening: bool, turns: int = 2) -> str:
-    bodies = [
-        match.group(1).strip()
-        for match in re.finditer(r"(?m)^\s*(?:主持人|嘉宾)\s*[：:]\s*(.+)$", text or "")
-        if match.group(1).strip()
-    ]
-    selected = bodies[:turns] if opening else bodies[-turns:]
-    return "".join(selected)
-
-
 def _longest_common_run(left: str, right: str) -> int:
     """Return the longest verbatim normalized span shared by two scripts."""
     source = _normalized(left)
@@ -169,22 +159,18 @@ def _candidate_issues(
         minimum_similarity = 0.30 if narration_mode == "dual_dialogue" else 0.40
         if _similarity(source, comparison_text) < minimum_similarity:
             issues.append("改写幅度过大，未保持原文主体")
-        if category == "health" and mode == "initial_dedup":
+        if category == "health" and mode == "initial_dedup" and narration_mode != "dual_dialogue":
             similarity = _similarity(source, comparison_text)
             if similarity > 0.72:
                 issues.append(f"健康首发改写与原稿过近（相似度 {similarity:.2f}，目标不高于 0.72）")
             common_run = _longest_common_run(source, comparison_text)
             if common_run > 16:
                 issues.append(f"健康首发改写复用原句过多（连续 {common_run} 个有效字符）")
-        opening_text = _dialogue_edge(text, opening=True) if narration_mode == "dual_dialogue" else text[:50]
-        ending_text = _dialogue_edge(text, opening=False) if narration_mode == "dual_dialogue" else text[-50:]
-        source_opening = source[:120] if narration_mode == "dual_dialogue" else source[:50]
-        source_ending = source[-120:] if narration_mode == "dual_dialogue" else source[-50:]
-        edge_similarity = 0.20 if narration_mode == "dual_dialogue" else 0.35
-        if _similarity(source_opening, opening_text) < edge_similarity:
-            issues.append("开头钩子改动过大")
-        if _similarity(source_ending, ending_text) < edge_similarity:
-            issues.append("结尾改动过大")
+        if narration_mode != "dual_dialogue":
+            if _similarity(source[:50], text[:50]) < 0.35:
+                issues.append("开头钩子改动过大")
+            if _similarity(source[-50:], text[-50:]) < 0.35:
+                issues.append("结尾改动过大")
         for title in re.findall(r"《([^》]+)》", source):
             if f"《{title}》" not in text:
                 issues.append(f"未完整保留书名《{title}》")
@@ -240,7 +226,12 @@ def _generate_candidates(
                         f"补充要求：{rewrite_notes or '无'}\n"
                         f"必须原样保留的词：{terms}\n"
                         f"原文有效字数约 {source_len} 字。目标差异控制在 {tolerance_label} 以内。"
-                        f"{correction}\n\n待处理的{source_label}：\n{source}"
+                        + (
+                            f"双人播客必须保留开头钩子核心语义，可参考原文前 120 字：{source[:120]}；"
+                            f"结尾收束可参考原文后 120 字：{source[-120:]}。"
+                            if narration_mode == "dual_dialogue" else ""
+                        )
+                        + f"{correction}\n\n待处理的{source_label}：\n{source}"
                     ),
                 },
             ],

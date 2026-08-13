@@ -155,6 +155,18 @@ class RewriteQualityTests(unittest.TestCase):
             [dialogue], source, "stop", category="social_science", narration_mode="dual_dialogue"
         ))
 
+    def test_dialogue_health_allows_protected_hook_reuse(self):
+        hook = "越着急改变身体，越容易忽略真正的问题。这个反差必须保留。"
+        source = hook + "因为生活节奏才是关键，所以先从日常习惯看起。" * 5 + "最后别忘了照顾好自己。"
+        dialogue = (
+            "主持人：越着急改变身体，越容易忽略真正的问题，这个反差你怎么看？\n"
+            "嘉宾：这个开头提醒我们，先从生活节奏和日常习惯看起。\n"
+            "主持人：那观众最容易忽略的重点是什么？\n"
+            "嘉宾：关键是别把复杂问题简单化，最后别忘了照顾好自己。"
+        )
+        issues = _candidate_issues([dialogue], source, "stop", category="health", narration_mode="dual_dialogue")
+        self.assertFalse(any("复用原句过多" in issue or "开头钩子改动过大" in issue for issue in issues))
+
 
 class CleanSummaryTests(unittest.TestCase):
     def test_clean_output_is_normalized_to_simplified_chinese(self):
