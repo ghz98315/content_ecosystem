@@ -16,12 +16,29 @@ class RewriteConfirmationTests(unittest.TestCase):
         self.assertEqual([], rewrite._dialogue_structure_issues(valid))
         self.assertTrue(rewrite._dialogue_structure_issues("主持人：这是独白。"))
         self.assertTrue(rewrite._dialogue_structure_issues("主持人：为什么？\n主持人：我再说一句。\n嘉宾：回答。\n主持人：总结。"))
+        self.assertTrue(rewrite._dialogue_structure_issues("主持人：这是一个很长的问题吗？\n嘉宾：这是回答。\n主持人：那怎么办？\n嘉宾：这是回答。"))
 
     def test_dialogue_title_instruction_only_applies_to_dialogue_tasks(self):
         with patch("stages.book.db.get_task_prompt_context", return_value={"narration_mode": "dual_dialogue"}):
             self.assertIn("双人对谈", book._dialogue_title_instruction("task-id"))
         with patch("stages.book.db.get_task_prompt_context", return_value={"narration_mode": "single"}):
             self.assertEqual("", book._dialogue_title_instruction("task-id"))
+
+    def test_health_dialogue_uses_an_isolated_prompt_profile(self):
+        self.assertEqual(
+            "dual_dialogue_initial_dedup",
+            rewrite._rewrite_prompt_kind("health", "initial_dedup", "dual_dialogue"),
+        )
+        self.assertEqual(
+            "dual_dialogue_repost_dedup",
+            rewrite._rewrite_prompt_kind("health", "repost_dedup", "dual_dialogue"),
+        )
+        self.assertEqual("initial_dedup", rewrite._rewrite_prompt_kind("health", "initial_dedup", "single"))
+        self.assertEqual(
+            "initial_dedup",
+            rewrite._rewrite_prompt_kind("social_science", "initial_dedup", "dual_dialogue"),
+        )
+
     def test_confirmed_draft_does_not_run_compliance_a_second_time(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "rewrite.json"

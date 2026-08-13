@@ -95,7 +95,12 @@ def _dialogue_structure_issues(text: str) -> list[str]:
         match = re.match(r"^(主持人|嘉宾)\s*[：:]\s*(.+)$", line.strip())
         if not match:
             return ["双人播客每段必须以“主持人：”或“嘉宾：”开头"]
-        turns.append((match.group(1), match.group(2).strip()))
+        content = match.group(2).strip()
+        if len(re.sub(r"\s+", "", content)) < 6:
+            return ["双人播客单轮发言过短，无法形成自然问答"]
+        if len(re.sub(r"\s+", "", content)) > 90:
+            return ["双人播客单轮发言过长，应拆成追问和回答"]
+        turns.append((match.group(1), content))
     if len(turns) < 4:
         return ["双人播客至少需要 4 个交替轮次"]
     if {speaker for speaker, _ in turns} != {"主持人", "嘉宾"}:
@@ -106,6 +111,11 @@ def _dialogue_structure_issues(text: str) -> list[str]:
         return ["双人播客首轮必须由主持人以问题或反差钩子开启"]
     if not any(speaker == "主持人" and ("?" in content or "？" in content) for speaker, content in turns):
         return ["主持人至少需要提出一个明确问题"]
+    if not any(
+        speaker == "嘉宾" and re.search(r"(因为|所以|不过|但是|并不是|不等于|需要|建议|如果|关键|首先|其次)", content)
+        for speaker, content in turns
+    ):
+        return ["嘉宾至少需要有一轮解释、承接或边界澄清"]
     return []
 
 
@@ -159,6 +169,13 @@ def _candidate_issues(
     return issues
 
 
+def _rewrite_prompt_kind(category: str, mode: str, narration_mode: str) -> str:
+    prompt_kind = rewrite_prompt_kind(mode)
+    if narration_mode == "dual_dialogue" and category == "health":
+        return f"dual_dialogue_{prompt_kind}"
+    return prompt_kind
+
+
 def _generate_candidates(
     source: str,
     context: dict[str, str],
@@ -167,7 +184,8 @@ def _generate_candidates(
     narration_mode: str = "single",
 ) -> tuple[list[str], list[int], dict]:
     source_len = _text_len(source)
-    prompt = load_prompt(context["category"], rewrite_prompt_kind(mode))
+    prompt_kind = _rewrite_prompt_kind(context["category"], mode, narration_mode)
+    prompt = load_prompt(context["category"], prompt_kind)
     source_label = "首发版本最终确认稿" if mode == "repost_dedup" else "已清洗正文"
     tolerance_label = "8%" if mode == "repost_dedup" else "12%"
     terms = "、".join(protected_terms(source)) or "无额外词语"
