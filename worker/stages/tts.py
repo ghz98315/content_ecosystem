@@ -1,6 +1,7 @@
 """⑤ 配音 tts：改写选中稿 → edge-tts 合成 → 词级时间戳 JSON + 音频。"""
 from __future__ import annotations
 import asyncio
+import html
 import json
 import os
 import re
@@ -25,6 +26,22 @@ _PART_ATTEMPTS = max(1, int(os.environ.get("TTS_PART_ATTEMPTS", "3")))
 
 
 _clean_tts_text = clean_tts_text
+_COSY_WARM_NARRATIVE = "cosy_warm_narrative_v1"
+
+
+def _cosyvoice_ssml(text: str, position: str) -> str:
+    """Use restrained prosody for comfortable long-form older-audience listening."""
+    presets = {
+        "hook": ("0.94", "1.03", "54"),
+        "body": ("0.98", "1.00", "52"),
+        "close": ("0.95", "1.01", "52"),
+    }
+    rate, pitch, volume = presets.get(position, presets["body"])
+    escaped = html.escape(text.strip(), quote=False)
+    # One measured pause after a completed thought improves clarity without
+    # turning the narration into exaggerated dramatic speech.
+    escaped = re.sub(r"([。！？])\s*", r'\1<break time="260ms"/>', escaped)
+    return f'<speak rate="{rate}" pitch="{pitch}" volume="{volume}">{escaped}</speak>'
 
 
 def _split_tts_segments(
@@ -279,7 +296,10 @@ def _build_subtitle_cues(
     return cues
 
 
-async def _synthesize_detailed(text: str, voice: str, provider: str | None = None, model: str | None = None) -> tuple[bytes, list[dict], list[dict]]:
+async def _synthesize_detailed(
+    text: str, voice: str, provider: str | None = None, model: str | None = None,
+    emotion_profile: str | None = None,
+) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
     parts = _split_tts_segments(text)
     spoken_parts = [normalize_tts_numbers(part) for part in parts]
@@ -287,11 +307,17 @@ async def _synthesize_detailed(text: str, voice: str, provider: str | None = Non
         return b"", [], []
     semaphore = asyncio.Semaphore(_CONCURRENCY)
 
-    async def synthesize_limited(part: str, spoken_part: str):
-        async with semaphore:
-            return await _synthesize_part_with_retry(spoken_part, voice, provider, model)
+    is_cosyvoice = str(provider or config.TTS_PROVIDER).lower() in {"cosyvoice2", "cosyvoice"}
 
-    results = await asyncio.gather(*(synthesize_limited(part, spoken) for part, spoken in zip(parts, spoken_parts)))
+    async def synthesize_limited(index: int, part: str, spoken_part: str):
+        async with semaphore:
+            request_text = spoken_part
+            if is_cosyvoice and emotion_profile == _COSY_WARM_NARRATIVE:
+                position = "hook" if index == 0 else "close" if index == len(parts) - 1 else "body"
+                request_text = _cosyvoice_ssml(spoken_part, position)
+            return await _synthesize_part_with_retry(request_text, voice, provider, model)
+
+    results = await asyncio.gather(*(synthesize_limited(index, part, spoken) for index, (part, spoken) in enumerate(zip(parts, spoken_parts))))
     merged_segments: list[dict] = []
     batches: list[dict] = []
     offset = 0.0
@@ -354,6 +380,7 @@ async def _synthesize_dialogue_detailed(
     text: str, primary_voice: str, secondary_voice: str,
     provider: str | None = None, model: str | None = None,
     secondary_provider: str | None = None, secondary_model: str | None = None,
+    emotion_profile: str | None = None,
 ) -> tuple[bytes, list[dict], list[dict]]:
     audio_parts: list[bytes] = []
     merged_segments: list[dict] = []
@@ -367,6 +394,7 @@ async def _synthesize_dialogue_detailed(
             secondary_voice if use_secondary else primary_voice,
             secondary_provider if use_secondary else provider,
             secondary_model if use_secondary else model,
+            emotion_profile,
         )
         duration = sum(float(batch["duration"]) for batch in turn_batches)
         audio_parts.append(audio)
@@ -450,6 +478,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     provider = tts_params.get("provider") or config.TTS_PROVIDER
     voice = tts_params.get("voice") or (config.COSYVOICE2_VOICE if provider in {"cosyvoice2", "cosyvoice"} else _VOICE)
     model = tts_params.get("model") or None
+    emotion_profile = str(tts_params.get("emotion_profile") or ( _COSY_WARM_NARRATIVE if str(provider).lower() in {"cosyvoice2", "cosyvoice"} else "")) or None
     narration_mode = str(tts_params.get("narration_mode") or "single")
     secondary_voice = str(tts_params.get("secondary_voice") or "").strip()
     if narration_mode == "dual_dialogue" and not secondary_voice:
@@ -460,11 +489,12 @@ def run(stage: dict) -> tuple[str, str | None]:
             rewrite_text, voice, secondary_voice, provider, model,
             tts_params.get("secondary_provider") or provider,
             tts_params.get("secondary_model") or model,
+            emotion_profile,
         ))
         text = "\n".join(turn for _speaker, turn in _dialogue_turns(rewrite_text))
         cta = ""
     else:
-        audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice, provider, model))
+        audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice, provider, model, emotion_profile))
     duration = round(sum(float(batch["duration"]) for batch in batches), 3)
     cues = _build_subtitle_cues(
         text,
@@ -496,6 +526,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "input_format": "timeline_v3",
         "narration_mode": narration_mode,
         "secondary_voice": secondary_voice or None,
+        "emotion_profile": emotion_profile,
     })
 
     # 上传字幕时间戳
@@ -517,6 +548,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "subtitle_format": "semantic_words_v2",
             "subtitle_segmenter": "jieba_compound_dp_v1",
             "pause_profile": "promote_tts_pause_v1",
+            "emotion_profile": emotion_profile,
+            "ssml_enabled": bool(emotion_profile == _COSY_WARM_NARRATIVE and str(provider).lower() in {"cosyvoice2", "cosyvoice"}),
         },
         ensure_ascii=False, indent=2,
     ).encode("utf-8")
@@ -530,6 +563,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "subtitle_format": "semantic_words_v2",
         "subtitle_segmenter": "jieba_compound_dp_v1",
         "pause_profile": "promote_tts_pause_v1",
+        "emotion_profile": emotion_profile,
     })
 
     return "done", sp_audio

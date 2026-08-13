@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import os
 import re
@@ -156,6 +157,7 @@ class CosyVoice2Provider:
             raise ValueError("CosyVoice2 未配置音色：请设置 COSYVOICE2_VOICE")
 
         headers = {"Accept": "audio/mpeg, application/json"}
+        ssml_enabled = bool(re.match(r"^\s*<speak(?:\s|>)", text, re.IGNORECASE))
         if use_dashscope:
             headers["Authorization"] = f"Bearer {self.dashscope_api_key}"
             endpoint = self.dashscope_endpoint
@@ -166,6 +168,7 @@ class CosyVoice2Provider:
                     "voice": selected_voice,
                     "format": "mp3",
                     "sample_rate": 22050,
+                    "enable_ssml": ssml_enabled,
                 },
             }
         else:
@@ -214,7 +217,8 @@ class CosyVoice2Provider:
             raise ValueError("CosyVoice2 音频时长探测失败")
         # CosyVoice2 endpoints commonly omit timestamp events. A full-text anchor
         # makes the existing subtitle builder fall back to deterministic interpolation.
-        boundaries = [{"text": text, "start": 0.0, "end": duration}]
+        spoken_text = re.sub(r"<[^>]+>", "", text) if ssml_enabled else text
+        boundaries = [{"text": html.unescape(spoken_text), "start": 0.0, "end": duration}]
         return audio, boundaries, duration
 
 

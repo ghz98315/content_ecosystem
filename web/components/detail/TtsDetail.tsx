@@ -14,6 +14,8 @@ interface TtsData {
   input_format?: string;
   synthesis_batches?: number;
   subtitle_max_chars?: number;
+  emotion_profile?: string | null;
+  ssml_enabled?: boolean;
   segments?: Array<{ text: string; start: number; end: number; char_count?: number }>;
   batches?: Array<{
     index: number;
@@ -128,6 +130,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
               { label: "合成批次", value: String(data.synthesis_batches ?? "—") },
               { label: "字幕上限", value: data.subtitle_max_chars ? `${data.subtitle_max_chars} 字` : "—" },
               { label: "时间轴", value: data.input_format === "timeline_v3" ? "已对齐" : "历史格式" },
+              { label: "情感节奏", value: data.emotion_profile === "cosy_warm_narrative_v1" ? "温和叙事（CosyVoice SSML）" : "标准自然" },
             ].map(({ label, value }) => (
               <div key={label} className="tts-metric" style={{ fontSize: 13 }}>
                 <div style={{ color: "var(--text-secondary)", fontSize: 11, marginBottom: 3 }}>{label}</div>
