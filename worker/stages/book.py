@@ -6,6 +6,8 @@
 from __future__ import annotations
 import json
 import os
+import re
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import config
@@ -26,18 +28,52 @@ def _llm_client():
     return config.openai_client(), "gpt-4o-mini"
 
 
+def _ending_context(rewrite_text: str, limit: int = 420) -> str:
+    """Keep the final spoken thought visible so CTA is a continuation, not a recap."""
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", rewrite_text) if part.strip()]
+    tail = "\n\n".join(paragraphs[-2:]) if paragraphs else rewrite_text.strip()
+    return tail[-limit:]
+
+
+def _normalized(text: str) -> str:
+    return re.sub(r"[\s\W_]+", "", text or "")
+
+
+def _repeats_ending(cta: str, ending_context: str) -> bool:
+    """Reject CTA that repeats the close instead of adding the final action."""
+    normalized_cta = _normalized(cta)
+    normalized_tail = _normalized(ending_context)
+    if not normalized_cta or not normalized_tail:
+        return False
+    similarity = SequenceMatcher(None, normalized_cta, normalized_tail, autojunk=False).ratio()
+    return similarity > 0.42 or any(
+        phrase in normalized_cta and phrase in normalized_tail
+        for phrase in ("较劲", "气坏身体", "护好自己", "放过自己", "别生气")
+    )
+
+
 def _generate_cta(client, model: str, rewrite_text: str, book_name: str, author: str) -> str:
+    ending_context = _ending_context(rewrite_text)
     prompt = _CTA_PROMPT_TMPL.format(
         rewrite=rewrite_text,
+        ending_context=ending_context,
         book_name=book_name,
         author=author,
     )
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
-    )
-    return resp.choices[0].message.content.strip()
+    for attempt in range(2):
+        correction = "" if not attempt else (
+            "\n\n上一版与正文结尾重复。请只写承接后的新 CTA，"
+            "不得复述结尾的结论、关键词或句式。"
+        )
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt + correction}],
+            temperature=0.45,
+        )
+        cta = resp.choices[0].message.content.strip()
+        if cta and not _repeats_ending(cta, ending_context):
+            return cta
+    raise ValueError("CTA 与改写稿结尾重复，未生成可用承接文案")
 
 
 def _apply_manual_overrides(info: dict, params: dict) -> dict:
