@@ -17,6 +17,7 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 DEEPSEEK_TIMEOUT = float(os.environ.get("DEEPSEEK_TIMEOUT", "110"))
 DEEPSEEK_RETRIES = max(0, int(os.environ.get("DEEPSEEK_RETRIES", "1")))
+REWRITE_RETRIES = max(0, int(os.environ.get("REWRITE_RETRIES", "2")))
 
 CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "deepseek-chat")
 REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-5.5")

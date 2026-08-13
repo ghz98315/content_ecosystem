@@ -9,7 +9,7 @@ import { useAnonAuth } from "@/lib/useAnonAuth";
 import { STATUS_COLOR, Task } from "@/lib/types";
 import { compactTitle, splitSourceDescription } from "@/lib/sourceMetadata";
 
-type Artifact = { task_id: string; meta: Record<string, unknown> | null; created_at: string };
+type Artifact = { task_id: string; type: string; meta: Record<string, unknown> | null; created_at: string };
 type Stage = { task_id: string; kind: string; seq: number; status: string };
 type BookSignal = { task_id: string; detected_title: string | null; detected_author: string | null; confidence: string; evidence: string | null; confirmed_title: string | null; confirmed_author: string | null };
 type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2"; model: string | null; voice_id: string; sample_path: string | null; enabled: boolean };
@@ -72,6 +72,7 @@ function VideoCollectionContent() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([]);
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("system-default");
   const [contentCategory, setContentCategory] = useState<"health" | "social_science" | "education">("health");
@@ -114,7 +115,7 @@ function VideoCollectionContent() {
       return;
     }
     const [artifactResult, stageResult, bookSignalResult] = await Promise.all([
-      supabase.from("artifacts").select("task_id,meta,created_at").in("task_id", taskIds).in("type", ["audio", "transcript"]).order("created_at", { ascending: false }),
+      supabase.from("artifacts").select("task_id,type,meta,created_at").in("task_id", taskIds).in("type", ["audio", "transcript", "book"]).order("created_at", { ascending: false }),
       supabase.from("stages").select("task_id,kind,seq,status").in("task_id", taskIds).order("seq"),
       supabase.from("task_book_signals").select("task_id,detected_title,detected_author,confidence,evidence,confirmed_title,confirmed_author").in("task_id", taskIds),
     ]);
@@ -287,6 +288,27 @@ function VideoCollectionContent() {
       setMessage("复制失败，请检查浏览器剪贴板权限。");
     }
   };
+  const copyText = async (value: string, label: string) => {
+    if (!value) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+      else {
+        const area = document.createElement("textarea");
+        area.value = value;
+        area.setAttribute("readonly", "true");
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        if (!document.execCommand("copy")) throw new Error("copy failed");
+        area.remove();
+      }
+      setCopyNotice(`${label}已复制`);
+    } catch {
+      setCopyNotice("复制失败，请检查浏览器剪贴板权限");
+    }
+    window.setTimeout(() => setCopyNotice(null), 1800);
+  };
   const cancelSelectedPending = async () => {
     const pendingIds = pagedVisible.filter(task => selectedIds.includes(task.id) && task.status === "pending").map(task => task.id);
     if (!pendingIds.length) {
@@ -315,7 +337,7 @@ function VideoCollectionContent() {
       <header className="collection-heading"><div><p className="eyebrow">素材运营台</p><h1>视频采集工作台</h1><p>批量导入来源视频，按采集结果、互动数据和任务进度统一查看。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
       <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><div className="collection-voice-setting"><span>内容流程</span><select value={contentCategory} onChange={event => setContentCategory(event.target.value as "health" | "social_science" | "education")} aria-label="内容流程模板"><option value="health">健康类书籍</option><option value="social_science">历史社科</option><option value="education">经管书籍</option></select><small>{contentCategory === "health" ? "健康合规红线与温润生活视觉" : contentCategory === "social_science" ? "史实边界、克制叙事与史料感画面" : "数据边界、非投顾表达与现代商务画面"}</small></div><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色"><option value="system-default">{DEFAULT_EDGE_LABEL}（系统默认）</option>{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? "使用 `zh-CN-XiaoxiaoNeural`，当前未登记可试听样本。" : "该音色未登记样本，无法试听。"}</small>}</div><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
       <section className="collection-import" aria-label="内容生产设置"><div><h2>内容生产设置</h2><p>设置会随新任务保存；不影响已创建任务。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => setNarrationMode(event.target.value as "single" | "dual_dialogue")} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue">双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "改写稿按主持人/嘉宾分段，分别使用两套音色" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{voiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select><small>主持人与嘉宾音色分别快照保存</small></div>}</div></section>
-      {message && <p className="collection-notice" role="status">{message}</p>}
+      {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
       {loading && <div className="collection-loading" role="status"><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>}
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}
       <section className="collection-results" aria-labelledby="collection-results-heading"><div className="collection-toolbar"><div><h2 id="collection-results-heading">采集结果 <span>{totalTasks}</span></h2><p>每页读取 25 条任务及其关联产物；缺失字段不会以示例数据替代。</p></div><div className="collection-filters"><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索标题、作者或链接" aria-label="搜索采集任务" /><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} aria-label="按任务状态筛选"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={minFollowers} onChange={event => { setMinFollowers(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低粉丝" aria-label="最低粉丝数" /><input value={minComments} onChange={event => { setMinComments(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低评论" aria-label="最低评论数" /></div></div>
@@ -326,12 +348,13 @@ function VideoCollectionContent() {
           const taskStages = stagesByTask.get(task.id) || [];
           const signal = bookSignalByTask.get(task.id);
           const book = (meta.book_signal || meta.book || meta.book_info || {}) as Record<string, unknown>;
-          const bookTitle = signal?.confirmed_title || signal?.detected_title || (book.title ? String(book.title) : "");
+          const finalBookTitle = meta.book_name ? String(meta.book_name) : "";
+          const bookTitle = signal?.confirmed_title || finalBookTitle || signal?.detected_title || (book.title ? String(book.title) : "");
           const parsedSource = splitSourceDescription(task.title);
           const sourceTags = task.source_tags?.length ? task.source_tags : parsedSource.tags;
           const fullTitle = parsedSource.title || "未取得标题";
           const action = task.status === "needs_review" ? "去确认" : task.status === "done" ? "查看成片" : task.status === "failed" ? "查看异常" : "查看任务";
-          return <tr key={task.id}><td><input type="checkbox" checked={selectedIds.includes(task.id)} onChange={() => toggleSelected(task.id)} aria-label={`选择 ${task.title || task.id}`} /></td><td>{String((currentPage - 1) * pageSize + index + 1).padStart(2, "0")}</td><td className="collection-title"><button type="button" className="collection-title-copy" title={`${fullTitle}\n点击复制完整标题`} onClick={() => navigator.clipboard.writeText(fullTitle)}>{compactTitle(fullTitle)}</button>{sourceTags.length > 0 && <div className="collection-tags" aria-label="来源标签">{sourceTags.map(tag => <span key={tag}>#{tag}</span>)}</div>}<a href={task.source_url || undefined} target="_blank" rel="noreferrer">来源链接</a></td><td>{bookTitle ? <><strong>《{bookTitle.replace(/^《|》$/g, "")}》</strong><small>{signal?.confirmed_title ? "已确认书名" : "逐字稿识别"}</small></> : <span className="muted">等待逐字稿</span>}</td><td className="collection-description">{String(meta.desc || meta.description || meta.raw_description || "—")}</td><td>{author.name ? `@${String(author.name)}` : "—"}</td><td>{numberText(author.fans_count || author.follower_count)}</td><td>{durationText(meta.duration)}</td><td>{dateText(task.created_at)}</td><td>{numberText(meta.digg_count ?? task.play_count)}</td><td>{numberText(meta.comment_count)}</td><td>{numberText(meta.share_count)}</td><td>{numberText(meta.collect_count)}</td><td><span className={`status-badge status-${task.status}`}><i style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] }} />{STATUS_LABEL[task.status] || task.status}</span><small className="collection-stage">{currentStage(taskStages)}</small></td><td><Link className="collection-action" href={`/task/${task.id}`}>{action}</Link><button className="collection-copy" onClick={() => task.source_url && navigator.clipboard.writeText(task.source_url)}>复制链接</button></td></tr>;
+          return <tr key={task.id}><td><input type="checkbox" checked={selectedIds.includes(task.id)} onChange={() => toggleSelected(task.id)} aria-label={`选择 ${task.title || task.id}`} /></td><td>{String((currentPage - 1) * pageSize + index + 1).padStart(2, "0")}</td><td className="collection-title"><button type="button" className="collection-title-copy" title={`${fullTitle}\n点击复制完整标题`} aria-label={`复制完整标题：${fullTitle}`} onClick={() => void copyText(fullTitle, "标题")}>{compactTitle(fullTitle)}</button>{sourceTags.length > 0 && <div className="collection-tags" aria-label="来源标签">{sourceTags.map(tag => <span key={tag}>#{tag}</span>)}</div>}<a href={task.source_url || undefined} target="_blank" rel="noreferrer">来源链接</a></td><td>{bookTitle ? <><strong>《{bookTitle.replace(/^《|》$/g, "")}》</strong><small>{signal?.confirmed_title ? "已确认书名" : finalBookTitle ? "书籍阶段识别" : "逐字稿识别"}</small></> : <span className="muted">等待书籍阶段</span>}</td><td className="collection-description">{String(meta.desc || meta.description || meta.raw_description || "—")}</td><td>{author.name ? `@${String(author.name)}` : "—"}</td><td>{numberText(author.fans_count || author.follower_count)}</td><td>{durationText(meta.duration)}</td><td>{dateText(task.created_at)}</td><td>{numberText(meta.digg_count ?? task.play_count)}</td><td>{numberText(meta.comment_count)}</td><td>{numberText(meta.share_count)}</td><td>{numberText(meta.collect_count)}</td><td><span className={`status-badge status-${task.status}`}><i style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] }} />{STATUS_LABEL[task.status] || task.status}</span><small className="collection-stage">{currentStage(taskStages)}</small></td><td><Link className="collection-action" href={`/task/${task.id}`}>{action}</Link><button className="collection-copy" onClick={() => task.source_url && void copyText(task.source_url, "来源链接")}>复制链接</button></td></tr>;
         })}</tbody></table>{!totalTasks && <div className="state-panel compact"><strong>没有匹配的采集任务</strong><span>调整筛选条件，或从上方导入新的视频链接。</span></div>}</div>
         <div className="collection-mobile-list">{pagedVisible.map(task => {
           const meta = artifactByTask.get(task.id)?.meta || {};
@@ -340,12 +363,13 @@ function VideoCollectionContent() {
           const action = task.status === "needs_review" ? "去确认" : task.status === "done" ? "查看成片" : task.status === "failed" ? "查看异常" : "查看任务";
           const signal = bookSignalByTask.get(task.id);
           const book = (meta.book_signal || meta.book || meta.book_info || {}) as Record<string, unknown>;
-          const bookTitle = signal?.confirmed_title || signal?.detected_title || (book.title ? String(book.title) : "");
+          const finalBookTitle = meta.book_name ? String(meta.book_name) : "";
+          const bookTitle = signal?.confirmed_title || finalBookTitle || signal?.detected_title || (book.title ? String(book.title) : "");
           const parsedSource = splitSourceDescription(task.title);
           const sourceTags = task.source_tags?.length ? task.source_tags : parsedSource.tags;
           const fullTitle = parsedSource.title || "未取得标题";
           return <article className="collection-mobile-card" key={task.id}>
-            <header><div className="collection-mobile-card-heading"><input type="checkbox" checked={selectedIds.includes(task.id)} onChange={() => toggleSelected(task.id)} aria-label={`选择 ${task.title || task.id}`} /><div><button type="button" className="collection-title-copy" title={fullTitle} onClick={() => navigator.clipboard.writeText(fullTitle)}>{compactTitle(fullTitle)}</button><span>{author.name ? `@${String(author.name)}` : "—"}</span></div></div><span className={`status-badge status-${task.status}`}><i style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] }} />{STATUS_LABEL[task.status] || task.status}</span></header>
+            <header><div className="collection-mobile-card-heading"><input type="checkbox" checked={selectedIds.includes(task.id)} onChange={() => toggleSelected(task.id)} aria-label={`选择 ${task.title || task.id}`} /><div><button type="button" className="collection-title-copy" title={`${fullTitle}\n点击复制完整标题`} aria-label={`复制完整标题：${fullTitle}`} onClick={() => void copyText(fullTitle, "标题")}>{compactTitle(fullTitle)}</button><span>{author.name ? `@${String(author.name)}` : "—"}</span></div></div><span className={`status-badge status-${task.status}`}><i style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] }} />{STATUS_LABEL[task.status] || task.status}</span></header>
             {sourceTags.length > 0 && <div className="collection-tags">{sourceTags.map(tag => <span key={tag}>#{tag}</span>)}</div>}
             <a className="collection-mobile-source" href={task.source_url || undefined} target="_blank" rel="noreferrer">{task.source_url || "—"}</a>
             <p className="collection-mobile-book">书籍信号：{bookTitle ? `《${bookTitle}》（${signal?.confirmed_title ? "已确认" : signal?.confidence === "medium" ? "中置信度" : "低置信度"}）` : "待逐字稿识别"}</p>

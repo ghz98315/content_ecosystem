@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from difflib import SequenceMatcher
 
 import config
@@ -21,6 +22,17 @@ from prompt_profiles import (
 
 _CAND_RE = re.compile(r"【候选[ABC]】\s*(.*?)(?=【候选[ABC]】|$)", re.DOTALL)
 _client = None
+
+
+def _request_rewrite(**kwargs):
+    """Retry proxy timeout responses without regenerating a different stage."""
+    for attempt in range(config.REWRITE_RETRIES + 1):
+        try:
+            return _llm().chat.completions.create(**kwargs)
+        except Exception as exc:
+            if "524" not in str(exc) or attempt >= config.REWRITE_RETRIES:
+                raise
+            time.sleep(min(12, 2 ** attempt))
 
 
 def _llm():
@@ -213,7 +225,7 @@ def _generate_candidates(
             temperature = (0.55, 0.40, 0.25)[attempt]
         else:
             temperature = 0.35 if mode == "repost_dedup" else 0.7
-        resp = _llm().chat.completions.create(
+        resp = _request_rewrite(
             model=config.REWRITE_MODEL,
             messages=[
                 {"role": "system", "content": prompt},
