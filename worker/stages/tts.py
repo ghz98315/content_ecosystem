@@ -26,23 +26,35 @@ _PART_ATTEMPTS = max(1, int(os.environ.get("TTS_PART_ATTEMPTS", "3")))
 
 
 _clean_tts_text = clean_tts_text
-_COSY_WARM_NARRATIVE = "cosy_warm_narrative_v2"
+_COSY_WARM_NARRATIVE = "cosy_warm_narrative_v3"
 
 
 def _cosyvoice_ssml(text: str, position: str) -> str:
-    """Use semantic pauses and restrained prosody for comfortable long-form narration."""
+    """Apply a restrained, semantic delivery without materially extending duration."""
+    plain_text = text.strip()
+    tone = "plain"
+    if re.search(r"(警惕|风险|危险|伤害|别再|千万|不要|当心|后果|代价)", plain_text):
+        tone = "alert"
+    elif re.search(r"(放下|释然|安心|慢一点|别着急|照顾好自己|不必|温柔|陪伴)", plain_text):
+        tone = "comfort"
+    elif re.search(r"(好消息|值得|终于|做到|改变|希望|收获|恭喜|可以)", plain_text):
+        tone = "affirm"
     presets = {
-        "hook": ("0.93", "1.03", "54"),
-        "body": ("0.97", "1.00", "52"),
-        "close": ("0.94", "1.01", "52"),
+        "hook": ("0.99", "1.06", "55"),
+        "alert": ("0.98", "0.97", "53"),
+        "comfort": ("0.96", "1.01", "51"),
+        "affirm": ("1.01", "1.04", "54"),
+        "plain": ("1.00", "1.00", "52"),
+        "close": ("0.97", "1.01", "51"),
     }
-    rate, pitch, volume = presets.get(position, presets["body"])
+    profile = "hook" if position == "hook" else "close" if position == "close" else tone
+    rate, pitch, volume = presets[profile]
     escaped = html.escape(text.strip(), quote=False)
-    # Short rhetorical pauses make turns and comparisons intelligible. Keep
-    # them constrained so long-form narration does not become theatrical.
-    escaped = re.sub(r"([，、；：])\s*", r'\1<break time="120ms"/>', escaped)
-    escaped = re.sub(r"(但是|可其实|其实|所以|因此|反而|不是|而是|别急|注意|重点是|换句话说)", r'<break time="180ms"/>\1', escaped)
-    escaped = re.sub(r"([。！？])\s*", r'\1<break time="340ms"/>', escaped)
+    # Breaks are intentionally sparse: the prior per-punctuation pauses added
+    # roughly 30 seconds to long scripts without producing real expression.
+    escaped = re.sub(r"([；：])\s*", r'\1<break time="100ms"/>', escaped)
+    escaped = re.sub(r"(但是|其实|所以|因此|反而|不是|而是|别急|注意|重点是|换句话说)", r'<break time="120ms"/>\1', escaped)
+    escaped = re.sub(r"([。！？])\s*", r'\1<break time="160ms"/>', escaped)
     return f'<speak rate="{rate}" pitch="{pitch}" volume="{volume}">{escaped}</speak>'
 
 
