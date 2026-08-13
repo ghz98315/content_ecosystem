@@ -29,8 +29,8 @@ _clean_tts_text = clean_tts_text
 _COSY_WARM_NARRATIVE = "cosy_warm_narrative_v3"
 
 
-def _cosyvoice_ssml(text: str, position: str) -> str:
-    """Apply a restrained, semantic delivery without materially extending duration."""
+def _cosyvoice_ssml(text: str, position: str, speaker: str | None = None) -> str:
+    """Apply semantic and speaker-specific delivery without changing the spoken text."""
     plain_text = text.strip()
     tone = "plain"
     if re.search(r"(警惕|风险|危险|伤害|别再|千万|不要|当心|后果|代价)", plain_text):
@@ -39,15 +39,29 @@ def _cosyvoice_ssml(text: str, position: str) -> str:
         tone = "comfort"
     elif re.search(r"(好消息|值得|终于|做到|改变|希望|收获|恭喜|可以)", plain_text):
         tone = "affirm"
-    presets = {
-        "hook": ("0.99", "1.06", "55"),
-        "alert": ("0.98", "0.97", "53"),
-        "comfort": ("0.96", "1.01", "51"),
-        "affirm": ("1.01", "1.04", "54"),
-        "plain": ("1.00", "1.00", "52"),
-        "close": ("0.97", "1.01", "51"),
+    is_host = speaker == "主持人"
+    host_presets = {
+        "hook": ("1.03", "1.12", "56"),
+        "alert": ("1.00", "1.03", "54"),
+        "comfort": ("0.98", "1.05", "53"),
+        "affirm": ("1.04", "1.09", "55"),
+        "plain": ("1.02", "1.06", "54"),
+        "close": ("0.98", "1.04", "53"),
+    }
+    guest_presets = {
+        "hook": ("0.99", "1.05", "55"),
+        "alert": ("0.96", "0.96", "53"),
+        "comfort": ("0.94", "1.00", "52"),
+        "affirm": ("0.99", "1.05", "54"),
+        "plain": ("0.98", "1.01", "53"),
+        "close": ("0.95", "1.01", "52"),
     }
     profile = "hook" if position == "hook" else "close" if position == "close" else tone
+    presets = host_presets if is_host else guest_presets if speaker == "嘉宾" else {
+        "hook": ("0.99", "1.06", "55"), "alert": ("0.98", "0.97", "53"),
+        "comfort": ("0.96", "1.01", "51"), "affirm": ("1.01", "1.04", "54"),
+        "plain": ("1.00", "1.00", "52"), "close": ("0.97", "1.01", "51"),
+    }
     rate, pitch, volume = presets[profile]
     escaped = html.escape(text.strip(), quote=False)
     # Breaks are intentionally sparse: the prior per-punctuation pauses added
@@ -312,7 +326,7 @@ def _build_subtitle_cues(
 
 async def _synthesize_detailed(
     text: str, voice: str, provider: str | None = None, model: str | None = None,
-    emotion_profile: str | None = None,
+    emotion_profile: str | None = None, speaker: str | None = None,
 ) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
     parts = _split_tts_segments(text)
@@ -328,7 +342,7 @@ async def _synthesize_detailed(
             request_text = spoken_part
             if is_cosyvoice and emotion_profile == _COSY_WARM_NARRATIVE:
                 position = "hook" if index == 0 else "close" if index == len(parts) - 1 else "body"
-                request_text = _cosyvoice_ssml(spoken_part, position)
+                request_text = _cosyvoice_ssml(spoken_part, position, speaker)
             return await _synthesize_part_with_retry(request_text, voice, provider, model)
 
     results = await asyncio.gather(*(synthesize_limited(index, part, spoken) for index, (part, spoken) in enumerate(zip(parts, spoken_parts))))
@@ -409,6 +423,7 @@ async def _synthesize_dialogue_detailed(
             secondary_provider if use_secondary else provider,
             secondary_model if use_secondary else model,
             emotion_profile,
+            speaker,
         )
         duration = sum(float(batch["duration"]) for batch in turn_batches)
         audio_parts.append(audio)

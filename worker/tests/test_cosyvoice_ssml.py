@@ -27,6 +27,12 @@ class CosyVoiceSsmlTests(unittest.TestCase):
         self.assertIn('<break time="120ms"/>', alert)
         self.assertNotIn('<break time="100ms"/>', comfort)
 
+    def test_dialogue_ssml_uses_distinct_host_and_guest_delivery(self):
+        host = _cosyvoice_ssml("这个反差为什么值得注意？", "hook", "主持人")
+        guest = _cosyvoice_ssml("我们可以从生活节奏慢慢拆开来看。", "body", "嘉宾")
+        self.assertIn('<speak rate="1.03" pitch="1.12" volume="56">', host)
+        self.assertIn('<speak rate="0.99" pitch="1.05" volume="54">', guest)
+
     def test_dashscope_request_enables_ssml_and_keeps_plain_alignment_text(self):
         captured = {}
 
