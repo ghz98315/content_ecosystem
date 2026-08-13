@@ -109,9 +109,18 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
     setRegenerating(true);
     setLoadError(null);
     try {
-      const { data, error } = await supabase.rpc("regenerate_image_stage", { p_stage_id: stage.id });
-      if (error || !data?.length) {
-        setLoadError(error?.message || "全量重新生成排队失败，请检查数据库迁移是否已执行。");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const response = await fetch("/api/image-regeneration", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sessionData.session?.access_token ? { Authorization: `Bearer ${sessionData.session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ stageId: stage.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.stages?.length) {
+        setLoadError(result.error || "全量重新生成排队失败，请检查数据库迁移是否已执行。");
         return;
       }
       setEntries([]);
