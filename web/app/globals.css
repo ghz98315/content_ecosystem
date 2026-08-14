@@ -640,6 +640,23 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 520px) { .render-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .image-workbench-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .render-workbench { grid-template-columns: 1fr; } }
 
+/* Keep the collection table within the workspace instead of relying on a horizontal scrollbar. */
+.collection-table-wrap { overflow-x: hidden; }
+.collection-table { min-width: 0; table-layout: fixed; }
+.collection-table th, .collection-table td { min-width: 0; padding: 10px 7px; overflow: hidden; text-overflow: ellipsis; }
+.collection-table th:nth-child(1), .collection-table td:nth-child(1) { width: 28px; }
+.collection-table th:nth-child(2), .collection-table td:nth-child(2) { width: 34px; }
+.collection-table th:nth-child(3), .collection-table td:nth-child(3) { width: 18%; }
+.collection-table th:nth-child(4), .collection-table td:nth-child(4) { width: 10%; }
+.collection-table th:nth-child(5), .collection-table td:nth-child(5) { width: 11%; }
+.collection-table th:nth-child(6), .collection-table td:nth-child(6) { width: 7%; }
+.collection-table th:nth-child(n+7):nth-child(-n+13), .collection-table td:nth-child(n+7):nth-child(-n+13) { width: 5%; }
+.collection-table th:nth-child(14), .collection-table td:nth-child(14) { width: 8%; }
+.collection-table th:nth-child(15), .collection-table td:nth-child(15) { width: 7%; }
+.collection-title { width: auto; }.collection-description { width: auto; max-width: none; white-space: normal; display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+@media (max-width: 1280px) { .collection-table th:nth-child(5), .collection-table td:nth-child(5), .collection-table th:nth-child(12), .collection-table td:nth-child(12), .collection-table th:nth-child(13), .collection-table td:nth-child(13) { display: none; } }
+@media (max-width: 1040px) { .collection-table th:nth-child(7), .collection-table td:nth-child(7), .collection-table th:nth-child(10), .collection-table td:nth-child(10) { display: none; } }
+
 @media (max-width: 760px) {
   .app-sidebar { position: fixed; z-index: 120; inset: 0 auto 0 0; width: min(82vw, 300px) !important; min-width: min(82vw, 300px) !important; transform: translateX(-102%); box-shadow: var(--shadow-md); transition: transform .22s cubic-bezier(.4,0,.2,1); }
   .app-sidebar.is-mobile-open { transform: translateX(0); }
