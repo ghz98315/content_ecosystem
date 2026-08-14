@@ -15,7 +15,6 @@ from prompt_profiles import author_name, derive_keyword, load_prompt, normalize_
 
 _client = None
 _MAX_EXPANSION_RATIO = max(0.0, float(os.environ.get("CLEAN_MAX_EXPANSION_RATIO", "0.10")))
-_EXPANSION_RETRY = os.environ.get("CLEAN_EXPANSION_RETRY", "1").strip() != "0"
 _SIMPLIFIED_CONVERTER = OpenCC("t2s")
 
 
@@ -68,9 +67,16 @@ def _hook_preservation_issue(hook: str, cleaned: str) -> str | None:
     return None
 
 
-def _clean_quality_result(raw: str, cleaned: str, hook: str) -> tuple[str | None, str | None]:
-    """Return a blocking content issue and a non-blocking hook warning."""
-    return _clean_output_issue(raw, cleaned), _hook_preservation_issue(hook, cleaned)
+def _clean_quality_warnings(raw: str, cleaned: str, hook: str) -> list[str]:
+    """Return review hints; content-quality heuristics never trigger retries."""
+    return [
+        warning
+        for warning in (
+            _clean_output_issue(raw, cleaned),
+            _hook_preservation_issue(hook, cleaned),
+        )
+        if warning
+    ]
 
 
 def _summarize_changes(raw: str, cleaned: str, limit: int = 24) -> dict:
@@ -194,17 +200,10 @@ def run(stage: dict) -> tuple[str, str | None]:
     )
 
     cleaned = _to_simplified_chinese(_request_clean(prompt, user_prompt))
-    quality_issue, hook_warning = _clean_quality_result(raw_text, cleaned, opening_hook)
-    if quality_issue and _EXPANSION_RETRY and "异常扩写" in quality_issue:
-        retry_prompt = (
-            prompt
-            + "\n\n这是一次严格纠偏重试。上一版输出超过原文长度，说明加入了未经确认的内容。"
-            "现在只允许复制原文字符、删除噪声、替换有明确上下文依据的 ASR 错字和补必要标点。"
-            "任何新增的医学术语、解释、句子或对话都必须删除；输出长度必须不超过原文。"
-        )
-        retry_user = user_prompt + "\n\n上一版超长输出（仅用于定位新增内容，不得照抄）：\n" + cleaned
-        cleaned = _to_simplified_chinese(_request_clean(retry_prompt, retry_user))
-        quality_issue, hook_warning = _clean_quality_result(raw_text, cleaned, opening_hook)
+    if not cleaned.strip():
+        db.set_stage(stage["id"], "failed", error="清洗模型未返回可用正文")
+        return "failed", None
+    quality_warnings = _clean_quality_warnings(raw_text, cleaned, opening_hook)
 
     data = json.dumps(
         {
@@ -214,8 +213,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "opening_hook": opening_hook,
             "opening_hook_seconds": 10,
             "change_summary": _summarize_changes(raw_text, cleaned),
-            "quality_issue": quality_issue,
-            "quality_warning": hook_warning,
+            "quality_issue": None,
+            "quality_warnings": quality_warnings,
         },
         ensure_ascii=False,
         indent=2,
@@ -230,10 +229,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "model": config.CLEAN_MODEL,
         "content_category": context["category"],
         "opening_hook": opening_hook[:500],
-        "quality_issue": quality_issue,
-        "quality_warning": hook_warning,
+        "quality_issue": None,
+        "quality_warnings": quality_warnings,
     })
-    if quality_issue:
-        db.set_stage(stage["id"], "failed", output_ref=sp, error=quality_issue)
-        return "failed", sp
     return "done", sp

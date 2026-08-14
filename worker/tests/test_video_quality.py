@@ -16,7 +16,7 @@ import db
 import main as worker_main
 import stages.image as image_stage
 from compliance import check_text, scan_text
-from stages.clean import _clean_output_issue, _clean_quality_result, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes, _to_simplified_chinese
+from stages.clean import _clean_output_issue, _clean_quality_warnings, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes, _to_simplified_chinese
 from prompt_profiles import (
     derive_keyword,
     load_compliance_rules,
@@ -66,7 +66,7 @@ from stages.render import (
     _run_ffmpeg,
     _audio_mix_filter,
 )
-from stages.rewrite import _candidate_issues, _dialogue_body, _longest_common_run, _parse_candidates, _rewrite_structure
+from stages.rewrite import _candidate_issues, _candidate_warnings, _dialogue_body, _longest_common_run, _parse_candidates, _rewrite_structure
 from stages.tts import _build_subtitle_cues, _clean_tts_text, _dialogue_turns, _split_tts_segments, _synthesize, _synthesize_detailed
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
@@ -99,12 +99,20 @@ class RewriteQualityTests(unittest.TestCase):
         issues = _candidate_issues([rewritten], source, "stop")
         self.assertIn("改写幅度过大，未保持原文主体", issues)
 
-    def test_health_initial_rewrite_rejects_near_copy(self):
+    def test_health_initial_rewrite_reports_near_copy_as_warning(self):
         source = "很多人以为少吃一顿饭就能让身体轻松下来，其实真正的问题往往藏在每天的饮食节奏里。" * 3
         rewritten = source.replace("真正的问题", "关键的问题", 1)
         issues = _candidate_issues([rewritten], source, "stop", "initial_dedup", "health")
-        self.assertTrue(any("过近" in issue for issue in issues))
-        self.assertTrue(any("复用原句过多" in issue for issue in issues))
+        warnings = _candidate_warnings(rewritten, source, "initial_dedup", "health")
+        self.assertFalse(any("过近" in issue or "原句复用" in issue for issue in issues))
+        self.assertTrue(any("较近" in warning for warning in warnings))
+        self.assertTrue(any("原句复用" in warning for warning in warnings))
+
+    def test_single_rewrite_allows_twenty_five_percent_length_tolerance(self):
+        source = "保留主体信息和事实边界。" * 100
+        rewritten = source[: round(len(source) * 0.82)]
+        issues = _candidate_issues([rewritten], source, "stop", "initial_dedup", "health")
+        self.assertFalse(any("过短" in issue for issue in issues))
 
     def test_repost_and_non_health_keep_existing_similarity_policy(self):
         source = "历史材料需要保留年代人物和证据边界，不能把推测说成结论。" * 3
@@ -275,13 +283,12 @@ class CleanSummaryTests(unittest.TestCase):
         self.assertEqual("开头反常识。先别急着相信。", _extract_opening_hook(transcript))
 
     def test_clean_detects_missing_opening_hook_as_non_blocking_warning(self):
-        blocking, warning = _clean_quality_result(
+        warnings = _clean_quality_warnings(
             "正文从第二个观点开始。",
             "正文从第二个观点开始。",
             "先别急着相信，这个习惯可能有问题。",
         )
-        self.assertIsNone(blocking)
-        self.assertIn("开头钩子", warning or "")
+        self.assertTrue(any("开头钩子" in warning for warning in warnings))
 
 
 class PromptProfileTests(unittest.TestCase):

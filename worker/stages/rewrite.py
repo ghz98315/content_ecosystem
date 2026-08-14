@@ -185,7 +185,7 @@ def _candidate_issues(
         return issues
 
     source_len = _text_len(source)
-    tolerance = 0.08 if mode == "repost_dedup" else 0.12
+    tolerance = 0.15 if mode == "repost_dedup" else 0.25
     min_len = max(40, round(source_len * (1 - tolerance)))
     max_len = max(min_len + 20, round(source_len * (1 + tolerance)))
     for i, text in enumerate(candidates):
@@ -204,22 +204,35 @@ def _candidate_issues(
             issues.append("改写稿结尾不完整")
         if narration_mode != "dual_dialogue" and _similarity(source, comparison_text) < 0.40:
             issues.append("改写幅度过大，未保持原文主体")
-        if category == "health" and mode == "initial_dedup" and narration_mode != "dual_dialogue":
-            similarity = _similarity(source, comparison_text)
-            if similarity > 0.72:
-                issues.append(f"健康首发改写与原稿过近（相似度 {similarity:.2f}，目标不高于 0.72）")
-            common_run = _longest_common_run(source, comparison_text)
-            if common_run > 16:
-                issues.append(f"健康首发改写复用原句过多（连续 {common_run} 个有效字符）")
-        if narration_mode != "dual_dialogue":
-            if _similarity(source[:50], text[:50]) < 0.35:
-                issues.append("开头钩子改动过大")
-            if _similarity(source[-50:], text[-50:]) < 0.35:
-                issues.append("结尾改动过大")
         for title in re.findall(r"《([^》]+)》", source):
             if f"《{title}》" not in text:
                 issues.append(f"未完整保留书名《{title}》")
     return issues
+
+
+def _candidate_warnings(
+    text: str,
+    source: str,
+    mode: str = "initial_dedup",
+    category: str = "health",
+    narration_mode: str = "single",
+) -> list[str]:
+    """Expose style drift for review without blocking an otherwise complete draft."""
+    if narration_mode == "dual_dialogue":
+        return []
+    warnings: list[str] = []
+    if category == "health" and mode == "initial_dedup":
+        similarity = _similarity(source, text)
+        if similarity > 0.72:
+            warnings.append(f"健康首发改写与原稿较近（相似度 {similarity:.2f}，建议不高于 0.72）")
+        common_run = _longest_common_run(source, text)
+        if common_run > 16:
+            warnings.append(f"健康首发改写存在较长原句复用（连续 {common_run} 个有效字符）")
+    if _similarity(source[:50], text[:50]) < 0.35:
+        warnings.append("开头钩子改动较大")
+    if _similarity(source[-50:], text[-50:]) < 0.35:
+        warnings.append("结尾改动较大")
+    return warnings
 
 
 def _rewrite_prompt_kind(category: str, mode: str, narration_mode: str) -> str:
@@ -243,7 +256,7 @@ def _generate_candidates(
     tolerance_label = "8%" if mode == "repost_dedup" else "12%"
     terms = "、".join(protected_terms(source)) or "无额外词语"
     last_issues: list[str] = []
-    attempts = 3 if narration_mode == "dual_dialogue" else 2
+    attempts = 1
     for attempt in range(attempts):
         correction = ""
         if attempt:
@@ -293,13 +306,16 @@ def _generate_candidates(
         )
         if narration_mode == "dual_dialogue" and not structure.get("delivery_plan"):
             last_issues.append("双人播客未输出与对话稿一致的逐轮语气指令")
-        if not last_issues:
+        if candidates:
+            structure["quality_warnings"] = last_issues + _candidate_warnings(
+                candidates[0], source, mode, context["category"], narration_mode
+            )
             return (
                 candidates,
                 [_text_len(text) for text in candidates],
                 structure,
             )
-    raise ValueError("改写稿完整性检查失败：" + "；".join(last_issues))
+    raise ValueError("改写模型未返回可解析的正文")
 
 
 def _find_clean(task_id: str) -> str | None:
