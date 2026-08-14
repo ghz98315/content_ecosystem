@@ -5,7 +5,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from stages.tts import _COSY_WARM_NARRATIVE, _cosyvoice_ssml, _dialogue_delivery_instruction
+from stages.tts import (
+    _COSY_WARM_NARRATIVE,
+    _aligned_dialogue_instructions,
+    _cosyvoice_ssml,
+    _dialogue_delivery_instruction,
+    _synthesize_detailed,
+)
 from tts_providers import get_tts_provider
 
 
@@ -40,20 +46,51 @@ class CosyVoiceSsmlTests(unittest.TestCase):
         self.assertIn('<speak rate="1.03" pitch="1.12" volume="56">', host)
         self.assertIn('<speak rate="0.99" pitch="1.05" volume="54">', guest)
 
-    def test_dialogue_uses_shorter_turn_timing_than_single_narration(self):
-        dialogue = _cosyvoice_ssml("先说这个，再说那个。真的吗？", "body", "主持人")
-        self.assertIn('<break time="160ms"/>', dialogue)
-        self.assertIn('<break time="380ms"/>', dialogue)
-        self.assertIn('<break time="420ms"/>', dialogue)
-        self.assertNotIn('<break time="800ms"/>', dialogue)
-
-    def test_dialogue_delivery_is_role_specific_and_does_not_change_pause_policy(self):
+    def test_dialogue_delivery_is_role_specific_and_preserves_natural_pauses(self):
         host = _dialogue_delivery_instruction("主持人", "那这件事为什么值得注意？")
         guest = _dialogue_delivery_instruction("嘉宾", "咱们可以从日常习惯慢慢拆开看。")
         self.assertIn("好奇地提问", host)
         self.assertIn("耐心聊天的嘉宾", guest)
-        self.assertIn("不自行增加或拉长停顿", host)
-        self.assertIn("不自行增加或拉长停顿", guest)
+        self.assertIn("保留文本标点", host)
+        self.assertIn("保留文本标点", guest)
+
+    def test_reviewed_dialogue_plan_is_only_used_when_it_matches_turns(self):
+        turns = [("主持人", "您觉得这个误区从哪儿开始？"), ("嘉宾", "咱们先从日常习惯看起。")]
+        plan = [
+            {"speaker": "主持人", "text": turns[0][1], "instruction": "自然好奇地提问，语尾轻微上扬。"},
+            {"speaker": "嘉宾", "text": turns[1][1], "instruction": "耐心解释，像聊天一样平实。"},
+        ]
+        self.assertEqual(
+            [item["instruction"] for item in plan],
+            _aligned_dialogue_instructions(turns, plan),
+        )
+        changed_plan = [*plan]
+        changed_plan[1] = {**changed_plan[1], "text": "已经被人工改过的稿子"}
+        fallback = _aligned_dialogue_instructions(turns, changed_plan)
+        self.assertNotEqual([item["instruction"] for item in changed_plan], fallback)
+        self.assertIn("耐心聊天的嘉宾", fallback[1])
+
+    def test_natural_dialogue_keeps_punctuation_and_turn_instruction(self):
+        captured = {}
+
+        async def fake_synthesize(text, voice, provider=None, model=None, instruction=None):
+            captured.update({"text": text, "voice": voice, "instruction": instruction})
+            return b"audio", [{"text": text, "start": 0.0, "end": 1.0}], 1.0
+
+        turn = "您看啊，这真是这样吗？我们慢慢说……"
+        with patch("stages.tts._synthesize_part_with_retry", fake_synthesize), patch("stages.tts._concat_mp3", return_value=b"audio"):
+            audio, _segments, _batches = asyncio.run(_synthesize_detailed(
+                turn,
+                "voice",
+                "cosyvoice2",
+                emotion_profile=_COSY_WARM_NARRATIVE,
+                delivery_instruction="自然聊天，不刻意表演。",
+                natural_dialogue=True,
+            ))
+
+        self.assertEqual(b"audio", audio)
+        self.assertEqual(turn, captured["text"])
+        self.assertEqual("自然聊天，不刻意表演。", captured["instruction"])
 
     def test_dashscope_request_enables_ssml_and_keeps_plain_alignment_text(self):
         captured = {}

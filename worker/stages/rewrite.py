@@ -440,6 +440,15 @@ def run(stage: dict) -> tuple[str, str | None]:
                     "final_text": final_text,
                     "final_length": _text_len(final_text),
                 })
+                plan = rw.get("delivery_plan")
+                if (
+                    str(task_context.get("narration_mode") or params.get("narration_mode") or "single") == "dual_dialogue"
+                    and final_text == str(candidates[idx]).strip()
+                    and isinstance(plan, list)
+                ):
+                    rw["final_delivery_plan"] = plan
+                else:
+                    rw.pop("final_delivery_plan", None)
                 _upload_rewrite(sp, rw)
             finally:
                 try:

@@ -174,6 +174,24 @@ def _get_chosen_text(task_id: str, stage: dict) -> str | None:
     return candidates[int(raw_idx)] if int(raw_idx) < len(candidates) else None
 
 
+def _get_final_delivery_plan(task_id: str) -> list[dict] | None:
+    """Load a reviewed dialogue direction plan when it still belongs to final text."""
+    rw_path = _find_rewrite(task_id)
+    if not rw_path:
+        return None
+    local = storage.download_artifact(rw_path, ".json")
+    try:
+        with open(local, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        plan = payload.get("final_delivery_plan") if isinstance(payload, dict) else None
+        return plan if isinstance(plan, list) else None
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
+
+
 def _probe_audio_duration(path: str) -> float:
     """Measure decoded audio duration; TTS boundary events omit trailing silence."""
     result = subprocess.run(
@@ -360,7 +378,7 @@ def _build_subtitle_cues(
 async def _synthesize_detailed(
     text: str, voice: str, provider: str | None = None, model: str | None = None,
     emotion_profile: str | None = None, speaker: str | None = None,
-    delivery_instruction: str | None = None,
+    delivery_instruction: str | None = None, natural_dialogue: bool = False,
 ) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
     parts = _split_tts_segments(text)
@@ -374,7 +392,7 @@ async def _synthesize_detailed(
     async def synthesize_limited(index: int, part: str, spoken_part: str):
         async with semaphore:
             request_text = spoken_part
-            if is_cosyvoice and emotion_profile == _COSY_WARM_NARRATIVE:
+            if is_cosyvoice and emotion_profile == _COSY_WARM_NARRATIVE and not natural_dialogue:
                 position = "hook" if index == 0 else "close" if index == len(parts) - 1 else "body"
                 request_text = _cosyvoice_ssml(spoken_part, position, speaker)
             return await _synthesize_part_with_retry(
@@ -453,8 +471,30 @@ def _dialogue_delivery_instruction(speaker: str, text: str) -> str:
         role = "请像耐心聊天的嘉宾一样平实拆解和解释，语速从容，用正常交流口吻。"
     return (
         f"{role} 语调只随语义自然起伏，不要播音腔、背书感或表演感。"
-        "严格遵从文本中的 SSML break 停顿，不自行增加或拉长停顿。"
+        "保留文本标点带来的自然停顿，不要刻意拉长。"
     )
+
+
+def _aligned_dialogue_instructions(
+    turns: list[tuple[str, str]], delivery_plan: list[dict] | None,
+) -> list[str]:
+    """Use the reviewed director plan only when it still matches the approved text."""
+    if isinstance(delivery_plan, list) and len(delivery_plan) == len(turns):
+        instructions: list[str] = []
+        for (speaker, text), item in zip(turns, delivery_plan):
+            if not isinstance(item, dict):
+                break
+            if str(item.get("speaker") or "").strip() != speaker:
+                break
+            if str(item.get("text") or "").strip() != text:
+                break
+            instruction = str(item.get("instruction") or "").strip()
+            if not instruction:
+                break
+            instructions.append(instruction)
+        if len(instructions) == len(turns):
+            return instructions
+    return [_dialogue_delivery_instruction(speaker, text) for speaker, text in turns]
 
 
 async def _synthesize_dialogue_detailed(
@@ -462,13 +502,16 @@ async def _synthesize_dialogue_detailed(
     provider: str | None = None, model: str | None = None,
     secondary_provider: str | None = None, secondary_model: str | None = None,
     emotion_profile: str | None = None,
+    delivery_plan: list[dict] | None = None,
 ) -> tuple[bytes, list[dict], list[dict]]:
     audio_parts: list[bytes] = []
     merged_segments: list[dict] = []
     batches: list[dict] = []
     time_offset = 0.0
     char_offset = 0
-    for index, (speaker, turn) in enumerate(_dialogue_turns(text)):
+    turns = _dialogue_turns(text)
+    instructions = _aligned_dialogue_instructions(turns, delivery_plan)
+    for index, ((speaker, turn), instruction) in enumerate(zip(turns, instructions)):
         use_secondary = speaker == "嘉宾"
         audio, segments, turn_batches = await _synthesize_detailed(
             turn,
@@ -477,7 +520,8 @@ async def _synthesize_dialogue_detailed(
             secondary_model if use_secondary else model,
             emotion_profile,
             speaker,
-            _dialogue_delivery_instruction(speaker, turn),
+            instruction,
+            True,
         )
         duration = sum(float(batch["duration"]) for batch in turn_batches)
         audio_parts.append(audio)
@@ -568,11 +612,13 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error="双人口播需要配置第二音色")
         return "failed", None
     if narration_mode == "dual_dialogue":
+        delivery_plan = _get_final_delivery_plan(task_id)
         audio, sentence_segments, batches = asyncio.run(_synthesize_dialogue_detailed(
             rewrite_text, voice, secondary_voice, provider, model,
             tts_params.get("secondary_provider") or provider,
             tts_params.get("secondary_model") or model,
             emotion_profile,
+            delivery_plan,
         ))
         text = "\n".join(turn for _speaker, turn in _dialogue_turns(rewrite_text))
         cta = ""
