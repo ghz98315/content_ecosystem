@@ -40,6 +40,13 @@ class CosyVoiceSsmlTests(unittest.TestCase):
         self.assertIn('<speak rate="1.03" pitch="1.12" volume="56">', host)
         self.assertIn('<speak rate="0.99" pitch="1.05" volume="54">', guest)
 
+    def test_dialogue_uses_shorter_turn_timing_than_single_narration(self):
+        dialogue = _cosyvoice_ssml("先说这个，再说那个。真的吗？", "body", "主持人")
+        self.assertIn('<break time="160ms"/>', dialogue)
+        self.assertIn('<break time="380ms"/>', dialogue)
+        self.assertIn('<break time="420ms"/>', dialogue)
+        self.assertNotIn('<break time="800ms"/>', dialogue)
+
     def test_dialogue_delivery_is_role_specific_and_does_not_change_pause_policy(self):
         host = _dialogue_delivery_instruction("主持人", "那这件事为什么值得注意？")
         guest = _dialogue_delivery_instruction("嘉宾", "咱们可以从日常习惯慢慢拆开看。")

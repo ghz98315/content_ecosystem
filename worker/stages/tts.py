@@ -27,6 +27,17 @@ _PART_ATTEMPTS = max(1, int(os.environ.get("TTS_PART_ATTEMPTS", "3")))
 
 _clean_tts_text = clean_tts_text
 _COSY_WARM_NARRATIVE = "cosy_warm_narrative_v3"
+_NARRATION_PAUSES = (
+    (r"(……|\.\.\.)\s*", "900ms"), (r"(——|—)\s*", "700ms"),
+    (r"([，、,])\s*", "300ms"), (r"([；：;:])\s*", "450ms"),
+    (r"([。\.])\s*", "800ms"), (r"([！？!?])\s*", "900ms"),
+    (r'([“”"‘’\'])', "150ms"),
+)
+_DIALOGUE_PAUSES = (
+    (r"(……|\.\.\.)\s*", "450ms"), (r"(——|—)\s*", "250ms"),
+    (r"([，、,])\s*", "160ms"), (r"([；：;:])\s*", "220ms"),
+    (r"([。\.])\s*", "380ms"), (r"([！？!?])\s*", "420ms"),
+)
 
 
 def _cosyvoice_ssml(text: str, position: str, speaker: str | None = None) -> str:
@@ -77,12 +88,8 @@ def _cosyvoice_ssml(text: str, position: str, speaker: str | None = None) -> str
         return marker
 
     spoken = text.strip()
-    for pattern, duration in (
-        (r"(……|\.\.\.)\s*", "900ms"), (r"(——|—)\s*", "700ms"),
-        (r"([，、,])\s*", "300ms"), (r"([；：;:])\s*", "450ms"),
-        (r"([。\.])\s*", "800ms"), (r"([！？!?])\s*", "900ms"),
-        (r'([“”"‘’\'])', "150ms"),
-    ):
+    pause_profile = _DIALOGUE_PAUSES if speaker else _NARRATION_PAUSES
+    for pattern, duration in pause_profile:
         spoken = re.sub(pattern, lambda match, d=duration: add_pause(match, d), spoken)
     escaped = html.escape(spoken, quote=False)
     for marker, tag in markers:
