@@ -234,30 +234,25 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
     return () => { active = false; };
   }, [stage?.status, taskId]);
 
-  const download = async () => {
+  const download = () => {
     if (!videoUrl) return;
     setDownloadBusy(true);
     setDownloadError(null);
     try {
-      // Browsers may ignore `download` on the cross-origin Supabase signed URL
-      // and play the video instead. A same-origin Blob URL reliably downloads.
-      const response = await fetch(videoUrl);
-      if (!response.ok) throw new Error("视频文件读取失败");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(new Blob([blob], { type: "video/mp4" }));
       const link = document.createElement("a");
-      link.href = url;
+      // The signed source URL is already downloadable in the video player.
+      // Avoid fetching the complete MP4 into a Blob before starting the download.
+      link.href = videoUrl;
       const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
       const title = (bookName || task.title?.trim() || "成片").replace(/[\\\\/:*?"<>|]/g, "_");
       link.download = `${title}_${date}.mp4`;
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (error) {
       setDownloadError(error instanceof Error ? error.message : "视频下载失败，请重试");
     } finally {
-      setDownloadBusy(false);
+      window.setTimeout(() => setDownloadBusy(false), 0);
     }
   };
 
@@ -312,7 +307,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       errorTone="warning"
       actions={
         <>
-          {videoUrl && <TextBtn variant="primary" onClick={() => void download()} disabled={downloadBusy}>{downloadBusy ? "正在下载…" : "下载视频"}</TextBtn>}
+          {videoUrl && <TextBtn variant="primary" onClick={download} disabled={downloadBusy}>{downloadBusy ? "正在下载…" : "下载视频"}</TextBtn>}
           {videoUrl && canApprove && (
             <TextBtn variant="primary" onClick={() => onApprove(stage!.id, "render")}>
               人工审核通过
