@@ -107,6 +107,11 @@ class CosyVoice2Provider:
             or os.environ.get("COSYVOICE_VOICE", "").strip()
         )
         self.timeout = max(15.0, float(os.environ.get("COSYVOICE2_TIMEOUT", "120")))
+        self.instruction = (
+            os.environ.get("DASHSCOPE_INSTRUCTION", "").strip()
+            or os.environ.get("COSYVOICE_INSTRUCTION", "").strip()
+            or "请用自然、温和、生活化的中文口吻朗读，像经验丰富的中年主持人在与观众交流；问句自然上扬，重点词适度强调，句末自然收束，情绪有细微起伏，停顿克制，不要机械逐字念读。"
+        )
 
         dashscope_endpoint = os.environ.get("DASHSCOPE_ENDPOINT", "").strip()
         workspace = os.environ.get("DASHSCOPE_WORKSPACE_ID", "").strip()
@@ -169,6 +174,7 @@ class CosyVoice2Provider:
                     "format": "mp3",
                     "sample_rate": 22050,
                     "enable_ssml": ssml_enabled,
+                    "instruction": self.instruction,
                 },
             }
         else:

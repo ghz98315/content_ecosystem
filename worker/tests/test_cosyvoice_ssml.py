@@ -63,6 +63,7 @@ class CosyVoiceSsmlTests(unittest.TestCase):
             _audio, boundaries, _duration = asyncio.run(get_tts_provider("cosyvoice2", allow_experimental=True).synthesize('<speak rate="0.94">你好<break time="260ms"/>世界</speak>', "voice"))
 
         self.assertTrue(captured["request"]["input"]["enable_ssml"])
+        self.assertIn("自然、温和、生活化", captured["request"]["input"]["instruction"])
         self.assertEqual("你好世界", boundaries[0]["text"])
 
 
