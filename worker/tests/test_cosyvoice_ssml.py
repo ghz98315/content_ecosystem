@@ -5,7 +5,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from stages.tts import _COSY_WARM_NARRATIVE, _cosyvoice_ssml
+from stages.tts import _COSY_WARM_NARRATIVE, _cosyvoice_ssml, _dialogue_delivery_instruction
 from tts_providers import get_tts_provider
 
 
@@ -40,6 +40,14 @@ class CosyVoiceSsmlTests(unittest.TestCase):
         self.assertIn('<speak rate="1.03" pitch="1.12" volume="56">', host)
         self.assertIn('<speak rate="0.99" pitch="1.05" volume="54">', guest)
 
+    def test_dialogue_delivery_is_role_specific_and_does_not_change_pause_policy(self):
+        host = _dialogue_delivery_instruction("主持人", "那这件事为什么值得注意？")
+        guest = _dialogue_delivery_instruction("嘉宾", "咱们可以从日常习惯慢慢拆开看。")
+        self.assertIn("好奇地提问", host)
+        self.assertIn("耐心聊天的嘉宾", guest)
+        self.assertIn("不自行增加或拉长停顿", host)
+        self.assertIn("不自行增加或拉长停顿", guest)
+
     def test_dashscope_request_enables_ssml_and_keeps_plain_alignment_text(self):
         captured = {}
 
@@ -60,10 +68,10 @@ class CosyVoiceSsmlTests(unittest.TestCase):
 
         env = {"DASHSCOPE_API_KEY": "key", "DASHSCOPE_MODEL": "cosyvoice-v3.5-flash", "DASHSCOPE_VOICE": "voice", "DASHSCOPE_ENDPOINT": "https://tts.example"}
         with patch.dict(os.environ, env, clear=True), patch("tts_providers.httpx.AsyncClient", Client), patch("tts_providers._probe_duration", return_value=1.0):
-            _audio, boundaries, _duration = asyncio.run(get_tts_provider("cosyvoice2", allow_experimental=True).synthesize('<speak rate="0.94">你好<break time="260ms"/>世界</speak>', "voice"))
+            _audio, boundaries, _duration = asyncio.run(get_tts_provider("cosyvoice2", allow_experimental=True).synthesize('<speak rate="0.94">你好<break time="260ms"/>世界</speak>', "voice", "测试用的逐轮指令"))
 
         self.assertTrue(captured["request"]["input"]["enable_ssml"])
-        self.assertIn("不要像背书或表演", captured["request"]["input"]["instruction"])
+        self.assertEqual("测试用的逐轮指令", captured["request"]["input"]["instruction"])
         self.assertEqual("你好世界", boundaries[0]["text"])
 
 

@@ -15,7 +15,9 @@ import imageio_ffmpeg
 
 
 class TTSProvider(Protocol):
-    async def synthesize(self, text: str, voice: str) -> tuple[bytes, list[dict], float]:
+    async def synthesize(
+        self, text: str, voice: str, instruction: str | None = None,
+    ) -> tuple[bytes, list[dict], float]:
         """Return audio bytes, provider boundaries, and decoded duration."""
 
 
@@ -35,7 +37,9 @@ def _probe_duration(path: str, segments: list[dict]) -> float:
 
 
 class EdgeTTSProvider:
-    async def synthesize(self, text: str, voice: str) -> tuple[bytes, list[dict], float]:
+    async def synthesize(
+        self, text: str, voice: str, instruction: str | None = None,
+    ) -> tuple[bytes, list[dict], float]:
         import edge_tts
 
         fd_mp3, mp3_path = tempfile.mkstemp(suffix=".mp3")
@@ -147,7 +151,9 @@ class CosyVoice2Provider:
         url = payload.get("url") or payload.get("audio_url")
         return None, str(url) if url else None
 
-    async def synthesize(self, text: str, voice: str) -> tuple[bytes, list[dict], float]:
+    async def synthesize(
+        self, text: str, voice: str, instruction: str | None = None,
+    ) -> tuple[bytes, list[dict], float]:
         use_dashscope = bool(
             self.dashscope_api_key and self.dashscope_model and self.dashscope_endpoint
         )
@@ -174,7 +180,7 @@ class CosyVoice2Provider:
                     "format": "mp3",
                     "sample_rate": 22050,
                     "enable_ssml": ssml_enabled,
-                    "instruction": self.instruction,
+                    "instruction": instruction.strip() if instruction else self.instruction,
                 },
             }
         else:

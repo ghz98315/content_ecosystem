@@ -188,24 +188,32 @@ def _probe_audio_duration(path: str) -> float:
     raise ValueError("无法读取 TTS 分段音频时长")
 
 
-async def _synthesize_part(text: str, voice: str) -> tuple[bytes, list[dict], float]:
+async def _synthesize_part(text: str, voice: str, instruction: str | None = None) -> tuple[bytes, list[dict], float]:
     """Synthesize one part through the selected provider boundary."""
-    return await get_tts_provider(config.TTS_PROVIDER).synthesize(text, voice)
+    client = get_tts_provider(config.TTS_PROVIDER)
+    return await (client.synthesize(text, voice, instruction) if instruction else client.synthesize(text, voice))
 
 
-async def _synthesize_part_via_provider(text: str, voice: str, provider: str | None = None, model: str | None = None) -> tuple[bytes, list[dict], float]:
+async def _synthesize_part_via_provider(text: str, voice: str, provider: str | None = None, model: str | None = None, instruction: str | None = None) -> tuple[bytes, list[dict], float]:
     """Provider-aware boundary kept separate so older test doubles remain valid."""
     kwargs = {"model": model} if model else {}
-    return await get_tts_provider(provider or config.TTS_PROVIDER, **kwargs).synthesize(text, voice)
+    client = get_tts_provider(provider or config.TTS_PROVIDER, **kwargs)
+    return await (client.synthesize(text, voice, instruction) if instruction else client.synthesize(text, voice))
 
 
-async def _synthesize_part_with_retry(text: str, voice: str, provider: str | None = None, model: str | None = None) -> tuple[bytes, list[dict], float]:
+async def _synthesize_part_with_retry(text: str, voice: str, provider: str | None = None, model: str | None = None, instruction: str | None = None) -> tuple[bytes, list[dict], float]:
     """Bound each provider request so one stalled segment cannot block the task."""
     last_error: Exception | None = None
     for attempt in range(_PART_ATTEMPTS):
         try:
             runner = _synthesize_part if provider in (None, "", config.TTS_PROVIDER) and not model else _synthesize_part_via_provider
-            return await asyncio.wait_for(runner(text, voice) if runner is _synthesize_part else runner(text, voice, provider, model), timeout=_PART_TIMEOUT)
+            call = (
+                runner(text, voice, instruction) if instruction else runner(text, voice)
+            ) if runner is _synthesize_part else (
+                runner(text, voice, provider, model, instruction) if instruction
+                else runner(text, voice, provider, model)
+            )
+            return await asyncio.wait_for(call, timeout=_PART_TIMEOUT)
         except Exception as exc:  # edge-tts exposes several transport exception types
             last_error = exc
             if attempt == _PART_ATTEMPTS - 1:
@@ -345,6 +353,7 @@ def _build_subtitle_cues(
 async def _synthesize_detailed(
     text: str, voice: str, provider: str | None = None, model: str | None = None,
     emotion_profile: str | None = None, speaker: str | None = None,
+    delivery_instruction: str | None = None,
 ) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
     parts = _split_tts_segments(text)
@@ -361,7 +370,9 @@ async def _synthesize_detailed(
             if is_cosyvoice and emotion_profile == _COSY_WARM_NARRATIVE:
                 position = "hook" if index == 0 else "close" if index == len(parts) - 1 else "body"
                 request_text = _cosyvoice_ssml(spoken_part, position, speaker)
-            return await _synthesize_part_with_retry(request_text, voice, provider, model)
+            return await _synthesize_part_with_retry(
+                request_text, voice, provider, model, delivery_instruction,
+            )
 
     results = await asyncio.gather(*(synthesize_limited(index, part, spoken) for index, (part, spoken) in enumerate(zip(parts, spoken_parts))))
     merged_segments: list[dict] = []
@@ -422,6 +433,23 @@ def _dialogue_turns(text: str) -> list[tuple[str, str]]:
     return turns
 
 
+def _dialogue_delivery_instruction(speaker: str, text: str) -> str:
+    """Keep role direction specific but restrained for each podcast turn."""
+    if speaker == "主持人":
+        if "？" in text or "?" in text:
+            role = "请像日常聊天时真心好奇地提问，语速平稳，问句自然轻微上扬。"
+        elif re.search(r"(对|是啊|可不是|这话说得对|明白了)", text):
+            role = "请像日常聊天时自然附和和承接，不抢戏，不刻意强调。"
+        else:
+            role = "请像日常聊天中的主持人一样轻松承接，语气温和、平实。"
+    else:
+        role = "请像耐心聊天的嘉宾一样平实拆解和解释，语速从容，用正常交流口吻。"
+    return (
+        f"{role} 语调只随语义自然起伏，不要播音腔、背书感或表演感。"
+        "严格遵从文本中的 SSML break 停顿，不自行增加或拉长停顿。"
+    )
+
+
 async def _synthesize_dialogue_detailed(
     text: str, primary_voice: str, secondary_voice: str,
     provider: str | None = None, model: str | None = None,
@@ -442,6 +470,7 @@ async def _synthesize_dialogue_detailed(
             secondary_model if use_secondary else model,
             emotion_profile,
             speaker,
+            _dialogue_delivery_instruction(speaker, turn),
         )
         duration = sum(float(batch["duration"]) for batch in turn_batches)
         audio_parts.append(audio)
