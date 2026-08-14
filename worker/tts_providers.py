@@ -110,7 +110,7 @@ class CosyVoice2Provider:
         self.instruction = (
             os.environ.get("DASHSCOPE_INSTRUCTION", "").strip()
             or os.environ.get("COSYVOICE_INSTRUCTION", "").strip()
-            or "请用自然、温和、生活化的中文口吻朗读，像经验丰富的中年主持人在与观众交流；问句自然上扬，重点词适度强调，句末自然收束，情绪有细微起伏，停顿克制，不要机械逐字念读。"
+            or "请像两个人日常聊天一样，用自然、平实、温和的中文口吻表达；语调跟随语义有正常起伏，问句自然上扬，句末自然收束。不要刻意强调，不要播音腔，不要像背书或表演。严格遵从文本中的 SSML break 停顿，不自行增加或拉长停顿。"
         )
 
         dashscope_endpoint = os.environ.get("DASHSCOPE_ENDPOINT", "").strip()
