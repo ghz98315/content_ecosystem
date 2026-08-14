@@ -22,6 +22,7 @@ from prompt_profiles import (
 
 _CAND_RE = re.compile(r"【候选[ABC]】\s*(.*?)(?=【候选[ABC]】|$)", re.DOTALL)
 _client = None
+_MAX_COSYVOICE_INSTRUCTION_UNITS = 100
 
 
 def _request_rewrite(**kwargs):
@@ -89,6 +90,40 @@ def _parse_candidates(raw: str) -> list[str]:
     return matches if matches else []
 
 
+def _instruction_units(value: str) -> int:
+    """DashScope counts CJK characters as two instruction characters."""
+    return sum(2 if "\u4e00" <= char <= "\u9fff" else 1 for char in value)
+
+
+def _dialogue_delivery_plan(raw: str, text: str) -> list[dict] | None:
+    """Validate editable text and machine-readable podcast direction stay aligned."""
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    plan = payload.get("delivery_plan") if isinstance(payload, dict) else None
+    if not isinstance(plan, list) or not plan:
+        return None
+    normalized: list[dict] = []
+    lines: list[str] = []
+    for item in plan:
+        if not isinstance(item, dict):
+            return None
+        speaker = str(item.get("speaker") or "").strip()
+        turn_text = str(item.get("text") or "").strip()
+        instruction = str(item.get("instruction") or "").strip()
+        if speaker not in {"主持人", "嘉宾"} or not turn_text or not instruction:
+            return None
+        if _instruction_units(instruction) > _MAX_COSYVOICE_INSTRUCTION_UNITS:
+            return None
+        normalized.append({"speaker": speaker, "text": turn_text, "instruction": instruction})
+        lines.append(f"{speaker}：{turn_text}")
+    expected = "\n".join(lines)
+    if re.sub(r"\s+", "", expected) != re.sub(r"\s+", "", text or ""):
+        return None
+    return normalized
+
+
 def _rewrite_structure(raw: str, text: str) -> dict:
     """Optional presentation metadata; the plain text contract stays canonical."""
     try:
@@ -102,7 +137,12 @@ def _rewrite_structure(raw: str, text: str) -> dict:
         paragraphs = [item.strip() for item in re.split(r"\n\s*\n|\n", text) if item.strip()]
     if not hook:
         hook = paragraphs[0] if paragraphs else text[:120]
-    return {"hook": hook, "hook_strategy": strategy or "counter_intuitive", "paragraphs": paragraphs}
+    return {
+        "hook": hook,
+        "hook_strategy": strategy or "counter_intuitive",
+        "paragraphs": paragraphs,
+        "delivery_plan": _dialogue_delivery_plan(raw, text),
+    }
 
 
 def _dialogue_structure_issues(text: str) -> list[str]:
@@ -247,14 +287,17 @@ def _generate_candidates(
         choice = resp.choices[0]
         raw = (choice.message.content or "").strip()
         candidates = _parse_candidates(raw)
+        structure = _rewrite_structure(raw, candidates[0]) if candidates else {}
         last_issues = _candidate_issues(
             candidates, source, getattr(choice, "finish_reason", None), mode, context["category"], narration_mode
         )
+        if narration_mode == "dual_dialogue" and not structure.get("delivery_plan"):
+            last_issues.append("双人播客未输出与对话稿一致的逐轮语气指令")
         if not last_issues:
             return (
                 candidates,
                 [_text_len(text) for text in candidates],
-                _rewrite_structure(raw, candidates[0]),
+                structure,
             )
     raise ValueError("改写稿完整性检查失败：" + "；".join(last_issues))
 
@@ -430,6 +473,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "content_category": context["category"],
         "rewrite_mode": mode,
         "narration_mode": narration_mode,
+        "delivery_plan": structure.get("delivery_plan"),
         "source_task_id": source_task_id or None,
         "compliance": report,
         **structure,

@@ -18,6 +18,22 @@ class RewriteConfirmationTests(unittest.TestCase):
         self.assertTrue(rewrite._dialogue_structure_issues("主持人：为什么？\n主持人：我再说一句。\n嘉宾：回答。\n主持人：总结。"))
         self.assertTrue(rewrite._dialogue_structure_issues("主持人：这是一个很长的问题吗？\n嘉宾：这是回答。\n主持人：那怎么办？\n嘉宾：这是回答。"))
 
+    def test_dialogue_delivery_plan_requires_exact_turns_and_short_instructions(self):
+        text = "主持人：为什么会这样？\n嘉宾：咱们先从日常习惯慢慢看。"
+        raw = json.dumps({
+            "text": text,
+            "delivery_plan": [
+                {"speaker": "主持人", "text": "为什么会这样？", "instruction": "轻松好奇地问，句尾自然上扬"},
+                {"speaker": "嘉宾", "text": "咱们先从日常习惯慢慢看。", "instruction": "耐心平实地解释，像聊天"},
+            ],
+        }, ensure_ascii=False)
+        plan = rewrite._dialogue_delivery_plan(raw, text)
+        self.assertEqual("主持人", plan[0]["speaker"])
+        self.assertEqual("耐心平实地解释，像聊天", plan[1]["instruction"])
+
+        mismatched = raw.replace("为什么会这样？", "这是什么原因？")
+        self.assertIsNone(rewrite._dialogue_delivery_plan(mismatched, text))
+
     def test_dialogue_title_instruction_only_applies_to_dialogue_tasks(self):
         with patch("stages.book.db.get_task_prompt_context", return_value={"narration_mode": "dual_dialogue"}):
             self.assertIn("双人对谈", book._dialogue_title_instruction("task-id"))

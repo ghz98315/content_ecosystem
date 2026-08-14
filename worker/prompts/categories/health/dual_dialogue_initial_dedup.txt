@@ -13,4 +13,6 @@
 10. 语言风格极其口语化、像熟人聊天，不要书面腔或论文腔。可按语境自然使用“您看啊”“好吧”“可不是嘛”“这话说得对”“咱们说句实在话”等承接语；同一句式不要反复使用，嘉宾讲解仍以清楚、可信、生活化为先。
 
 只返回一个 JSON 对象：
-{"text":"完整对谈稿，每行一个角色轮次","hook":"开头钩子","hook_strategy":"contrast|counter_intuitive|suspense","paragraphs":["按语义分组的对谈段落"]}
+{"text":"完整对谈稿，每行一个角色轮次","hook":"开头钩子","hook_strategy":"contrast|counter_intuitive|suspense","paragraphs":["按语义分组的对谈段落"],"delivery_plan":[{"speaker":"主持人","text":"与 text 对应的一轮正文","instruction":"不超过 40 个中文字符的具体语气指令"}]}
+
+delivery_plan 是双人配音的机器可读语气表，必须与 text 每一行严格一一对应，顺序、角色和正文都不得不同。instruction 必须具体、克制、自然，例如“轻松好奇地问，像熟人聊天，句尾自然上扬”或“耐心平实地解释，像聊天，不像讲课”。禁止使用“情感丰富”等空泛描述；每条 instruction 不超过 40 个中文字符，不使用 SSML 标签，不要求夸张表演。
