@@ -68,6 +68,11 @@ def _hook_preservation_issue(hook: str, cleaned: str) -> str | None:
     return None
 
 
+def _clean_quality_result(raw: str, cleaned: str, hook: str) -> tuple[str | None, str | None]:
+    """Return a blocking content issue and a non-blocking hook warning."""
+    return _clean_output_issue(raw, cleaned), _hook_preservation_issue(hook, cleaned)
+
+
 def _summarize_changes(raw: str, cleaned: str, limit: int = 24) -> dict:
     """Keep a compact, reviewable record of deleted/replaced source spans."""
     segments = []
@@ -189,7 +194,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     )
 
     cleaned = _to_simplified_chinese(_request_clean(prompt, user_prompt))
-    quality_issue = _clean_output_issue(raw_text, cleaned) or _hook_preservation_issue(opening_hook, cleaned)
+    quality_issue, hook_warning = _clean_quality_result(raw_text, cleaned, opening_hook)
     if quality_issue and _EXPANSION_RETRY and "异常扩写" in quality_issue:
         retry_prompt = (
             prompt
@@ -199,7 +204,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         )
         retry_user = user_prompt + "\n\n上一版超长输出（仅用于定位新增内容，不得照抄）：\n" + cleaned
         cleaned = _to_simplified_chinese(_request_clean(retry_prompt, retry_user))
-        quality_issue = _clean_output_issue(raw_text, cleaned) or _hook_preservation_issue(opening_hook, cleaned)
+        quality_issue, hook_warning = _clean_quality_result(raw_text, cleaned, opening_hook)
 
     data = json.dumps(
         {
@@ -210,6 +215,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "opening_hook_seconds": 10,
             "change_summary": _summarize_changes(raw_text, cleaned),
             "quality_issue": quality_issue,
+            "quality_warning": hook_warning,
         },
         ensure_ascii=False,
         indent=2,
@@ -225,6 +231,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "content_category": context["category"],
         "opening_hook": opening_hook[:500],
         "quality_issue": quality_issue,
+        "quality_warning": hook_warning,
     })
     if quality_issue:
         db.set_stage(stage["id"], "failed", output_ref=sp, error=quality_issue)

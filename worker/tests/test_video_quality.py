@@ -16,7 +16,7 @@ import db
 import main as worker_main
 import stages.image as image_stage
 from compliance import check_text, scan_text
-from stages.clean import _clean_output_issue, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes, _to_simplified_chinese
+from stages.clean import _clean_output_issue, _clean_quality_result, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes, _to_simplified_chinese
 from prompt_profiles import (
     derive_keyword,
     load_compliance_rules,
@@ -274,9 +274,14 @@ class CleanSummaryTests(unittest.TestCase):
         ]}
         self.assertEqual("开头反常识。先别急着相信。", _extract_opening_hook(transcript))
 
-    def test_clean_rejects_when_opening_hook_is_missing(self):
-        issue = _hook_preservation_issue("先别急着相信，这个习惯可能有问题。", "正文从第二个观点开始。")
-        self.assertIn("开头钩子", issue or "")
+    def test_clean_detects_missing_opening_hook_as_non_blocking_warning(self):
+        blocking, warning = _clean_quality_result(
+            "正文从第二个观点开始。",
+            "正文从第二个观点开始。",
+            "先别急着相信，这个习惯可能有问题。",
+        )
+        self.assertIsNone(blocking)
+        self.assertIn("开头钩子", warning or "")
 
 
 class PromptProfileTests(unittest.TestCase):
