@@ -13,7 +13,7 @@ class CosyVoiceSsmlTests(unittest.TestCase):
     def test_warm_narrative_ssml_uses_restrained_prosody_and_escapes_text(self):
         ssml = _cosyvoice_ssml("先听我说。A&B", "hook")
         self.assertIn('<speak rate="0.99" pitch="1.06" volume="55">', ssml)
-        self.assertIn('<break time="160ms"/>', ssml)
+        self.assertIn('<break time="800ms"/>', ssml)
         self.assertIn("A&amp;B", ssml)
         self.assertEqual("cosy_warm_narrative_v3", _COSY_WARM_NARRATIVE)
 
@@ -24,8 +24,15 @@ class CosyVoiceSsmlTests(unittest.TestCase):
         self.assertIn('<speak rate="0.98" pitch="0.97" volume="53">', alert)
         self.assertIn('<speak rate="0.96" pitch="1.01" volume="51">', comfort)
         self.assertIn('<speak rate="1.01" pitch="1.04" volume="54">', affirm)
-        self.assertIn('<break time="120ms"/>', alert)
-        self.assertNotIn('<break time="100ms"/>', comfort)
+        self.assertIn('<break time="300ms"/>', alert)
+        self.assertIn('<break time="800ms"/>', comfort)
+
+    def test_ssml_pause_profile_matches_approved_punctuation_durations(self):
+        ssml = _cosyvoice_ssml('您看啊，先说清楚：这不是——吓唬人……“慢一点”。好吧？', "body")
+        for duration in ("300ms", "450ms", "700ms", "800ms", "900ms", "150ms"):
+            self.assertIn(f'<break time="{duration}"/>', ssml)
+        self.assertNotIn("，", ssml)
+        self.assertNotIn("。", ssml)
 
     def test_dialogue_ssml_uses_distinct_host_and_guest_delivery(self):
         host = _cosyvoice_ssml("这个反差为什么值得注意？", "hook", "主持人")

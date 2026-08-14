@@ -63,12 +63,30 @@ def _cosyvoice_ssml(text: str, position: str, speaker: str | None = None) -> str
         "plain": ("1.00", "1.00", "52"), "close": ("0.97", "1.01", "51"),
     }
     rate, pitch, volume = presets[profile]
-    escaped = html.escape(text.strip(), quote=False)
-    # Breaks are intentionally sparse: the prior per-punctuation pauses added
-    # roughly 30 seconds to long scripts without producing real expression.
-    escaped = re.sub(r"([；：])\s*", r'\1<break time="100ms"/>', escaped)
-    escaped = re.sub(r"(但是|其实|所以|因此|反而|不是|而是|别急|注意|重点是|换句话说)", r'<break time="120ms"/>\1', escaped)
-    escaped = re.sub(r"([。！？])\s*", r'\1<break time="160ms"/>', escaped)
+    # Match the approved pause profile. Do not add mechanical pauses before
+    # transition words: punctuation and the role-specific prosody already
+    # provide the needed phrasing.
+    markers: list[tuple[str, str]] = []
+
+    def add_pause(match: re.Match[str], duration: str) -> str:
+        marker = f"@@COSY_PAUSE_{len(markers)}@@"
+        markers.append((marker, f'<break time="{duration}"/>'))
+        # Do not retain punctuation in the SSML input. CosyVoice otherwise
+        # applies its own punctuation pause before our explicit break, making
+        # the audible stop longer than the approved duration.
+        return marker
+
+    spoken = text.strip()
+    for pattern, duration in (
+        (r"(……|\.\.\.)\s*", "900ms"), (r"(——|—)\s*", "700ms"),
+        (r"([，、,])\s*", "300ms"), (r"([；：;:])\s*", "450ms"),
+        (r"([。\.])\s*", "800ms"), (r"([！？!?])\s*", "900ms"),
+        (r'([“”"‘’\'])', "150ms"),
+    ):
+        spoken = re.sub(pattern, lambda match, d=duration: add_pause(match, d), spoken)
+    escaped = html.escape(spoken, quote=False)
+    for marker, tag in markers:
+        escaped = escaped.replace(marker, tag)
     return f'<speak rate="{rate}" pitch="{pitch}" volume="{volume}">{escaped}</speak>'
 
 
