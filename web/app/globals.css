@@ -663,3 +663,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .mobile-sidebar-trigger { display: grid; position: fixed; z-index: 110; top: 12px; left: 12px; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-secondary); box-shadow: var(--shadow-sm); font-size: 18px; line-height: 1; }
   .mobile-sidebar-backdrop { display: block; position: fixed; z-index: 115; inset: 0; border: 0; background: rgba(15, 23, 42, .25); }
 }
+
+/* Production choices belong to one responsive settings grid. */
+.collection-import[aria-label="内容生产设置"] { grid-template-columns: 1fr; }
+.collection-import[aria-label="内容生产设置"] > div:first-child { grid-column: 1; }
+.collection-import[aria-label="内容生产设置"] .collection-import-footer { grid-column: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; justify-content: initial; gap: 16px; }
+.collection-import[aria-label="内容生产设置"] .collection-voice-setting { min-width: 0; }
+.collection-import[aria-label="内容生产设置"] .collection-voice-setting select, .collection-import[aria-label="内容生产设置"] .collection-voice-preview audio { width: 100%; }
+@media (max-width: 1120px) { .collection-import[aria-label="内容生产设置"] .collection-import-footer { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
