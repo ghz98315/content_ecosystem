@@ -84,6 +84,19 @@ _UNIFORM_MAP = {
     "巡逻": "安静散步与社区关怀场景",
 }
 
+_SENSITIVE_VISUAL_MAP = {
+    "孤独死": "独居生活与邻里支持",
+    "孤独地死去": "独居生活与邻里支持",
+    "死在屋里": "独居在家生活",
+    "丈夫去世": "家庭关系变化",
+    "丈夫离世": "家庭关系变化",
+    "去世": "家庭关系变化",
+    "离世": "家庭关系变化",
+    "死亡": "人生变化",
+    "死后": "生活变化后",
+    "丧偶": "独居生活",
+}
+
 def _medical_safe(sentence: str) -> str:
     """把敏感病症替换为生活隐喻，避免平台限流。"""
     desc = sentence
@@ -96,12 +109,21 @@ def _medical_safe(sentence: str) -> str:
     for kw in sorted(_UNIFORM_MAP, key=len, reverse=True):
         if kw in desc:
             desc = desc.replace(kw, _UNIFORM_MAP[kw])
+    for kw in sorted(_SENSITIVE_VISUAL_MAP, key=len, reverse=True):
+        if kw in desc:
+            desc = desc.replace(kw, _SENSITIVE_VISUAL_MAP[kw])
     return desc
 
 
 def _is_safety_block(error: Exception) -> bool:
     message = str(error).lower()
-    return any(token in message for token in ("safety_violation", "moderation_blocked", "self-harm"))
+    return any(token in message for token in (
+        "safety_violation", "moderation_blocked", "self-harm",
+        # APIMart currently reports moderation rejects as a generic task_failed
+        # payload with message=unknown, so treat that provider-specific shape
+        # as eligible for the existing safe-scene retry.
+        "apimart image task failed: task_failed:",
+    ))
 
 
 def _safe_fallback_scenes(count: int, category: str) -> list[str]:
@@ -215,6 +237,11 @@ _CELL_EDGE_INSET_RATIO = 0.02
 _IMAGE_SPLIT_VERSION = 2
 
 
+def _image_prompt_settings(stage: dict) -> tuple[str, str]:
+    params = stage.get("params") or {}
+    return str(params.get("visual_style") or "warm_editorial"), str(params.get("reference_mode") or "none")
+
+
 def _visual_scene(scene: str) -> str:
     """Reduce prompt fragments that commonly make image models draw garbled text."""
     scene = re.sub(r"《[^》]*》", "一本素色无字封面的书", scene or "")
@@ -222,7 +249,20 @@ def _visual_scene(scene: str) -> str:
     scene = re.sub(r"\d+(?:\.\d+)?", "", scene)
     return _medical_safe(scene).strip() or "安静明亮的自然生活空镜"
 
-def _build_grid_prompt(scenes: list[str], category: str = "health") -> str:
+_VISUAL_STYLE_DIRECTIONS = {
+    "warm_editorial": "warm editorial illustration, soft natural light, medium saturation, restrained composition",
+    "documentary": "clean contemporary documentary photography, natural light, low drama, clear subject",
+    "clean_modern": "bright modern editorial illustration, simple composition, clear silhouettes, mobile-first framing",
+    "ink_story": "restrained modern ink illustration, low saturation, paper texture, quiet narrative focus",
+}
+
+
+def _build_grid_prompt(
+    scenes: list[str],
+    category: str = "health",
+    visual_style: str = "warm_editorial",
+    reference_mode: str = "none",
+) -> str:
     """构建9宫格提示词：1张图包含3×3=9个独立场景，从左到右从上到下编号。"""
     padded = list(scenes[:_GRID * _GRID])
     while len(padded) < _GRID * _GRID:
@@ -232,10 +272,16 @@ def _build_grid_prompt(scenes: list[str], category: str = "health") -> str:
         "social_science": "整体改为清晰、克制、有史料感的当代纪实摄影风格；可使用书房、档案、城市、人文场景，避免戏剧化战争、仇恨符号和伪造史料文字。",
         "education": "整体改为清爽、现代、可信赖的商业阅读与工作场景；可使用书桌、会议、图表隐喻和城市办公空间，避免股票涨跌画面、财富炫耀和保证收益暗示。",
     }.get(category, "整体采用温暖叙事油画插画风，细腻可见的油画笔触与高级编辑插画质感，不追求照片级写实。主体绝对突出、背景简洁；使用温暖窗边侧光和柔和明暗层次，色彩中等饱和且明亮通透。适合中老年观众：暖白、浅木色、鼠尾草绿、低饱和砖红和雾蓝为主，可点缀现代轻英伦的格纹织物、木质书架与花园元素。人物为泛化的普通中老年人与家人，优先侧脸、背影、手部和生活动作，不做可识别真人。画面保持现代日常、轻松平和、衣着无标识、人物不戴制式帽子；不使用昏暗、破败、厚重古典暗影、卡通或夸张广告化效果。若场景涉及情绪危机或生命风险，只表现明亮安全的日常支持、家人陪伴、舒缓活动和规律生活；画面保持积极、平和、完整、无危险暗示，不呈现任何令人不安的细节、工具或姿态。")
+    style_direction = _VISUAL_STYLE_DIRECTIONS.get(visual_style, _VISUAL_STYLE_DIRECTIONS["warm_editorial"])
+    reference_direction = {
+        "none": "Keep a consistent palette, lighting, lens language and era across all cells.",
+        "book_cover": "Use the confirmed book cover only as a visual reference for palette, material and era; never reproduce its text or layout.",
+        "scene_continuity": "Keep subjects, clothing, space and lighting consistent across cells as continuous shots from one film.",
+    }.get(reference_mode, "Keep a consistent palette, lighting, lens language and era across all cells.")
     return (
         "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
         "每个格子描绘对应的独立场景，所有格子共享同一套色彩、光线、镜头、材质和时代感。"
-        f"{category_direction}"
+        f"{style_direction}. {category_direction} {reference_direction}"
         "每格按4:3画面构图，主体完整并保持在格子中央安全区域。"
         "九个画面必须无缝、无间距地铺满画布，格子之间不要绘制任何分隔线、白线、黑线、边框或留白。"
         "只生成视觉画面，不得把场景描述绘制进图片；所有书籍封面、屏幕、招牌、包装和背景均保持无字。"
@@ -332,7 +378,12 @@ def _apimart_result_url(payload: dict) -> str | None:
         return None
     status = str(data.get("status") or "").lower()
     if status in ("failed", "error"):
-        raise RuntimeError(f"APIMart image task failed: {data.get('error') or status}")
+        detail = data.get("error") or data.get("message") or status
+        if isinstance(detail, dict):
+            code = detail.get("code") or detail.get("type") or "provider_error"
+            message = detail.get("message") or detail.get("detail") or "unknown"
+            detail = f"{code}: {message}"
+        raise RuntimeError(f"APIMart image task failed: {detail}")
     if status not in ("completed", "succeeded"):
         return None
     result = data.get("result") or {}
@@ -384,7 +435,12 @@ def _generate_grid_bytes(
     stage_id: str = "",
     batch_key: str = "",
 ) -> bytes:
-    base_url = (config.IMAGE_BASE_URL or config.OPENAI_BASE_URL).rstrip("/")
+    client_base_url = getattr(client, "base_url", "")
+    base_url = (
+        str(client_base_url)
+        if isinstance(client_base_url, (str, httpx.URL)) and str(client_base_url).startswith("http")
+        else (config.IMAGE_BASE_URL or config.OPENAI_BASE_URL)
+    ).rstrip("/")
     if "api.apimart.ai" in base_url:
         if not stage_id or not batch_key:
             raise ValueError("APIMart image generation requires a persistent stage and batch key")
@@ -395,6 +451,9 @@ def _generate_grid_bytes(
             and job.get("prompt_sha256") == prompt_sha256
             and job.get("model") == image_model
             and job.get("size") == _GRID_SIZE
+            # Older APIMart jobs predate the explicit field and therefore
+            # used the provider's documented 1k default.
+            and job.get("resolution", "1k") == config.APIMART_IMAGE_RESOLUTION
             and job.get("status") not in {"failed", "safety_blocked"}
         )
         if reusable:
@@ -410,6 +469,7 @@ def _generate_grid_bytes(
                 prompt=prompt,
                 n=1,
                 size=_GRID_SIZE,
+                extra_body={"resolution": config.APIMART_IMAGE_RESOLUTION},
                 extra_headers={"Idempotency-Key": idempotency_key},
             )
             initial = json.loads(raw_response.text)
@@ -424,10 +484,14 @@ def _generate_grid_bytes(
                 "idempotency_key": idempotency_key,
                 "model": image_model,
                 "size": _GRID_SIZE,
+                "resolution": config.APIMART_IMAGE_RESOLUTION,
                 "status": "submitted",
             }
             _save_image_provider_job(stage_id, batch_key, job)
-        api_key = config.IMAGE_API_KEY or config.OPENAI_API_KEY
+        # APIMart uses its own credential. The submission client already has
+        # it, but polling uses httpx directly and must not fall back to the
+        # unrelated text/OpenAI image credential.
+        api_key = config.APIMART_IMAGE_API_KEY
         deadline = time.monotonic() + config.IMAGE_TASK_TIMEOUT
         with httpx.Client(
             headers={"Authorization": f"Bearer {api_key}"}, timeout=30.0
@@ -436,7 +500,13 @@ def _generate_grid_bytes(
                 try:
                     response = http.get(f"{base_url}/tasks/{provider_task_id}")
                     response.raise_for_status()
-                    url = _apimart_result_url(response.json())
+                    try:
+                        url = _apimart_result_url(response.json())
+                    except RuntimeError:
+                        _save_image_provider_job(
+                            stage_id, batch_key, {**job, "status": "failed"}
+                        )
+                        raise
                 except httpx.HTTPStatusError as exc:
                     if exc.response.status_code < 500:
                         raise
@@ -525,7 +595,8 @@ def _run_dialogue_visual(stage: dict, text: str, category: str, client, image_mo
     path = f"{task_id}/dialogue_key_visual.png"
     index_path = f"{task_id}/images_index.json"
     existing = _existing_image_artifacts(task_id)
-    prompt = _build_grid_prompt([_dialogue_visual_scene(category)], category)
+    visual_style, reference_mode = _image_prompt_settings(stage)
+    prompt = _build_grid_prompt([_dialogue_visual_scene(category)], category, visual_style, reference_mode)
     if path not in existing:
         raw = _generate_grid_bytes(
             client, image_model, prompt, stage_id=stage["id"], batch_key="dialogue_key_visual",
@@ -587,9 +658,15 @@ def process_replacement_request(request: dict) -> str:
     scene = str(entry.get("sentence") or entry.get("text") or "").strip()
     if not scene:
         raise ValueError("image sentence missing")
-    client, image_model = config.image_client()
+    stage_row = db.retry(
+        lambda: db.get_client().table("stages").select("params")
+        .eq("id", request["stage_id"]).single().execute()
+    )
+    provider = str(((stage_row.data or {}).get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
+    visual_style, reference_mode = _image_prompt_settings({"params": (stage_row.data or {}).get("params") or {}})
+    client, image_model = config.image_client(provider)
     prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
-    prompt = _build_grid_prompt([prompt_scene])
+    prompt = _build_grid_prompt([prompt_scene], visual_style=visual_style, reference_mode=reference_mode)
     raw = _generate_grid_bytes(client, image_model, prompt, stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}")
     piece = _split_grid(raw, 1)[0]
     path = _replacement_path(task_id, image_index)
@@ -606,7 +683,9 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
                      error="未找到选定改写稿（请先完成改写阶段）")
         return "failed", None
 
-    client, image_model = config.image_client()
+    provider = str((stage.get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
+    visual_style, reference_mode = _image_prompt_settings(stage)
+    client, image_model = config.image_client(provider)
     storyboard = _split_storyboard(text)
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
@@ -618,7 +697,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
     # 按9个分镜一批生成
     for batch_start in range(0, len(scenes), _GRID * _GRID):
         batch = scenes[batch_start: batch_start + _GRID * _GRID]
-        prompt = _build_grid_prompt(batch)
+        prompt = _build_grid_prompt(batch, visual_style=visual_style, reference_mode=reference_mode)
 
         resp = client.with_options(timeout=config.IMAGE_REQUEST_TIMEOUT).images.generate(
             model=image_model,
@@ -704,7 +783,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error="未找到选定改写稿")
         return "failed", None
 
-    client, image_model = config.image_client()
+    provider = str((stage.get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
+    visual_style, reference_mode = _image_prompt_settings(stage)
+    client, image_model = config.image_client(provider)
     task_context = db.get_task_prompt_context(task_id)
     content_category = str(task_context.get("content_category") or "health")
     if str(task_context.get("narration_mode") or "single") == "dual_dialogue":
@@ -745,7 +826,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 except OSError:
                     pass
         else:
-            grid_prompt = _build_grid_prompt([shot["text"] for shot in batch], content_category)
+            grid_prompt = _build_grid_prompt([shot["text"] for shot in batch], content_category, visual_style, reference_mode)
             batch_key = f"grid_{batch_start // (_GRID * _GRID):03d}"
             try:
                 raw = _generate_grid_bytes(
@@ -755,7 +836,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if not _is_safety_block(exc):
                     raise
                 grid_prompt = _build_grid_prompt(
-                    _safe_fallback_scenes(len(batch), content_category), content_category
+                    _safe_fallback_scenes(len(batch), content_category), content_category, visual_style, reference_mode
                 )
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,

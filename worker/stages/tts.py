@@ -14,15 +14,23 @@ import config
 import db
 import storage
 import imageio_ffmpeg
+import jieba
 from narration import clean_tts_text, normalize_tts_numbers, split_semantic_units, visible_len
 from tts_providers import get_tts_provider
 
 # 默认音色，可通过 env 覆盖
 _VOICE = os.environ.get("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
 _CONCURRENCY = max(1, int(os.environ.get("TTS_CONCURRENCY", "3")))
+_COSYVOICE_CONCURRENCY = max(1, int(os.environ.get("COSYVOICE_TTS_CONCURRENCY", "1")))
+_COSYVOICE_REQUEST_GAP = max(0.0, float(os.environ.get("COSYVOICE_TTS_REQUEST_GAP", "1.2")))
 _TARGET_SEGMENT_CHARS = max(40, int(os.environ.get("TTS_SEGMENT_CHARS", "90")))
 _PART_TIMEOUT = max(15.0, float(os.environ.get("TTS_PART_TIMEOUT", "75")))
 _PART_ATTEMPTS = max(1, int(os.environ.get("TTS_PART_ATTEMPTS", "3")))
+_INDEXTTS_TARGET_SEGMENT_CHARS = max(100, int(os.environ.get("INDEXTTS25_SEGMENT_CHARS", "220")))
+_INDEXTTS_MAX_SEGMENT_CHARS = max(
+    _INDEXTTS_TARGET_SEGMENT_CHARS,
+    int(os.environ.get("INDEXTTS25_MAX_SEGMENT_CHARS", "280")),
+)
 
 
 _clean_tts_text = clean_tts_text
@@ -102,14 +110,45 @@ def _split_tts_segments(
     target_chars: int = _TARGET_SEGMENT_CHARS,
     min_chars: int = 55,
     max_chars: int = 105,
+    protected_terms: tuple[str, ...] = (),
 ) -> list[str]:
-    """Split without changing content, preferring natural punctuation near 26 seconds."""
+    """Split without changing content or cutting protected terms and Jieba words."""
     if not text:
         return []
     if len(text) <= max_chars:
         return [text]
 
-    boundaries = {match.end() for match in re.finditer(r"(?:……|[。！？!?；;]|\n)", text)}
+    protected_spans: list[tuple[int, int]] = []
+    protected = {term.strip() for term in protected_terms if term and term.strip()}
+    protected.update(
+        match.group(1).strip()
+        for match in re.finditer(r"《([^》]+)》", text)
+        if match.group(1).strip()
+    )
+    for term in protected:
+        cursor = 0
+        while True:
+            found = text.find(term, cursor)
+            if found < 0:
+                break
+            protected_spans.append((found, found + len(term)))
+            cursor = found + len(term)
+
+    def allowed(point: int) -> bool:
+        return not any(start < point < end for start, end in protected_spans)
+
+    strong = {
+        match.end() for match in re.finditer(r"(?:……|[。！？!?；;]|\n)", text)
+        if allowed(match.end())
+    }
+    soft = {
+        match.end() for match in re.finditer(r"[，、,：:]|\s+", text)
+        if allowed(match.end())
+    }
+    word = {
+        end for _token, _start, end in jieba.tokenize(text)
+        if 0 < end < len(text) and allowed(end)
+    }
     segments: list[str] = []
     start = 0
     while start < len(text):
@@ -121,8 +160,18 @@ def _split_tts_segments(
         lower = min(len(text), start + min_chars)
         upper = min(len(text), start + max_chars)
         target = min(len(text), start + target_chars)
-        candidates = [point for point in boundaries if lower <= point <= upper]
-        cut = min(candidates, key=lambda point: (abs(point - target), point > target)) if candidates else upper
+        candidates = [point for point in strong if lower <= point <= upper]
+        if not candidates:
+            candidates = [point for point in soft if lower <= point <= upper]
+        if not candidates:
+            candidates = [point for point in word if lower <= point <= upper]
+        if candidates:
+            cut = min(candidates, key=lambda point: (abs(point - target), point > target))
+        else:
+            cut = upper
+            containing = [end for begin, end in protected_spans if begin < cut < end]
+            if containing:
+                cut = max(containing)
         segments.append(text[start:cut])
         start = cut
     return [segment for segment in segments if segment]
@@ -219,31 +268,35 @@ async def _synthesize_part(text: str, voice: str, instruction: str | None = None
     return await (client.synthesize(text, voice, instruction) if instruction else client.synthesize(text, voice))
 
 
-async def _synthesize_part_via_provider(text: str, voice: str, provider: str | None = None, model: str | None = None, instruction: str | None = None) -> tuple[bytes, list[dict], float]:
+async def _synthesize_part_via_provider(text: str, voice: str, provider: str | None = None, model: str | None = None, instruction: str | None = None, provider_options: dict | None = None) -> tuple[bytes, list[dict], float]:
     """Provider-aware boundary kept separate so older test doubles remain valid."""
     kwargs = {"model": model} if model else {}
     client = get_tts_provider(provider or config.TTS_PROVIDER, **kwargs)
+    if provider_options:
+        return await client.synthesize(text, voice, instruction, provider_options)
     return await (client.synthesize(text, voice, instruction) if instruction else client.synthesize(text, voice))
 
 
-async def _synthesize_part_with_retry(text: str, voice: str, provider: str | None = None, model: str | None = None, instruction: str | None = None) -> tuple[bytes, list[dict], float]:
+async def _synthesize_part_with_retry(text: str, voice: str, provider: str | None = None, model: str | None = None, instruction: str | None = None, provider_options: dict | None = None) -> tuple[bytes, list[dict], float]:
     """Bound each provider request so one stalled segment cannot block the task."""
     last_error: Exception | None = None
     for attempt in range(_PART_ATTEMPTS):
         try:
-            runner = _synthesize_part if provider in (None, "", config.TTS_PROVIDER) and not model else _synthesize_part_via_provider
+            runner = _synthesize_part if provider in (None, "", config.TTS_PROVIDER) and not model and not provider_options else _synthesize_part_via_provider
             call = (
                 runner(text, voice, instruction) if instruction else runner(text, voice)
             ) if runner is _synthesize_part else (
-                runner(text, voice, provider, model, instruction) if instruction
-                else runner(text, voice, provider, model)
+                runner(text, voice, provider, model, instruction, provider_options)
             )
             return await asyncio.wait_for(call, timeout=_PART_TIMEOUT)
         except Exception as exc:  # edge-tts exposes several transport exception types
             last_error = exc
             if attempt == _PART_ATTEMPTS - 1:
                 break
-            await asyncio.sleep(min(6.0, 1.5 * (2 ** attempt)))
+            # DashScope rate limits need materially longer spacing than network
+            # retries; retrying immediately only extends the provider cooldown.
+            delay = 10.0 * (attempt + 1) if "429" in str(exc) or "RateQuota" in str(exc) else min(6.0, 1.5 * (2 ** attempt))
+            await asyncio.sleep(delay)
     preview = re.sub(r"\s+", "", text)[:24]
     raise RuntimeError(
         f"TTS 分段合成失败（{_PART_ATTEMPTS} 次尝试，文本：{preview}）：{last_error}"
@@ -251,6 +304,8 @@ async def _synthesize_part_with_retry(text: str, voice: str, provider: str | Non
 
 
 def _concat_mp3(parts: list[bytes]) -> bytes:
+    if not parts:
+        return b""
     if len(parts) == 1:
         return parts[0]
     tmpdir = tempfile.mkdtemp(prefix="tts_concat_")
@@ -261,15 +316,15 @@ def _concat_mp3(parts: list[bytes]) -> bytes:
             path.write_bytes(data)
             paths.append(path)
         output = Path(tmpdir) / "combined.mp3"
-        filters = "".join(f"[{index}:a]" for index in range(len(paths)))
-        filters += f"concat=n={len(paths)}:v=0:a=1[a]"
-        inputs: list[str] = []
-        for path in paths:
-            inputs.extend(["-i", str(path)])
+        concat_list = Path(tmpdir) / "concat.txt"
+        concat_list.write_text(
+            "".join(f"file '{path.as_posix().replace(chr(39), chr(39) + chr(39))}'\n" for path in paths),
+            encoding="utf-8",
+        )
         subprocess.run(
             [
                 imageio_ffmpeg.get_ffmpeg_exe(), "-y",
-                *inputs, "-filter_complex", filters, "-map", "[a]",
+                "-f", "concat", "-safe", "0", "-i", str(concat_list),
                 "-c:a", "libmp3lame", "-b:a", "96k", str(output),
             ],
             check=True,
@@ -379,15 +434,34 @@ async def _synthesize_detailed(
     text: str, voice: str, provider: str | None = None, model: str | None = None,
     emotion_profile: str | None = None, speaker: str | None = None,
     delivery_instruction: str | None = None, natural_dialogue: bool = False,
+    protected_terms: tuple[str, ...] = (),
+    provider_options: dict | None = None,
 ) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
-    parts = _split_tts_segments(text)
+    provider_name = str(provider or config.TTS_PROVIDER).lower()
+    # The legacy compatibility wrapper deliberately leaves ``provider`` unset;
+    # keep its historical short-batch behavior. Production calls always pass
+    # the selected provider explicitly, so IndexTTS receives long-context
+    # segmentation there.
+    is_indextts = provider is not None and provider_name in {
+        "indextts25", "index-tts-2.5", "indextts2.5"
+    }
+    if is_indextts:
+        parts = _split_tts_segments(
+            text,
+            target_chars=_INDEXTTS_TARGET_SEGMENT_CHARS,
+            min_chars=min(120, _INDEXTTS_TARGET_SEGMENT_CHARS),
+            max_chars=_INDEXTTS_MAX_SEGMENT_CHARS,
+            protected_terms=protected_terms,
+        )
+    else:
+        parts = _split_tts_segments(text, protected_terms=protected_terms)
     spoken_parts = [normalize_tts_numbers(part) for part in parts]
     if not parts:
         return b"", [], []
-    semaphore = asyncio.Semaphore(_CONCURRENCY)
-
-    is_cosyvoice = str(provider or config.TTS_PROVIDER).lower() in {"cosyvoice2", "cosyvoice"}
+    is_cosyvoice = provider_name in {"cosyvoice2", "cosyvoice"}
+    serialized_provider = is_cosyvoice or is_indextts
+    semaphore = asyncio.Semaphore(_COSYVOICE_CONCURRENCY if serialized_provider else _CONCURRENCY)
 
     async def synthesize_limited(index: int, part: str, spoken_part: str):
         async with semaphore:
@@ -395,9 +469,12 @@ async def _synthesize_detailed(
             if is_cosyvoice and emotion_profile == _COSY_WARM_NARRATIVE and not natural_dialogue:
                 position = "hook" if index == 0 else "close" if index == len(parts) - 1 else "body"
                 request_text = _cosyvoice_ssml(spoken_part, position, speaker)
-            return await _synthesize_part_with_retry(
-                request_text, voice, provider, model, delivery_instruction,
+            result = await _synthesize_part_with_retry(
+                request_text, voice, provider, model, delivery_instruction, provider_options,
             )
+            if is_cosyvoice and _COSYVOICE_REQUEST_GAP:
+                await asyncio.sleep(_COSYVOICE_REQUEST_GAP)
+            return result
 
     results = await asyncio.gather(*(synthesize_limited(index, part, spoken) for index, (part, spoken) in enumerate(zip(parts, spoken_parts))))
     merged_segments: list[dict] = []
@@ -497,12 +574,39 @@ def _aligned_dialogue_instructions(
     return [_dialogue_delivery_instruction(speaker, text) for speaker, text in turns]
 
 
+def _dialogue_visual_timeline(batches: list[dict]) -> list[dict]:
+    """Derive active-speaker states from measured turn boundaries, never volume."""
+    timeline: list[dict] = []
+    previous_end = 0.0
+    for batch in batches:
+        start = round(float(batch.get("start", 0.0)), 3)
+        end = round(float(batch.get("end", start)), 3)
+        speaker = str(batch.get("speaker") or "")
+        if speaker not in {"主持人", "嘉宾"} or end < start:
+            raise ValueError("双人播客轮次时间轴无效")
+        if abs(start - previous_end) > 0.02:
+            raise ValueError("双人播客轮次时间轴不连续")
+        timeline.append({
+            "turn_index": int(batch["index"]),
+            "speaker": speaker,
+            "active_speaker": speaker,
+            "focus": "left" if speaker == "主持人" else "right",
+            "start": start,
+            "end": end,
+            "duration": round(end - start, 3),
+        })
+        previous_end = end
+    return timeline
+
+
 async def _synthesize_dialogue_detailed(
     text: str, primary_voice: str, secondary_voice: str,
     provider: str | None = None, model: str | None = None,
     secondary_provider: str | None = None, secondary_model: str | None = None,
     emotion_profile: str | None = None,
     delivery_plan: list[dict] | None = None,
+    primary_provider_options: dict | None = None,
+    secondary_provider_options: dict | None = None,
 ) -> tuple[bytes, list[dict], list[dict]]:
     audio_parts: list[bytes] = []
     merged_segments: list[dict] = []
@@ -522,6 +626,7 @@ async def _synthesize_dialogue_detailed(
             speaker,
             instruction,
             True,
+            provider_options=(secondary_provider_options if use_secondary else primary_provider_options),
         )
         duration = sum(float(batch["duration"]) for batch in turn_batches)
         audio_parts.append(audio)
@@ -534,7 +639,18 @@ async def _synthesize_dialogue_detailed(
                 "char_start": int(segment.get("char_start", 0)) + char_offset,
                 "char_end": int(segment.get("char_end", 0)) + char_offset,
             })
-        batches.append({"index": index, "speaker": speaker, "text": turn, "duration": round(duration, 3), "start": round(time_offset, 3), "end": round(time_offset + duration, 3), "audio": audio})
+        batches.append({
+            "index": index,
+            "speaker": speaker,
+            "text": turn,
+            "duration": round(duration, 3),
+            "start": round(time_offset, 3),
+            "end": round(time_offset + duration, 3),
+            "voice": secondary_voice if use_secondary else primary_voice,
+            "provider": secondary_provider if use_secondary else provider,
+            "model": secondary_model if use_secondary else model,
+            "audio": audio,
+        })
         time_offset += duration
         char_offset += visible_len(turn)
     return _concat_mp3(audio_parts), merged_segments, batches
@@ -588,6 +704,68 @@ def _get_book_name(task_id: str) -> str:
             pass
 
 
+def _canonical_provider(provider: str | None) -> str:
+    name = str(provider or "").strip().lower()
+    if name in {"index-tts-2.5", "indextts2.5"}:
+        return "indextts25"
+    if name == "cosyvoice":
+        return "cosyvoice2"
+    if name == "edge-tts":
+        return "edge"
+    return name
+
+
+def _single_narration_provider_chain(
+    primary: str, fallback_providers: object = None,
+) -> list[str]:
+    """Return whole-script fallbacks; a finished audio never mixes providers.
+
+    ``fallback_providers`` comes from the immutable task snapshot.  An explicit
+    empty list is meaningful: it enables strict primary-provider mode and must
+    not silently inherit a stale process-wide environment variable.
+    """
+    canonical = _canonical_provider(primary)
+    if canonical != "indextts25":
+        return [canonical]
+    if fallback_providers is None:
+        raw_items = os.environ.get("TTS_FALLBACK_PROVIDERS", "cosyvoice2,edge").split(",")
+    elif isinstance(fallback_providers, str):
+        raw_items = fallback_providers.split(",")
+    elif isinstance(fallback_providers, (list, tuple)):
+        raw_items = list(fallback_providers)
+    else:
+        raw_items = []
+    chain = [canonical]
+    for item in raw_items:
+        candidate = _canonical_provider(item)
+        if candidate and candidate not in chain:
+            chain.append(candidate)
+    return chain
+
+
+def _provider_defaults(
+    provider: str, primary_provider: str, primary_voice: str, primary_model: str | None,
+) -> tuple[str, str | None]:
+    if provider == _canonical_provider(primary_provider):
+        return primary_voice, primary_model
+    if provider == "cosyvoice2":
+        voice = (
+            os.environ.get("COSYVOICE2_FALLBACK_VOICE", "").strip()
+            or config.COSYVOICE2_VOICE
+        )
+        model = os.environ.get("COSYVOICE2_FALLBACK_MODEL", "").strip() or None
+        if not voice:
+            raise ValueError("CosyVoice2 回退音色未配置")
+        return voice, model
+    if provider == "edge":
+        return (
+            os.environ.get("EDGE_TTS_FALLBACK_VOICE", "").strip()
+            or config.TTS_VOICE,
+            None,
+        )
+    raise ValueError(f"不支持的 TTS 回退 Provider: {provider}")
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     rewrite_text = _get_chosen_text(task_id, stage)
@@ -602,28 +780,77 @@ def run(stage: dict) -> tuple[str, str | None]:
     book_name = _get_book_name(task_id)
     text = rewrite_text + ("\n\n" + cta if cta else "")
     tts_params = stage.get("params", {}) or {}
-    provider = tts_params.get("provider") or config.TTS_PROVIDER
-    voice = tts_params.get("voice") or (config.COSYVOICE2_VOICE if provider in {"cosyvoice2", "cosyvoice"} else _VOICE)
+    requested_provider = _canonical_provider(tts_params.get("provider") or config.TTS_PROVIDER)
+    provider = requested_provider
+    voice = tts_params.get("voice") or (
+        config.COSYVOICE2_VOICE if provider == "cosyvoice2"
+        else config.INDEXTTS25_VOICE if provider == "indextts25"
+        else _VOICE
+    )
     model = tts_params.get("model") or None
     emotion_profile = str(tts_params.get("emotion_profile") or ( _COSY_WARM_NARRATIVE if str(provider).lower() in {"cosyvoice2", "cosyvoice"} else "")) or None
     narration_mode = str(tts_params.get("narration_mode") or "single")
     secondary_voice = str(tts_params.get("secondary_voice") or "").strip()
+    primary_provider_options = tts_params.get("primary_provider_options") or {}
+    secondary_provider_options = tts_params.get("secondary_provider_options") or {}
+    if not isinstance(primary_provider_options, dict) or not isinstance(secondary_provider_options, dict):
+        db.set_stage(stage["id"], "failed", error="TTS 任务参数格式错误：音色控制参数必须是对象")
+        return "failed", None
     if narration_mode == "dual_dialogue" and not secondary_voice:
         db.set_stage(stage["id"], "failed", error="双人口播需要配置第二音色")
         return "failed", None
     if narration_mode == "dual_dialogue":
+        cta = _clean_tts_text(_get_cta(task_id) or "")
+        dialogue_text = rewrite_text + ("\n主持人：" + cta if cta else "")
         delivery_plan = _get_final_delivery_plan(task_id)
         audio, sentence_segments, batches = asyncio.run(_synthesize_dialogue_detailed(
-            rewrite_text, voice, secondary_voice, provider, model,
+            dialogue_text, voice, secondary_voice, provider, model,
             tts_params.get("secondary_provider") or provider,
             tts_params.get("secondary_model") or model,
             emotion_profile,
             delivery_plan,
+            primary_provider_options,
+            secondary_provider_options,
         ))
-        text = "\n".join(turn for _speaker, turn in _dialogue_turns(rewrite_text))
-        cta = ""
+        text = "\n".join(turn for _speaker, turn in _dialogue_turns(dialogue_text))
     else:
-        audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(text, voice, provider, model, emotion_profile))
+        fallback_events: list[dict[str, str]] = []
+        last_error: Exception | None = None
+        # Task snapshots are authoritative.  Older snapshots do not contain a
+        # fallback list, so keep them strict as well instead of inheriting the
+        # environment of whichever Worker happens to claim the stage.
+        snapshot_fallbacks = tts_params.get("fallback_providers", [])
+        for candidate in _single_narration_provider_chain(provider, snapshot_fallbacks):
+            try:
+                candidate_voice, candidate_model = _provider_defaults(
+                    candidate, provider, voice, model,
+                )
+                candidate_emotion = emotion_profile if candidate == "cosyvoice2" else None
+                audio, sentence_segments, batches = asyncio.run(_synthesize_detailed(
+                    text,
+                    candidate_voice,
+                    candidate,
+                    candidate_model,
+                    candidate_emotion,
+                    protected_terms=(_book_title(book_name),) if _book_title(book_name) else (),
+                ))
+                provider, voice, model, emotion_profile = (
+                    candidate, candidate_voice, candidate_model, candidate_emotion,
+                )
+                for batch in batches:
+                    batch["provider"] = provider
+                break
+            except Exception as exc:
+                last_error = exc
+                fallback_events.append({
+                    "provider": candidate,
+                    "error": re.sub(r"\s+", " ", str(exc))[:500],
+                })
+        else:
+            attempted = " -> ".join(item["provider"] for item in fallback_events)
+            raise RuntimeError(
+                f"TTS 整篇合成失败（已尝试 {attempted}）：{last_error}"
+            ) from last_error
     duration = round(sum(float(batch["duration"]) for batch in batches), 3)
     cues = _build_subtitle_cues(
         text,
@@ -638,15 +865,24 @@ def run(stage: dict) -> tuple[str, str | None]:
         batch_path = f"{task_id}/tts_parts/part_{batch['index']:03d}.mp3"
         storage.upload_bytes(batch_path, batch.pop("audio"), "audio/mpeg")
         storage.add_artifact(task_id, "tts", "audio_part", batch_path, meta={
-            "index": batch["index"], "duration": batch["duration"], "voice": voice,
+            "index": batch["index"], "duration": batch["duration"],
+            "voice": batch.get("voice") or voice,
+            "speaker": batch.get("speaker"),
+            "provider": batch.get("provider") or provider,
+            "model": batch.get("model") or model,
         })
         batch_data.append({**batch, "path": batch_path, "status": "done"})
+
+    dialogue_timeline = _dialogue_visual_timeline(batch_data) if narration_mode == "dual_dialogue" else []
 
     # 上传音频
     sp_audio = f"{task_id}/tts.mp3"
     storage.upload_bytes(sp_audio, audio, "audio/mpeg")
     storage.add_artifact(task_id, "tts", "audio", sp_audio, meta={
         "provider": provider,
+        "requested_provider": requested_provider,
+        "fallback_used": provider != requested_provider,
+        "fallback_events": fallback_events if narration_mode != "dual_dialogue" else [],
         "model": model,
         "voice": voice,
         "duration": duration,
@@ -656,6 +892,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         "narration_mode": narration_mode,
         "secondary_voice": secondary_voice or None,
         "emotion_profile": emotion_profile,
+        "primary_provider_options": primary_provider_options or None,
+        "secondary_provider_options": secondary_provider_options or None,
     })
 
     # 上传字幕时间戳
@@ -663,11 +901,15 @@ def run(stage: dict) -> tuple[str, str | None]:
     subs_data = json.dumps(
         {
             "provider": provider,
+            "requested_provider": requested_provider,
+            "fallback_used": provider != requested_provider,
+            "fallback_events": fallback_events if narration_mode != "dual_dialogue" else [],
             "voice": voice,
             "duration": duration,
             "segments": cues,
             "sentence_segments": sentence_segments,
             "batches": batch_data,
+            "dialogue_timeline": dialogue_timeline,
             "text": text,
             "narration_text": rewrite_text,
             "cta_text": cta,
@@ -678,6 +920,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "subtitle_segmenter": "jieba_compound_dp_v1",
             "pause_profile": "promote_tts_pause_v1",
             "emotion_profile": emotion_profile,
+            "primary_provider_options": primary_provider_options or None,
+            "secondary_provider_options": secondary_provider_options or None,
             "ssml_enabled": bool(emotion_profile == _COSY_WARM_NARRATIVE and str(provider).lower() in {"cosyvoice2", "cosyvoice"}),
         },
         ensure_ascii=False, indent=2,

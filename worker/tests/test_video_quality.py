@@ -33,6 +33,7 @@ from stages.image import (
     _split_storyboard,
     _validate_grid_source,
     _visual_scene,
+    _medical_safe,
     _is_safety_block,
     _safe_fallback_scenes,
     _dialogue_visual_scene,
@@ -67,7 +68,7 @@ from stages.render import (
     _audio_mix_filter,
 )
 from stages.rewrite import _candidate_issues, _candidate_warnings, _dialogue_body, _longest_common_run, _parse_candidates, _rewrite_structure
-from stages.tts import _build_subtitle_cues, _clean_tts_text, _dialogue_turns, _split_tts_segments, _synthesize, _synthesize_detailed
+from stages.tts import _build_subtitle_cues, _clean_tts_text, _concat_mp3, _dialogue_turns, _dialogue_visual_timeline, _single_narration_provider_chain, _split_tts_segments, _synthesize, _synthesize_detailed, _synthesize_dialogue_detailed
 from tts_compare import generate_comparison
 from tts_providers import get_tts_provider
 from narration import (
@@ -159,7 +160,7 @@ class RewriteQualityTests(unittest.TestCase):
             "主持人：那应该怎样理解边界？\n"
             "嘉宾：因为原稿没有给出诊疗建议，所以不能自行补充。"
         )
-        self.assertIn("双人播客单轮发言过长，应控制在 180 字以内", _candidate_issues(
+        self.assertIn("双人播客单轮发言过长，应控制在 90 字以内", _candidate_issues(
             [dialogue], source, "stop", category="social_science", narration_mode="dual_dialogue"
         ))
 
@@ -173,6 +174,52 @@ class RewriteQualityTests(unittest.TestCase):
         )
         issues = _candidate_issues([dialogue], source, "stop", category="health", narration_mode="dual_dialogue")
         self.assertFalse(any("角色必须交替" in issue for issue in issues))
+
+    def test_dialogue_rejects_three_consecutive_turns_from_one_speaker(self):
+        dialogue = (
+            "主持人：这个结论为什么值得我们留意？\n"
+            "嘉宾：因为原文已经提示了生活节奏和日常习惯之间的联系。\n"
+            "嘉宾：先理解这个前提，才能避免把复杂问题想得过于简单。\n"
+            "嘉宾：接着还要看清原文没有给出的边界，不能自行补充结论。\n"
+            "主持人：这样理解会不会更稳妥一些？"
+        )
+        self.assertIn(
+            "双人播客同一角色不能连续超过 2 轮，应增加自然承接",
+            _candidate_issues([dialogue], "来源内容。" * 20, "stop", narration_mode="dual_dialogue"),
+        )
+
+    def test_dialogue_visual_timeline_uses_measured_turns(self):
+        timeline = _dialogue_visual_timeline([
+            {"index": 0, "speaker": "主持人", "start": 0.0, "end": 2.4},
+            {"index": 1, "speaker": "嘉宾", "start": 2.4, "end": 6.0},
+        ])
+        self.assertEqual(["主持人", "嘉宾"], [item["active_speaker"] for item in timeline])
+        self.assertEqual(["left", "right"], [item["focus"] for item in timeline])
+        self.assertEqual(6.0, timeline[-1]["end"])
+        with self.assertRaisesRegex(ValueError, "不连续"):
+            _dialogue_visual_timeline([
+                {"index": 0, "speaker": "主持人", "start": 0.0, "end": 2.4},
+                {"index": 1, "speaker": "嘉宾", "start": 2.6, "end": 6.0},
+            ])
+
+    def test_dialogue_synthesis_records_the_actual_voice_for_each_role(self):
+        async def synthesize_turn(text, voice, provider, model, *_args, **_kwargs):
+            return b"turn", [{"text": text, "start": 0.0, "end": 1.0, "char_start": 0, "char_end": len(text)}], [
+                {"duration": 1.0}
+            ]
+
+        text = "主持人：这个结论为什么反常识？\n嘉宾：因为它忽略了关键的前提条件。"
+        with patch("stages.tts._synthesize_detailed", side_effect=synthesize_turn), patch(
+            "stages.tts._concat_mp3", return_value=b"combined"
+        ):
+            audio, _segments, batches = asyncio.run(_synthesize_dialogue_detailed(
+                text, "host-voice", "guest-voice", "indextts25", "index-tts-2.5",
+                "indextts25", "index-tts-2.5",
+            ))
+
+        self.assertEqual(b"combined", audio)
+        self.assertEqual(["host-voice", "guest-voice"], [item["voice"] for item in batches])
+        self.assertEqual(["indextts25", "indextts25"], [item["provider"] for item in batches])
 
     def test_dialogue_health_allows_protected_hook_reuse(self):
         hook = "越着急改变身体，越容易忽略真正的问题。这个反差必须保留。"
@@ -388,6 +435,10 @@ class StoryboardTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "failed"):
             _apimart_result_url({"data": {"status": "failed"}})
+        with self.assertRaisesRegex(RuntimeError, "task_failed: unknown"):
+            _apimart_result_url({"data": {"status": "failed", "error": {
+                "code": "task_failed", "message": "unknown"
+            }}})
 
     def test_cover_uses_first_image_for_fifteen_frames(self):
         from PIL import Image
@@ -474,6 +525,22 @@ class StoryboardTests(unittest.TestCase):
         self.assertIn("温暖叙事油画插画风", safe_prompt)
         self.assertIn("现代轻英伦", safe_prompt)
         self.assertEqual("一本素色无字封面的书介绍三个健康方法", _visual_scene("《身体重置》介绍三个健康方法123"))
+
+    def test_grid_prompt_includes_task_visual_style_and_reference_strategy(self):
+        prompt = _build_grid_prompt(
+            ["清晨书桌前整理笔记"],
+            visual_style="ink_story",
+            reference_mode="scene_continuity",
+        )
+        self.assertIn("modern ink illustration", prompt)
+        self.assertIn("Keep subjects, clothing, space and lighting consistent", prompt)
+
+    def test_sensitive_life_events_are_rewritten_before_image_generation(self):
+        safe = _medical_safe("丈夫去世后，她担心孤独死，开始独居生活")
+        self.assertNotIn("去世", safe)
+        self.assertNotIn("孤独死", safe)
+        self.assertIn("家庭关系变化", safe)
+        self.assertIn("独居生活与邻里支持", safe)
 
     def test_uniform_and_enforcement_terms_are_removed_from_health_image_prompt(self):
         prompt = _build_grid_prompt(["警察戴着警帽巡逻，展示制服徽章和执法过程"])
@@ -582,6 +649,47 @@ class StoryboardTests(unittest.TestCase):
         self.assertEqual("passed", report["status"])
         self.assertEqual(0, report["summary"]["failed"])
 
+    def test_render_quality_does_not_count_paired_book_title_marks(self):
+        stages = [
+            {"kind": kind, "status": "processing" if kind == "render" else "done"}
+            for kind in EXPECTED_STAGES
+        ]
+        report = evaluate_render_quality(
+            media={
+                "duration": 2.5, "width": 1080, "height": 1920, "fps": 30.0,
+                "has_video": True, "has_audio": True, "file_size": 1_000_000,
+            },
+            black_segments=[], stage_rows=stages, images=[{"path": "a.png"}],
+            cues=[{"text": "《上野千鹤子的书》值得认真读完", "start": 0.0, "end": 2.0}],
+            timeline=[{"start": 0.0, "end": 2.0, "duration": 2.0}],
+            tts_duration=2.0, width=1080, height=1920, fps=30, intro_duration=0.5,
+        )
+
+        subtitles = next(check for check in report["checks"] if check["id"] == "subtitles")
+        self.assertEqual("passed", subtitles["status"])
+        self.assertEqual(13, subtitles["actual"]["max_chars"])
+
+    def test_render_quality_reports_subtitle_defects_without_blocking(self):
+        stages = [
+            {"kind": kind, "status": "processing" if kind == "render" else "done"}
+            for kind in EXPECTED_STAGES
+        ]
+        report = evaluate_render_quality(
+            media={
+                "duration": 2.5, "width": 1080, "height": 1920, "fps": 30.0,
+                "has_video": True, "has_audio": True, "file_size": 1_000_000,
+            },
+            black_segments=[], stage_rows=stages, images=[{"path": "a.png"}],
+            cues=[{"text": "这是一条超过十四个字而且带有标点的字幕。", "start": 1.0, "end": 0.5}],
+            timeline=[{"start": 0.0, "end": 2.0, "duration": 2.0}],
+            tts_duration=2.0, width=1080, height=1920, fps=30, intro_duration=0.5,
+        )
+
+        subtitles = next(check for check in report["checks"] if check["id"] == "subtitles")
+        self.assertEqual("warning", subtitles["status"])
+        self.assertEqual("warning", report["status"])
+        self.assertEqual(0, report["summary"]["failed"])
+
     def test_render_quality_report_fails_missing_audio(self):
         stages = [
             {"kind": kind, "status": "processing" if kind == "render" else "done"}
@@ -666,6 +774,24 @@ class StoryboardTests(unittest.TestCase):
 
 
 class TtsInputTests(unittest.TestCase):
+    def test_concat_mp3_uses_one_ffmpeg_process_for_many_parts(self):
+        captured = {}
+
+        def fake_run(args, **_kwargs):
+            manifest = Path(args[args.index("-i") + 1])
+            captured["manifest"] = manifest.read_text(encoding="utf-8")
+            Path(args[-1]).write_bytes(b"combined")
+
+        with patch("stages.tts.subprocess.run", side_effect=fake_run) as run:
+            result = _concat_mp3([b"one", b"two", b"three"])
+
+        self.assertEqual(b"combined", result)
+        self.assertEqual(1, run.call_count)
+        self.assertEqual(3, captured["manifest"].count("file '"))
+
+    def test_concat_mp3_empty_input_is_empty(self):
+        self.assertEqual(b"", _concat_mp3([]))
+
     def test_subtitles_keep_words_compounds_titles_and_units_intact(self):
         text = (
             "阿尔茨海默病患者需要长期健康管理和专业人员帮助，"
@@ -737,10 +863,9 @@ class TtsInputTests(unittest.TestCase):
         gross = _timeline_clip_durations(timeline)
         self.assertAlmostEqual(14.0, sum(gross) - TRANSITION_DUR, places=2)
 
-    def test_render_rejects_punctuated_subtitles(self):
+    def test_render_does_not_block_punctuated_subtitles(self):
         timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]
-        with self.assertRaisesRegex(ValueError, "标点"):
-            _validate_timeline(timeline, [{"text": "字幕不要出现。", "start": 0.0, "end": 1.0}], 2.0)
+        _validate_timeline(timeline, [{"text": "字幕不要出现。", "start": 0.0, "end": 1.0}], 2.0)
 
     def test_render_allows_paired_book_title_marks(self):
         timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]
@@ -750,12 +875,10 @@ class TtsInputTests(unittest.TestCase):
         self.assertTrue(has_disallowed_subtitle_punctuation("《超越百岁"))
         self.assertTrue(has_disallowed_subtitle_punctuation("《超越百岁》。"))
 
-    def test_render_rejects_overlong_or_reversed_subtitles(self):
+    def test_render_does_not_block_overlong_or_reversed_subtitles(self):
         timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]
-        with self.assertRaisesRegex(ValueError, "超过 14"):
-            _validate_timeline(timeline, [{"text": "一" * 15, "start": 0.0, "end": 1.0}], 2.0)
-        with self.assertRaisesRegex(ValueError, "结束时间早于"):
-            _validate_timeline(timeline, [{"text": "字幕正常", "start": 1.0, "end": 0.5}], 2.0)
+        _validate_timeline(timeline, [{"text": "一" * 15, "start": 0.0, "end": 1.0}], 2.0)
+        _validate_timeline(timeline, [{"text": "字幕正常", "start": 1.0, "end": 0.5}], 2.0)
 
     def test_only_narration_survives_storyboard_formatting(self):
         formatted = """# 分镜脚本
@@ -824,6 +947,36 @@ class TtsInputTests(unittest.TestCase):
         self.assertTrue(all(1 <= len(part) <= 105 for part in parts))
         self.assertTrue(all(part[-1] in "。！？!?；;\n" for part in parts[:-1]))
 
+    def test_unpunctuated_script_never_splits_a_protected_term(self):
+        protected = "上野千鹤子"
+        text = "前文内容" * 24 + protected + "后文内容" * 24
+        parts = _split_tts_segments(
+            text, target_chars=100, min_chars=80, max_chars=105,
+            protected_terms=(protected,),
+        )
+
+        self.assertEqual(text, "".join(parts))
+        self.assertEqual(1, sum(protected in part for part in parts))
+        self.assertFalse(any(part.endswith(("上", "上野", "上野千", "上野千鹤")) for part in parts))
+
+    def test_indextts_uses_longer_context_batches(self):
+        text = "这是用于验证长上下文连续语气的一句完整说明。" * 30
+
+        class FakeProvider:
+            async def synthesize(self, part, _voice):
+                return b"audio", [{"text": part, "start": 0.0, "end": 1.0}], 1.0
+
+        with patch("stages.tts.get_tts_provider", return_value=FakeProvider()), patch(
+            "stages.tts._concat_mp3", return_value=b"merged"
+        ):
+            _audio, _segments, batches = asyncio.run(
+                _synthesize_detailed(text, "narrator_f", "indextts25")
+            )
+
+        self.assertEqual(text, "".join(batch["text"] for batch in batches))
+        self.assertTrue(all(len(batch["text"]) <= 280 for batch in batches))
+        self.assertLess(len(batches), len(_split_tts_segments(text)))
+
     def test_parallel_parts_merge_timestamps_in_original_order(self):
         text = "第一句内容完整结束。" * 20
 
@@ -855,6 +1008,121 @@ class NetworkRetryTests(unittest.TestCase):
             self.assertEqual("CosyVoice2Provider", type(provider).__name__)
             with self.assertRaisesRegex(ValueError, "CosyVoice2 未配置"):
                 asyncio.run(provider.synthesize("试听文本", "test-voice"))
+
+    def test_indextts25_provider_requires_production_gate_and_configuration(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "2000 字长文试听验收"):
+                get_tts_provider("indextts25")
+            provider = get_tts_provider("indextts25", allow_experimental=True)
+            self.assertEqual("IndexTTS25Provider", type(provider).__name__)
+            with self.assertRaisesRegex(ValueError, "IndexTTS2.5 未配置"):
+                asyncio.run(provider.synthesize("试听文本", "narrator_f"))
+
+    def test_indextts25_request_uses_selected_f_profile_parameters(self):
+        captured = {}
+
+        class FakeResponse:
+            headers = {"content-type": "audio/wav"}
+            content = b"RIFFfake-wave"
+            status_code = 200
+            is_error = False
+            text = ""
+
+        class FakeClient:
+            def __init__(self, **_kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_args): return None
+            async def post(self, endpoint, **kwargs):
+                captured["endpoint"] = endpoint
+                captured["request"] = kwargs["json"]
+                return FakeResponse()
+
+        def fake_ffmpeg(args, **_kwargs):
+            Path(args[-1]).write_bytes(b"mp3-audio")
+
+        env = {
+            "INDEXTTS25_BASE_URL": "https://tts.example",
+            "INDEXTTS25_DURATION_FACTOR": "1.08",
+            "INDEXTTS25_EMO_ALPHA": "0.55",
+            "INDEXTTS25_USE_QWEN_EMOTION": "true",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "tts_providers.httpx.AsyncClient", FakeClient
+        ), patch("tts_providers._probe_duration", return_value=2.5), patch(
+            "tts_providers.subprocess.run", side_effect=fake_ffmpeg
+        ):
+            audio, boundaries, duration = asyncio.run(
+                get_tts_provider("indextts25", allow_experimental=True).synthesize(
+                    "自然讲述这段内容。", "narrator_f", "开心但不要夸张。"
+                )
+            )
+
+        self.assertEqual(b"mp3-audio", audio)
+        self.assertEqual(2.5, duration)
+        self.assertEqual("https://tts.example/v1/audio/speech", captured["endpoint"])
+        self.assertEqual("narrator_f", captured["request"]["voice"])
+        self.assertEqual("zh", captured["request"]["language"])
+        self.assertEqual(1.08, captured["request"]["duration_factor"])
+        self.assertEqual(0.55, captured["request"]["emo_alpha"])
+        self.assertTrue(captured["request"]["use_qwen_emotion"])
+        self.assertEqual("自然讲述这段内容。", boundaries[0]["text"])
+
+    def test_indextts_plain_voice_disables_qwen_emotion_branch(self):
+        captured = {}
+
+        class FakeResponse:
+            headers = {"content-type": "audio/wav"}
+            content = b"RIFFfake-wave"
+            status_code = 200
+            is_error = False
+            text = ""
+
+        class FakeClient:
+            def __init__(self, **_kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_args): return None
+            async def post(self, _endpoint, **kwargs):
+                captured.update(kwargs["json"])
+                return FakeResponse()
+
+        def fake_ffmpeg(args, **_kwargs):
+            Path(args[-1]).write_bytes(b"mp3-audio")
+
+        env = {
+            "INDEXTTS25_BASE_URL": "https://tts.example",
+            "INDEXTTS25_USE_QWEN_EMOTION": "true",
+            "INDEXTTS25_PLAIN_VOICES": "podcast_host_male,podcast_guest_female",
+        }
+        with patch.dict(os.environ, env, clear=True), patch(
+            "tts_providers.httpx.AsyncClient", FakeClient
+        ), patch("tts_providers._probe_duration", return_value=2.5), patch(
+            "tts_providers.subprocess.run", side_effect=fake_ffmpeg
+        ):
+            asyncio.run(get_tts_provider("indextts25", allow_experimental=True).synthesize(
+                "中文测试。", "podcast_host_male", "自然中文，不加情绪模型。"
+            ))
+
+        self.assertFalse(captured["use_qwen_emotion"])
+        self.assertEqual("zh", captured["language"])
+
+    def test_indextts25_whole_script_fallback_order_is_explicit(self):
+        with patch.dict(os.environ, {"TTS_FALLBACK_PROVIDERS": "cosyvoice2,edge"}):
+            self.assertEqual(
+                ["indextts25", "cosyvoice2", "edge"],
+                _single_narration_provider_chain("index-tts-2.5"),
+            )
+        self.assertEqual(["cosyvoice2"], _single_narration_provider_chain("cosyvoice2"))
+
+    def test_indextts25_task_snapshot_can_disable_global_fallbacks(self):
+        with patch.dict(os.environ, {"TTS_FALLBACK_PROVIDERS": "cosyvoice2,edge"}):
+            self.assertEqual(
+                ["indextts25"],
+                _single_narration_provider_chain("indextts25", []),
+            )
+            self.assertEqual(
+                ["indextts25", "cosyvoice2"],
+                _single_narration_provider_chain("indextts25", ["cosyvoice2"]),
+            )
 
     def test_cosyvoice2_openai_compatible_audio_response(self):
         captured = {}
@@ -1067,7 +1335,7 @@ class NetworkRetryTests(unittest.TestCase):
         prior_query = MagicMock()
         prior_query.select.return_value = prior_query
         prior_query.eq.return_value = prior_query
-        prior_query.lt.return_value = prior_query
+        prior_query.lte.return_value = prior_query
         prior_query.execute.return_value = type("Response", (), {"data": [{"status": "done"}, {"status": "failed"}]})()
         sb = MagicMock()
         sb.table.side_effect = [stages_query, task_query, prior_query]

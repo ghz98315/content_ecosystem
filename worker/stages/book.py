@@ -53,7 +53,10 @@ def _repeats_ending(cta: str, ending_context: str) -> bool:
     )
 
 
-def _generate_cta(client, model: str, rewrite_text: str, book_name: str, author: str) -> str:
+def _generate_cta(
+    client, model: str, rewrite_text: str, book_name: str, author: str,
+    dialogue_mode: bool = False,
+) -> str:
     ending_context = _ending_context(rewrite_text)
     prompt = _CTA_PROMPT_TMPL.format(
         rewrite=rewrite_text,
@@ -61,6 +64,11 @@ def _generate_cta(client, model: str, rewrite_text: str, book_name: str, author:
         book_name=book_name,
         author=author,
     )
+    if dialogue_mode:
+        prompt += (
+            "\n\n这是双人播客。CTA 会紧接在对话最后一轮之后由主持人朗读；"
+            "必须承接最后一句的语气和落点，可用自然的转折或承接短语，不能像突然插入广告。"
+        )
     for attempt in range(2):
         correction = "" if not attempt else (
             "\n\n上一版与正文结尾重复。请只写承接后的新 CTA，"
@@ -217,6 +225,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             rewrite_text=text,
             book_name=info.get("book_name", ""),
             author=info.get("author", ""),
+            dialogue_mode=str(db.get_task_prompt_context(task_id).get("narration_mode") or "single") == "dual_dialogue",
         )
     except Exception:
         info["cta_text"] = ""  # CTA 失败不阻断主流程

@@ -5,11 +5,16 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from stages.image import _download_image, _generate_grid_bytes, _replacement_path, process_replacement_request
+from stages.image import _download_image, _generate_grid_bytes, _replacement_path, process_replacement_request, _is_safety_block
 from stages.render import _apply_image_replacements
 
 
 class APIMartIdempotencyTests(unittest.TestCase):
+    def test_apimart_unknown_task_failure_is_safe_retryable(self):
+        self.assertTrue(_is_safety_block(RuntimeError(
+            "APIMart image task failed: task_failed: unknown"
+        )))
+
     @staticmethod
     def _completed_http():
         response = MagicMock()
@@ -92,6 +97,36 @@ class APIMartIdempotencyTests(unittest.TestCase):
         )
         self.assertEqual("completed", save_job.call_args.args[2]["status"])
 
+    def test_failed_provider_task_is_marked_failed_for_next_rerun(self):
+        prompt = "failed grid prompt"
+        existing = {
+            "grid_000": {
+                "provider": "apimart",
+                "provider_task_id": "provider-task-failed",
+                "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                "model": "gpt-image-2",
+                "size": "1536x1024",
+                "status": "submitted",
+            }
+        }
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"data": {"status": "failed", "error": {
+            "code": "task_failed", "message": "unknown"
+        }}}
+        http = MagicMock()
+        http.__enter__.return_value = http
+        http.__exit__.return_value = None
+        http.get.return_value = response
+        with patch("stages.image.config.IMAGE_BASE_URL", "https://api.apimart.ai/v1"), \
+            patch("stages.image._load_image_provider_jobs", return_value=existing), \
+            patch("stages.image._save_image_provider_job") as save_job, \
+            patch("stages.image.httpx.Client", return_value=http):
+            with self.assertRaisesRegex(RuntimeError, "task_failed: unknown"):
+                _generate_grid_bytes(MagicMock(), "gpt-image-2", prompt,
+                                     stage_id="stage-1", batch_key="grid_000")
+        self.assertEqual("failed", save_job.call_args.args[2]["status"])
+
 
 class ImageDownloadRetryTests(unittest.TestCase):
     def test_download_retries_timeout_without_resubmitting_the_image(self):
@@ -124,7 +159,9 @@ class ImageReplacementRequestTests(unittest.TestCase):
         request = {"id": "req-1", "task_id": "task-1", "stage_id": "stage-1", "image_index": 0, "note": "人物不要正脸"}
         with patch("stages.image._load_image_index", return_value=[{"sentence": "清晨厨房里准备早餐", "path": "task-1/img_000.png"}]), patch(
             "stages.image.config.image_client", return_value=(MagicMock(), "gpt-image-2")
-        ), patch("stages.image._generate_grid_bytes", return_value=b"grid-bytes") as gen, patch(
+        ), patch("stages.image.db.retry", return_value=MagicMock(data={"params": {"image_provider": "xcode"}})), patch(
+            "stages.image._generate_grid_bytes", return_value=b"grid-bytes"
+        ) as gen, patch(
             "stages.image._split_grid", return_value=[b"single-image"]
         ), patch("stages.image._replacement_path", return_value="task-1/replacements/img_000_v001.png"), patch(
             "stages.image.storage.upload_bytes"
