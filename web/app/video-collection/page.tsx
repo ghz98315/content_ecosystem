@@ -12,7 +12,7 @@ import { compactTitle, splitSourceDescription } from "@/lib/sourceMetadata";
 type Artifact = { task_id: string; type: string; meta: Record<string, unknown> | null; created_at: string };
 type Stage = { task_id: string; kind: string; seq: number; status: string };
 type BookSignal = { task_id: string; detected_title: string | null; detected_author: string | null; confidence: string; evidence: string | null; confirmed_title: string | null; confirmed_author: string | null };
-type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2"; model: string | null; voice_id: string; sample_path: string | null; enabled: boolean };
+type VoiceProfile = { id: string; display_name: string; provider: "edge" | "cosyvoice2" | "indextts25"; model: string | null; voice_id: string; sample_path: string | null; enabled: boolean; is_default: boolean };
 const DEFAULT_EDGE_VOICE_ID = "zh-CN-XiaoxiaoNeural";
 const DEFAULT_EDGE_LABEL = "晓晓 · edge-tts";
 
@@ -89,12 +89,19 @@ function VideoCollectionContent() {
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([]);
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("system-default");
   const [contentCategory, setContentCategory] = useState<"health" | "social_science" | "education">("health");
+  const [imageProvider, setImageProvider] = useState<"apimart" | "xcode">("apimart");
+  const [visualStyle, setVisualStyle] = useState("warm_editorial");
+  const [referenceMode, setReferenceMode] = useState("scene_continuity");
   const [narrationMode, setNarrationMode] = useState<"single" | "dual_dialogue">("single");
   const [secondaryVoiceProfileId, setSecondaryVoiceProfileId] = useState("");
   const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
   const [voiceSampleState, setVoiceSampleState] = useState<"idle" | "loading" | "missing" | "error">("idle");
   const defaultEdgeProfile = useMemo(() => voiceProfiles.find(profile => profile.provider === "edge" && profile.voice_id === DEFAULT_EDGE_VOICE_ID), [voiceProfiles]);
-  const selectableVoiceProfiles = useMemo(() => voiceProfiles.filter(profile => profile.id !== defaultEdgeProfile?.id), [defaultEdgeProfile, voiceProfiles]);
+  const defaultVoiceProfile = useMemo(() => voiceProfiles.find(profile => profile.is_default) || defaultEdgeProfile, [defaultEdgeProfile, voiceProfiles]);
+  const defaultVoiceLabel = defaultVoiceProfile ? `${defaultVoiceProfile.display_name} · ${defaultVoiceProfile.model || defaultVoiceProfile.provider}` : DEFAULT_EDGE_LABEL;
+  const isDualDialogueProfile = (profile: Pick<VoiceProfile, "provider" | "voice_id">) => profile.provider === "indextts25" && ["podcast_host_male", "podcast_guest_female"].includes(profile.voice_id);
+  const dialogueVoiceProfiles = useMemo(() => voiceProfiles.filter(isDualDialogueProfile), [voiceProfiles]);
+  const selectableVoiceProfiles = useMemo(() => voiceProfiles.filter(profile => narrationMode === "dual_dialogue" ? isDualDialogueProfile(profile) : profile.id !== defaultVoiceProfile?.id && !isDualDialogueProfile(profile)), [defaultVoiceProfile, narrationMode, voiceProfiles]);
 
   const load = async () => {
     setLoading(true);
@@ -147,7 +154,7 @@ function VideoCollectionContent() {
   useEffect(() => {
     if (!userId) return;
     load();
-    supabase.from("voice_profiles").select("id,display_name,provider,model,voice_id,sample_path,enabled").eq("enabled", true).order("updated_at", { ascending: false }).then(({ data }) => data && setVoiceProfiles(data as VoiceProfile[]));
+    supabase.from("voice_profiles").select("id,display_name,provider,model,voice_id,sample_path,enabled,is_default").eq("enabled", true).order("updated_at", { ascending: false }).then(({ data }) => data && setVoiceProfiles(data as VoiceProfile[]));
     const channel = supabase.channel("video-collection-workbench")
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "artifacts" }, load)
@@ -158,7 +165,7 @@ function VideoCollectionContent() {
 
   useEffect(() => {
     const profile = selectedVoiceProfileId === "system-default"
-      ? defaultEdgeProfile
+      ? defaultVoiceProfile
       : voiceProfiles.find(item => item.id === selectedVoiceProfileId);
     if (!profile?.sample_path) {
       setVoiceSampleUrl(null);
@@ -180,7 +187,7 @@ function VideoCollectionContent() {
       })
       .catch(() => { if (active) setVoiceSampleState("error"); });
     return () => { active = false; };
-  }, [defaultEdgeProfile, selectedVoiceProfileId, voiceProfiles]);
+  }, [defaultVoiceProfile, selectedVoiceProfileId, voiceProfiles]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -220,18 +227,20 @@ function VideoCollectionContent() {
     const urls = Array.from(new Set((sourceText.match(/https?:\/\/[^\s]+/g) || []).map(url => url.replace(/[，。；！）】]+$/, ""))));
     if (!userId || !urls.length || creating) return;
     setCreating(true);
-    let selectedProfile = voiceProfiles.find(profile => profile.id === selectedVoiceProfileId);
+    let selectedProfile = selectedVoiceProfileId === "system-default"
+      ? defaultVoiceProfile
+      : voiceProfiles.find(profile => profile.id === selectedVoiceProfileId);
     if (selectedVoiceProfileId !== "system-default") {
       const { data, error: profileError } = await supabase
         .from("voice_profiles")
-        .select("id,display_name,provider,model,voice_id,sample_path,enabled")
+        .select("id,display_name,provider,model,voice_id,sample_path,enabled,is_default")
         .eq("id", selectedVoiceProfileId)
         .eq("enabled", true)
         .maybeSingle();
       if (profileError || !data) {
         setCreating(false);
         setSelectedVoiceProfileId("system-default");
-        setMessage(profileError?.message || "所选音色已不可用，已切换为系统默认 Edge 音色");
+        setMessage(profileError?.message || "所选音色已不可用，已切换为新任务默认音色");
         return;
       }
       selectedProfile = data as VoiceProfile;
@@ -244,9 +253,9 @@ function VideoCollectionContent() {
       voice_id: DEFAULT_EDGE_VOICE_ID,
     };
     const secondaryProfile = voiceProfiles.find(profile => profile.id === secondaryVoiceProfileId);
-    if (narrationMode === "dual_dialogue" && !secondaryProfile) {
+    if (narrationMode === "dual_dialogue" && (!secondaryProfile || !isDualDialogueProfile(taskVoice) || !isDualDialogueProfile(secondaryProfile) || taskVoice.id === secondaryProfile.id)) {
       setCreating(false);
-      setMessage("双人口播需要选择第二音色");
+      setMessage("双人口播需要分别选择已验收的 IndexTTS 主持人与嘉宾音色");
       return;
     }
     const { data: createdTasks, error } = await supabase.from("tasks").insert(urls.map(source_url => ({
@@ -267,6 +276,16 @@ function VideoCollectionContent() {
       tts_secondary_voice: secondaryProfile?.voice_id || null,
       tts_secondary_voice_label: secondaryProfile?.display_name || null,
     }))).select("id");
+    if (!error && createdTasks?.length) {
+      const { error: imageConfigError } = await supabase.from("stages").update({
+        params: { image_provider: imageProvider, image_model: "gpt-image-2", visual_style: visualStyle, reference_mode: referenceMode },
+      }).in("task_id", createdTasks.map(task => task.id)).eq("kind", "image");
+      if (imageConfigError) {
+        setCreating(false);
+        setMessage(`生图通道快照保存失败：${imageConfigError.message}`);
+        return;
+      }
+    }
     setCreating(false);
     if (error) setMessage(`导入失败：${error.message}`);
     else {
@@ -349,7 +368,27 @@ function VideoCollectionContent() {
     <div className="collection-page anim-fade-in">
       <header className="collection-heading"><div><p className="eyebrow">素材运营台</p><h1>视频采集工作台</h1><p>批量导入来源视频，按采集结果、互动数据和任务进度统一查看。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
       <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
-      <section className="collection-import" aria-label="内容生产设置"><div><h2>内容生产设置</h2><p>设置会随新任务保存；不影响已创建任务。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>内容流程</span><select value={contentCategory} onChange={event => setContentCategory(event.target.value as "health" | "social_science" | "education")} aria-label="内容流程模板"><option value="health">健康类书籍</option><option value="social_science">历史社科</option><option value="education">经管书籍</option></select><small>{contentCategory === "health" ? "健康合规红线与温润生活视觉" : contentCategory === "social_science" ? "史实边界、克制叙事与史料感画面" : "数据边界、非投顾表达与现代商务画面"}</small></div><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色"><option value="system-default">{DEFAULT_EDGE_LABEL}（系统默认）</option>{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? "使用 `zh-CN-XiaoxiaoNeural`，当前未登记可试听样本。" : "该音色未登记样本，无法试听。"}</small>}</div><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => setNarrationMode(event.target.value as "single" | "dual_dialogue")} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue">双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "改写稿按主持人/嘉宾分段，分别使用两套音色" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{voiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select><small>主持人与嘉宾音色分别快照保存</small></div>}</div></section>
+      <section className="collection-import" aria-label="内容生产设置"><div><h2>内容生产设置</h2><p>设置会随新任务保存；不影响已创建任务。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>内容流程</span><select value={contentCategory} onChange={event => setContentCategory(event.target.value as "health" | "social_science" | "education")} aria-label="内容流程模板"><option value="health">健康类书籍</option><option value="social_science">历史社科</option><option value="education">经管书籍</option></select><small>{contentCategory === "health" ? "健康合规红线与温润生活视觉" : contentCategory === "social_science" ? "史实边界、克制叙事与史料感画面" : "数据边界、非投顾表达与现代商务画面"}</small></div><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色">{narrationMode !== "dual_dialogue" && <option value="system-default">{defaultVoiceLabel}（新任务默认）</option>}{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? `${defaultVoiceLabel}，当前未登记可试听样本。` : "该音色未登记样本，无法试听。"}</small>}</div><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => { const next = event.target.value as "single" | "dual_dialogue"; setNarrationMode(next); if (next === "dual_dialogue") { setSelectedVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_host_male")?.id || ""); setSecondaryVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_guest_female")?.id || ""); } else if (isDualDialogueProfile(voiceProfiles.find(profile => profile.id === selectedVoiceProfileId) || {} as VoiceProfile)) { setSelectedVoiceProfileId("system-default"); setSecondaryVoiceProfileId(""); } }} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue">双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "角色顺序：第一音色＝男主持人，第二音色＝女嘉宾。改写稿按主持人/嘉宾分段。" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{dialogueVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select><small>角色顺序：第一音色为男主持人；此处第二音色为女嘉宾。两套音色分别快照保存。</small></div>}</div></section>
+      <section className="collection-import" aria-label="生图通道设置">
+        <div><h2>生图通道</h2><p>默认使用 APIMart；接口异常时可切换 xcode.best，新选择随任务快照保存。</p></div>
+        <div className="collection-import-footer">
+          <div className="collection-voice-setting">
+            <span>Provider</span>
+            <select value={imageProvider} onChange={event => setImageProvider(event.target.value as "apimart" | "xcode")} aria-label="任务生图通道">
+              <option value="apimart">APIMart（默认）</option>
+              <option value="xcode">xcode.best（备用）</option>
+            </select>
+            <small>不自动静默切换，避免两个平台重复计费。</small>
+          </div>
+        </div>
+      </section>
+      <section className="collection-import" aria-label="视频画面设置">
+        <div><h2>视频画面</h2><p>风格与参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
+        <div className="collection-import-footer">
+          <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => setVisualStyle(event.target.value)} aria-label="视频画面风格"><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></select><small>统一色彩、光线和构图语汇</small></div>
+          <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
+        </div>
+      </section>
       {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
       {loading && <div className="collection-loading" role="status"><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>}
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}

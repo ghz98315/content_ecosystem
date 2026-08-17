@@ -28,7 +28,7 @@ export interface Task {
   play_count: number | null;
   author: Record<string, unknown> | null;
   tts_voice_profile_id?: string | null;
-  tts_provider?: "edge" | "cosyvoice2" | null;
+  tts_provider?: "edge" | "cosyvoice2" | "indextts25" | null;
   tts_model?: string | null;
   tts_voice?: string | null;
   tts_voice_label?: string | null;
@@ -39,7 +39,7 @@ export interface Task {
   source_platform?: "douyin" | "wechat_channels" | "manual";
   narration_mode?: "single" | "dual_dialogue";
   tts_secondary_voice_profile_id?: string | null;
-  tts_secondary_provider?: "edge" | "cosyvoice2" | null;
+  tts_secondary_provider?: "edge" | "cosyvoice2" | "indextts25" | null;
   tts_secondary_model?: string | null;
   tts_secondary_voice?: string | null;
   tts_secondary_voice_label?: string | null;

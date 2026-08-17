@@ -40,7 +40,25 @@ export default function HomePage() {
   const createTask = async () => {
     if (!url.trim() || !userId || creating) return;
     setCreating(true); setMsg(null);
-    const { error } = await supabase.from("tasks").insert({ owner: userId, source_url: url.trim(), status: "pending" });
+    const { data: createdTask, error } = await supabase.from("tasks").insert({
+      owner: userId,
+      source_url: url.trim(),
+      status: "pending",
+      tts_provider: "indextts25",
+      tts_model: "index-tts-2.5",
+      tts_voice: "narrator35",
+      tts_voice_label: "旁白35（IndexTTS 2.5）",
+    }).select("id").single();
+    if (!error && createdTask?.id) {
+      const { error: imageConfigError } = await supabase.from("stages").update({
+        params: { image_provider: "apimart", image_model: "gpt-image-2" },
+      }).eq("task_id", createdTask.id).eq("kind", "image");
+      if (imageConfigError) {
+        setCreating(false);
+        setMsg({ text: `生图通道快照保存失败：${imageConfigError.message}`, ok: false });
+        return;
+      }
+    }
     setCreating(false);
     if (error) setMsg({ text: `创建失败：${error.message}`, ok: false });
     else { setUrl(""); setShowForm(false); setMsg({ text: "任务已创建，正在进入采集阶段", ok: true }); load(); setTimeout(() => setMsg(null), 3500); }
@@ -62,7 +80,7 @@ export default function HomePage() {
 
       {showForm && <section className="create-panel create-panel-large anim-fade-in" aria-label="新建项目">
         <div className="section-heading"><div><h2>新建内容项目</h2><p>粘贴抖音分享链接，系统会自动完成逐字稿、改写、配音、生图与成片。</p></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="关闭新建项目">×</button></div>
-        <div className="setup-strip"><span className="setup-label">本次默认设置</span><span className="setup-pill">自动完成</span><span className="setup-pill">CosyVoice · narrator35</span><span className="setup-note">可在任务开始前调整</span></div>
+        <div className="setup-strip"><span className="setup-label">本次默认设置</span><span className="setup-pill">自动完成</span><span className="setup-pill">IndexTTS 2.5 · 旁白35</span><span className="setup-pill">APIMart 生图</span><span className="setup-note">高级选项请在视频集合页调整</span></div>
         <div className="create-row"><input ref={inputRef} className="url-input" placeholder="粘贴抖音分享链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && createTask()} /><button className="primary-action" onClick={createTask} disabled={creating || !url.trim()}>{creating ? "创建中…" : "开始处理"}</button><button className="secondary-action" onClick={() => { setShowForm(false); setUrl(""); }}>取消</button></div>
         <p className="form-hint">支持单条分享链接。任务创建后会锁定本次音色与处理设置，避免中途混用。</p>
       </section>}

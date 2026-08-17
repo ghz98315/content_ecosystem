@@ -351,13 +351,13 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
               <div><dt>画面</dt><dd>生活化 · 轻微油画感</dd></div>
               <div><dt>动效</dt><dd>缓慢 Zoom In · 短叠化</dd></div>
               <div><dt>声音</dt><dd>配音与字幕时间轴对齐</dd></div>
-              <div><dt>背景音乐</dt><dd>当前未配置</dd></div>
+              <div><dt>背景音乐</dt><dd>{bgmPath ? "已配置任务级混音" : "未配置"}</dd></div>
             </dl>
-            <p className="render-preset-note">多风格和背景音乐会在 worker 参数化后进入新任务设置，不影响历史成片。</p>
+            <p className="render-preset-note">背景音乐已支持任务级配置，不会修改已经生成的历史成片。</p>
             <div className="render-future-list" aria-label="后续能力">
               <strong>后续能力</strong>
               <span>多风格版本：待接入 render 配置</span>
-              <span>背景音乐：待接入音频混音配置</span>
+              <span>背景音乐：上传后可调节音量并重新生成成片</span>
               <span>失败后保留视频：当前已支持人工检查</span>
             </div>
           </aside>

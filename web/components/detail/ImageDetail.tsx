@@ -31,9 +31,34 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [regenerating, setRegenerating] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const providerParams = (stage?.params || {}) as Record<string, unknown>;
+  const [selectedProvider, setSelectedProvider] = useState<"apimart" | "xcode">(
+    String(providerParams.image_provider || "apimart") === "xcode" ? "xcode" : "apimart"
+  );
+  const [providerBusy, setProviderBusy] = useState(false);
   const providerName = String(providerParams.image_provider || providerParams.provider || "主生图通道");
   const imageModel = String(providerParams.image_model || providerParams.model || "任务配置模型");
   const visibleEntries = entries.filter(entry => filter === "all" || (filter === "ready" ? Boolean(urls[entry.index]) : !urls[entry.index]));
+
+  useEffect(() => {
+    setSelectedProvider(String(providerParams.image_provider || "apimart") === "xcode" ? "xcode" : "apimart");
+  }, [stage?.id, stage?.params]);
+
+  const saveProviderAndRerun = async () => {
+    if (!stage?.id || providerBusy) return;
+    setProviderBusy(true);
+    const paramsWithoutJobs = { ...providerParams };
+    delete paramsWithoutJobs.image_provider_jobs;
+    const { error } = await supabase.from("stages").update({
+      params: { ...paramsWithoutJobs, image_provider: selectedProvider, image_model: "gpt-image-2" },
+    }).eq("id", stage.id);
+    if (error) {
+      setLoadError(`生图通道保存失败：${error.message}`);
+      setProviderBusy(false);
+      return;
+    }
+    await onRerun(stage.id);
+    setProviderBusy(false);
+  };
 
   // 1. 下载索引 JSON
   useEffect(() => {
@@ -137,6 +162,11 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
 
   return (
     <DetailShell title="生图" stage={stage} onRerun={onRerun}>
+      <section className="image-config-strip" aria-label="生图 Provider 选择">
+        <div><span>当前通道</span><strong>{providerName}</strong><small>{imageModel}</small></div>
+        <div><span>切换通道</span><select value={selectedProvider} onChange={event => setSelectedProvider(event.target.value as "apimart" | "xcode")} aria-label="切换生图 Provider"><option value="apimart">APIMart（默认）</option><option value="xcode">xcode.best（备用）</option></select><small>保存后只重跑生图及下游阶段</small></div>
+        <div><button type="button" className="secondary-action" disabled={providerBusy} onClick={saveProviderAndRerun}>{providerBusy ? "正在切换…" : "保存通道并重跑"}</button></div>
+      </section>
       {entries.length > 0 ? (
         <>
           <section className="media-workbench-heading">
