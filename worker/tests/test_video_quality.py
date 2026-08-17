@@ -570,8 +570,10 @@ class StoryboardTests(unittest.TestCase):
         history = _dialogue_visual_scene("social_science")
         business = _dialogue_visual_scene("education")
         self.assertIn("两位成年人", health)
+        self.assertIn("大厅", health)
+        self.assertIn("沙发", health)
         self.assertIn("档案", history)
-        self.assertIn("工作室", business)
+        self.assertIn("商务大厅", business)
 
     def test_dialogue_visual_creates_one_image_covering_the_full_script(self):
         text = "主持人：为什么越着急越容易忽略重点？\n嘉宾：因为注意范围会变窄。"

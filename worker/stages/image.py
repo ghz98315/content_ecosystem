@@ -139,12 +139,12 @@ def _safe_fallback_scenes(count: int, category: str) -> list[str]:
 def _dialogue_visual_scene(category: str) -> str:
     """Stable, reusable visual for a two-person dialogue render."""
     directions = {
-        "social_science": "安静书房中的两位成年人隔桌对谈，桌上只有无字书籍和档案，克制纪实感",
-        "education": "明亮现代工作室中的两位成年人隔桌交流，桌上只有无字书籍和笔记本，理性可信赖",
+        "social_science": "明亮安静的文化大厅里，两位成年人并坐在宽敞沙发上交谈，背景有无字书籍与低调档案陈设，克制纪实感",
+        "education": "明亮现代的商务大厅里，两位成年人并坐在宽敞沙发上交谈，背景有无字书籍与简洁陈设，理性可信赖",
     }
     return directions.get(
         category,
-        "明亮温暖的居家书房中两位成年人隔桌交流，桌上只有无字书籍和茶杯，舒缓可信赖",
+        "明亮温暖的大厅里，两位成年人并坐在宽敞沙发上交谈，背景有无字书籍、绿植与简洁陈设，舒缓可信赖",
     )
 
 # ── 语义分镜 ───────────────────────────────────────────────────────────────
