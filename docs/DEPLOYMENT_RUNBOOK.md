@@ -11,11 +11,21 @@ Last verified: 2026-08-17
 - Last pushed Web commit: `697ac55`
 - Verification: `curl -I https://content-ecosystem-neon.vercel.app` returned HTTP 200.
 
+GitHub deployment uses the workstation's SSH Git authentication:
+
+```text
+origin = git@github.com:ghz98315/content_ecosystem.git
+git push origin master
+```
+
+This is separate from the IndexTTS/Worker SSH host. The GitHub push was
+verified for commits `697ac55` and `0d7ac8e`; it triggered the Web deployment.
+
 The Vercel CLI is not authenticated on this workstation. Use the GitHub push
 path unless a Vercel token is explicitly provided. Never store a Vercel token
 in this repository.
 
-## Worker / SSH
+## Worker / Cloud SSH
 
 The Worker is not deployed by Vercel. Heavy processing runs on the designated
 SSH host or the local machine and connects to Supabase using `worker/.env`.
