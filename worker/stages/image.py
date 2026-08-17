@@ -237,9 +237,14 @@ _CELL_EDGE_INSET_RATIO = 0.02
 _IMAGE_SPLIT_VERSION = 2
 
 
-def _image_prompt_settings(stage: dict) -> tuple[str, str]:
+def _image_prompt_settings(stage: dict) -> tuple[str, str, str, str]:
     params = stage.get("params") or {}
-    return str(params.get("visual_style") or "warm_editorial"), str(params.get("reference_mode") or "none")
+    return (
+        str(params.get("visual_style") or "warm_editorial"),
+        str(params.get("reference_mode") or "none"),
+        str(params.get("generation_mode") or "prompt"),
+        str(params.get("visual_preset_id") or ""),
+    )
 
 
 def _visual_scene(scene: str) -> str:
@@ -595,7 +600,7 @@ def _run_dialogue_visual(stage: dict, text: str, category: str, client, image_mo
     path = f"{task_id}/dialogue_key_visual.png"
     index_path = f"{task_id}/images_index.json"
     existing = _existing_image_artifacts(task_id)
-    visual_style, reference_mode = _image_prompt_settings(stage)
+    visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings(stage)
     prompt = _build_grid_prompt([_dialogue_visual_scene(category)], category, visual_style, reference_mode)
     if path not in existing:
         raw = _generate_grid_bytes(
@@ -663,7 +668,7 @@ def process_replacement_request(request: dict) -> str:
         .eq("id", request["stage_id"]).single().execute()
     )
     provider = str(((stage_row.data or {}).get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
-    visual_style, reference_mode = _image_prompt_settings({"params": (stage_row.data or {}).get("params") or {}})
+    visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings({"params": (stage_row.data or {}).get("params") or {}})
     client, image_model = config.image_client(provider)
     prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
     prompt = _build_grid_prompt([prompt_scene], visual_style=visual_style, reference_mode=reference_mode)
@@ -684,7 +689,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
         return "failed", None
 
     provider = str((stage.get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
-    visual_style, reference_mode = _image_prompt_settings(stage)
+    visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings(stage)
     client, image_model = config.image_client(provider)
     storyboard = _split_storyboard(text)
     if not storyboard:
@@ -784,7 +789,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "failed", None
 
     provider = str((stage.get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
-    visual_style, reference_mode = _image_prompt_settings(stage)
+    visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings(stage)
     client, image_model = config.image_client(provider)
     task_context = db.get_task_prompt_context(task_id)
     content_category = str(task_context.get("content_category") or "health")

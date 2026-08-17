@@ -92,6 +92,9 @@ function VideoCollectionContent() {
   const [imageProvider, setImageProvider] = useState<"apimart" | "xcode">("apimart");
   const [visualStyle, setVisualStyle] = useState("warm_editorial");
   const [referenceMode, setReferenceMode] = useState("scene_continuity");
+  const [generationMode, setGenerationMode] = useState<"prompt" | "reference_image" | "hybrid">("prompt");
+  const [visualPresetId, setVisualPresetId] = useState("health-warm-editorial");
+  const [bgmVolume, setBgmVolume] = useState("0.08");
   const [narrationMode, setNarrationMode] = useState<"single" | "dual_dialogue">("single");
   const [secondaryVoiceProfileId, setSecondaryVoiceProfileId] = useState("");
   const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
@@ -269,6 +272,7 @@ function VideoCollectionContent() {
       tts_voice: taskVoice.voice_id,
       tts_voice_label: taskVoice.display_name,
       content_category: contentCategory,
+      bgm_volume: Number(bgmVolume),
       narration_mode: narrationMode,
       tts_secondary_voice_profile_id: secondaryProfile?.id || null,
       tts_secondary_provider: secondaryProfile?.provider || null,
@@ -278,7 +282,7 @@ function VideoCollectionContent() {
     }))).select("id");
     if (!error && createdTasks?.length) {
       const { error: imageConfigError } = await supabase.from("stages").update({
-        params: { image_provider: imageProvider, image_model: "gpt-image-2", visual_style: visualStyle, reference_mode: referenceMode },
+        params: { image_provider: imageProvider, image_model: "gpt-image-2", visual_style: visualStyle, reference_mode: referenceMode, generation_mode: generationMode, visual_preset_id: visualPresetId, reference_asset_ids: [] },
       }).in("task_id", createdTasks.map(task => task.id)).eq("kind", "image");
       if (imageConfigError) {
         setCreating(false);
@@ -388,6 +392,17 @@ function VideoCollectionContent() {
           <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => setVisualStyle(event.target.value)} aria-label="视频画面风格"><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></select><small>统一色彩、光线和构图语汇</small></div>
           <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
         </div>
+      </section>
+      <section className="collection-import" aria-label="视觉生成策略">
+        <div><h2>视觉生成策略</h2><p>配置会随任务快照保存；参考素材将在后续步骤按任务绑定。</p></div>
+        <div className="collection-import-footer">
+          <div className="collection-voice-setting"><span>类别预设</span><select value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); if (id === "history-documentary") { setGenerationMode("hybrid"); setVisualStyle("documentary"); } else if (id === "education-clean-modern") { setGenerationMode("prompt"); setVisualStyle("clean_modern"); } else { setGenerationMode("prompt"); setVisualStyle("warm_editorial"); } }} aria-label="视觉类别预设"><option value="health-warm-editorial">健康：温暖生活叙事</option><option value="history-documentary">历史：史料感人物叙事</option><option value="education-clean-modern">经管：现代商业阅读</option></select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
+          <div className="collection-voice-setting"><span>生成方式</span><select value={generationMode} onChange={event => setGenerationMode(event.target.value as "prompt" | "reference_image" | "hybrid")} aria-label="视觉生成方式"><option value="prompt">提示词风格</option><option value="reference_image">参考图片</option><option value="hybrid">提示词 + 参考图片</option></select><small>{generationMode === "prompt" ? "仅使用镜头提示词与类别预设。" : "待绑定已授权素材；供应商不支持图片输入时自动降级为提示词。"}</small></div>
+        </div>
+      </section>
+      <section className="collection-import" aria-label="背景音乐预设">
+        <div><h2>背景音乐预设</h2><p>新任务会保存默认音量；音乐文件仍在成片设置中上传并确认授权。</p></div>
+        <div className="collection-import-footer"><div className="collection-voice-setting"><span>配音下的背景音乐音量</span><select value={bgmVolume} onChange={event => setBgmVolume(event.target.value)} aria-label="默认背景音乐音量"><option value="0.05">轻柔 5%</option><option value="0.08">轻柔 8%（推荐）</option><option value="0.12">清晰 12%</option><option value="0.20">明显 20%</option><option value="0.30">上限 30%</option></select><small>建议保持在 5%–12%；任何任务都不会超过 30%。</small></div></div>
       </section>
       {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
       {loading && <div className="collection-loading" role="status"><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>}

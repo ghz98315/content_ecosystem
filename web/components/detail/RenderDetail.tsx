@@ -433,7 +433,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         <div className="render-panel-heading"><div><strong>背景音乐</strong><span>任务级设置，配音始终优先；只上传已获授权使用的音乐。</span></div></div>
         <div className="bgm-controls">
           <label className="bgm-file-control"><span>音乐文件</span><input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/m4a" disabled={bgmBusy} onChange={event => { void uploadBgm(event.target.files?.[0] || null); event.currentTarget.value = ""; }} /><small>{bgmPath ? "已上传，可替换" : "MP3、WAV、M4A，不超过 25MB"}</small></label>
-          <label><span>背景音乐音量 {bgmVolume.toFixed(2)}</span><input type="range" min="0.02" max="0.20" step="0.01" value={bgmVolume} onChange={event => setBgmVolume(Number(event.target.value))} disabled={bgmBusy || !bgmPath} /></label>
+          <label><span>背景音乐音量 {Math.round(bgmVolume * 100)}%</span><input type="range" min="0.02" max="0.30" step="0.01" value={bgmVolume} onChange={event => setBgmVolume(Number(event.target.value))} disabled={bgmBusy || !bgmPath} /></label>
           <label><span>配音音量 {narrationVolume.toFixed(2)}</span><input type="range" min="0.50" max="1.50" step="0.05" value={narrationVolume} onChange={event => setNarrationVolume(Number(event.target.value))} disabled={bgmBusy} /></label>
           <label className="bgm-authorization"><input type="checkbox" checked={bgmAuthorized} disabled={bgmBusy || !bgmPath} onChange={event => setBgmAuthorized(event.target.checked)} />我确认已取得该音乐的使用授权</label>
           <div className="bgm-actions">{bgmUrl && <audio controls src={bgmUrl} />}<TextBtn variant="primary" disabled={bgmBusy || !bgmPath || !bgmAuthorized} onClick={() => void saveBgm()}> {bgmBusy ? "保存中…" : "保存成片设置"}</TextBtn></div>

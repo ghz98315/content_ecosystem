@@ -7,7 +7,7 @@ alter table public.tasks
 alter table public.tasks
   drop constraint if exists tasks_bgm_volume_check;
 alter table public.tasks
-  add constraint tasks_bgm_volume_check check (bgm_volume >= 0.02 and bgm_volume <= 0.20);
+  add constraint tasks_bgm_volume_check check (bgm_volume >= 0.02 and bgm_volume <= 0.30);
 
 alter table public.tasks
   drop constraint if exists tasks_narration_volume_check;
