@@ -231,12 +231,13 @@ def _split_storyboard(
 
 
 def _history_storyboard(text: str) -> tuple[list[dict], dict]:
-    """Keep historical narration covered by at most three classic beats."""
-    base = _split_storyboard(text, min_chars=70, target_chars=150, max_chars=220)
+    """Plan historical visuals by semantic beats, capped at three images/minute."""
+    base = _split_storyboard(text, min_chars=42, target_chars=70, max_chars=92)
     if not base:
         return [], {"version": 1, "mode": "history_director", "selected_count": 0}
-    if len(base) > 3:
-        size = math.ceil(len(base) / 3)
+    max_images = max(3, math.ceil(sum(item["estimated_duration"] for item in base) / 60) * 3)
+    if len(base) > max_images:
+        size = math.ceil(len(base) / max_images)
         grouped = []
         for start in range(0, len(base), size):
             chunk = base[start:start + size]
@@ -249,7 +250,7 @@ def _history_storyboard(text: str) -> tuple[list[dict], dict]:
     else:
         grouped = base
     shots = []
-    for index, item in enumerate(grouped[:3]):
+    for index, item in enumerate(grouped):
         shots.append({
             "index": index,
             "text": item["text"],
@@ -268,7 +269,8 @@ def _history_storyboard(text: str) -> tuple[list[dict], dict]:
         "selected_count": len(shots),
         "cover": {"index": 0, "purpose": "全文总结性封面", "scene_text": shots[0]["text"]},
         "beats": [{"index": shot["index"], "role": shot["beat_role"], "scene_text": shot["text"]} for shot in shots],
-        "checks": {"cover_representative": True, "beats_match_copy": True, "no_redundancy": True, "within_three_image_limit": True},
+        "max_images": max_images,
+        "checks": {"cover_representative": True, "beats_match_copy": True, "no_redundancy": True, "within_three_images_per_minute": True},
     }
 
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
@@ -804,7 +806,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
             storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
             storage.add_artifact(task_id, "image", "history_director_analysis", analysis_path, meta={
                 "selected_count": history_analysis.get("selected_count", 0),
-                "max_final_images": 3,
+                "max_final_images": history_analysis.get("max_images"),
                 "checks": history_analysis.get("checks", {}),
             })
     else:
@@ -935,7 +937,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
             storage.add_artifact(task_id, "image", "history_director_analysis", analysis_path, meta={
                 "selected_count": history_analysis.get("selected_count", 0),
-                "max_final_images": 3,
+                "max_final_images": history_analysis.get("max_images"),
                 "checks": history_analysis.get("checks", {}),
             })
     else:
@@ -1041,19 +1043,17 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "image_model": image_model,
                 "beat_role": shot.get("beat_role"),
                 "history_director_analysis": is_history,
-                "max_final_images": 3 if is_history else None,
+                "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
             })
             image_paths.append(path)
             meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
-    if is_history and len(image_paths) > 3:
-        raise ValueError("历史类最终图片数量超过 3 张上限")
     storage.add_artifact(task_id, "image", "image_index", index_path, meta={
         "total": len(image_paths),
         "narration_char_count": sum(shot["char_count"] for shot in storyboard),
         "history_director_analysis": is_history,
-        "max_final_images": 3 if is_history else None,
+        "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
     })
     return "done", index_path
