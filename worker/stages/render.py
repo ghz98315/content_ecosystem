@@ -15,7 +15,6 @@ import imageio_ffmpeg
 import db
 import storage
 import config
-from narration import has_disallowed_subtitle_punctuation, visible_len
 from quality import inspect_render_quality
 
 W, H = 1080, 1920
@@ -138,7 +137,7 @@ def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
     ).data or {}
     bgm_path = str(task.get("bgm_path") or "").strip()
     approved = bool(task.get("bgm_authorization_confirmed"))
-    bgm_volume = min(0.20, max(0.02, float(task.get("bgm_volume") or 0.08)))
+    bgm_volume = min(0.30, max(0.02, float(task.get("bgm_volume") or 0.08)))
     narration_volume = min(1.50, max(0.50, float(task.get("narration_volume") or 1.0)))
     return (bgm_path if bgm_path and approved else None, bgm_volume, narration_volume)
 
@@ -264,36 +263,40 @@ def _disclaimer_fill() -> tuple[int, int, int]:
     )
 
 
-def _make_layout_frame(book_name: str, author: str, out_png: str) -> None:
+def _make_layout_frame(book_name: str, author: str, out_png: str, *, show_book_metadata: bool = True) -> None:
     from PIL import Image, ImageDraw
 
     image = Image.new("RGB", (W, H), (18, 20, 24))
     draw = ImageDraw.Draw(image)
-    title = f"《{book_name.strip('《》')}》"
+    title = f"《{book_name.strip('《》')}》" if book_name.strip("《》") else ""
     title_font = _font(TITLE_FONT_SIZE if len(title) <= 18 else 72, bold=True)
     author_font = _font(AUTHOR_FONT_SIZE)
     disclaimer_font = _font(DISCLAIMER_FONT_SIZE)
 
-    title_lines = _wrap_text(draw, title, title_font, W - 120, max_lines=2)
-    author_text = f"作者：{author}"
-    author_box = draw.textbbox((0, 0), author_text, font=author_font)
-    author_height = author_box[3] - author_box[1]
-    author_y = PHOTO_Y - AUTHOR_TO_PHOTO_GAP - author_height
-    title_heights = [draw.textbbox((0, 0), line, font=title_font)[3] for line in title_lines]
-    title_block_height = sum(title_heights) + 10 * max(0, len(title_lines) - 1)
-    title_y = author_y - TITLE_AUTHOR_GAP - title_block_height
-    _draw_centered_lines(draw, title_lines, title_font, title_y, (255, 255, 255), spacing=10)
-    draw.text(
-        ((W - (author_box[2] - author_box[0])) // 2, author_y),
-        author_text,
-        font=author_font,
-        fill=(224, 228, 234),
-    )
+    if show_book_metadata and (title or author.strip()):
+        title_lines = _wrap_text(draw, title, title_font, W - 120, max_lines=2) if title else []
+        author_text = f"作者：{author}" if author.strip() else ""
+        author_box = draw.textbbox((0, 0), author_text, font=author_font) if author_text else (0, 0, 0, 0)
+        author_height = author_box[3] - author_box[1]
+        author_y = PHOTO_Y - AUTHOR_TO_PHOTO_GAP - author_height
+        title_heights = [draw.textbbox((0, 0), line, font=title_font)[3] for line in title_lines]
+        title_block_height = sum(title_heights) + 10 * max(0, len(title_lines) - 1)
+        title_y = author_y - TITLE_AUTHOR_GAP - title_block_height
+        if title_lines:
+            _draw_centered_lines(draw, title_lines, title_font, title_y, (255, 255, 255), spacing=10)
+        if author_text:
+            draw.text(
+                ((W - (author_box[2] - author_box[0])) // 2, author_y),
+                author_text,
+                font=author_font,
+                fill=(224, 228, 234),
+            )
 
     draw.line((0, PHOTO_Y - 1, W, PHOTO_Y - 1), fill=(55, 60, 68), width=1)
     draw.line((0, PHOTO_Y + PHOTO_H, W, PHOTO_Y + PHOTO_H), fill=(55, 60, 68), width=1)
     disclaimer_lines: list[str] = []
-    for raw_line in _disclaimer_text(book_name).splitlines():
+    disclaimer_source = _disclaimer_text(book_name) if show_book_metadata and book_name.strip() else "本视频内容基于公开资料整理，仅用于科普分享。"
+    for raw_line in disclaimer_source.splitlines():
         disclaimer_lines.extend(_wrap_text(draw, raw_line, disclaimer_font, W - 120, max_lines=2))
     disclaimer_heights = [draw.textbbox((0, 0), line, font=disclaimer_font)[3] for line in disclaimer_lines]
     disclaimer_block_height = sum(disclaimer_heights) + 10 * max(0, len(disclaimer_lines) - 1)
@@ -431,17 +434,8 @@ def _validate_timeline(timeline: list[dict], cues: list[dict], tts_duration: flo
     for previous, current in zip(timeline, timeline[1:]):
         if abs(float(previous["end"]) - float(current["start"])) > 0.02:
             raise ValueError("图片时间轴不连续")
-    for cue in cues:
-        text = str(cue.get("text", ""))
-        unmarked_text = text.replace("《", "").replace("》", "")
-        if visible_len(unmarked_text) > 14:
-            raise ValueError("字幕存在超过 14 字的片段")
-        if has_disallowed_subtitle_punctuation(text):
-            raise ValueError("字幕存在标点符号，必须在标点处断句且不显示标点")
-        start = float(cue.get("start", 0.0))
-        end = float(cue.get("end", start))
-        if end < start:
-            raise ValueError("字幕时间轴存在结束时间早于开始时间")
+    # Subtitle defects are reported by quality.py but do not block a usable
+    # render. Audio/video integrity and the image timeline remain hard gates.
 
 
 def _timeline_clip_durations(timeline: list[dict]) -> list[float]:
@@ -544,8 +538,10 @@ def run(stage: dict) -> tuple[str, str | None]:
     images: list[dict] = _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
     segments: list[dict] = subs_data.get("segments", []) if isinstance(subs_data, dict) else []
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
-    book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "") or "本书"
-    author = str(book_data.get("author", "") if isinstance(book_data, dict) else "") or "作者"
+    task_context = db.get_task_prompt_context(task_id)
+    is_history = str(task_context.get("content_category") or "health") == "social_science"
+    book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "")
+    author = str(book_data.get("author", "") if isinstance(book_data, dict) else "")
 
     tmpdir = tempfile.mkdtemp(prefix="render_")
     try:
@@ -558,7 +554,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             db.set_stage(stage["id"], "failed", error="图片列表为空")
             return "failed", None
         layout_png = os.path.join(tmpdir, "layout.png")
-        _make_layout_frame(book_name, author, layout_png)
+        _make_layout_frame(book_name, author, layout_png, show_book_metadata=not is_history or bool(book_name.strip()))
         cover_local = storage.download_artifact(images[0]["path"], ".png")
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
         try:

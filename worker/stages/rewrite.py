@@ -291,6 +291,11 @@ def _generate_candidates(
             temperature = (0.55, 0.40, 0.25)[attempt]
         else:
             temperature = 0.35 if mode == "repost_dedup" else 0.7
+        history_pacing = (
+            "历史类口播节奏：改写后的正文必须尽量使用短句。较长句子在自然语义停顿处补逗号，"
+            "每个口播分句尽量控制在10-12个汉字以内；不得删减原文信息，不得把一句话机械切碎。"
+            if context["category"] == "social_science" else ""
+        )
         resp = _request_rewrite(
             model=config.REWRITE_MODEL,
             messages=[
@@ -302,6 +307,7 @@ def _generate_candidates(
                         f"原视频标题：{context['title']}\n"
                         f"原作者标识：{context['author']}\n"
                         f"补充要求：{rewrite_notes or '无'}\n"
+                        f"{history_pacing}\n"
                         f"必须原样保留的词：{terms}\n"
                         "历史类规则：若原文存在 CTA，只允许在 cta_revised 中调整语序和口语表达，不得新增卖点、优惠、承诺或购买引导；若原文没有 CTA，cta_original 和 cta_revised 必须为空。若原文明确出现书名则保留，否则 book_title 必须为空且 book_title_source=absent。\n"
                         f"原文有效字数约 {source_len} 字。目标差异控制在 {tolerance_label} 以内。"

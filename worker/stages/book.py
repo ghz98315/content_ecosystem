@@ -142,6 +142,30 @@ def _find_rewrite_text(task_id: str, stage: dict) -> str | None:
     return candidates[int(idx)] if int(idx) < len(candidates) else None
 
 
+def _find_rewrite_payload(task_id: str) -> dict:
+    """Read structured rewrite data without inferring missing historical metadata."""
+    res = (
+        db.get_client().table("artifacts")
+        .select("storage_path")
+        .eq("task_id", task_id)
+        .eq("type", "rewrite")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return {}
+    local = storage.download_artifact(res.data[0]["storage_path"], ".json")
+    try:
+        data = json.load(open(local, encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
+
+
 def _dialogue_title_instruction(task_id: str) -> str:
     context = db.get_task_prompt_context(task_id)
     if str(context.get("narration_mode") or "single") != "dual_dialogue":
@@ -195,6 +219,33 @@ def run(stage: dict) -> tuple[str, str | None]:
     if not text:
         db.set_stage(stage["id"], "failed", error="未找到改写文案")
         return "failed", None
+
+    context = db.get_task_prompt_context(task_id)
+    if str(context.get("content_category") or "health") == "social_science":
+        rewrite = _find_rewrite_payload(task_id)
+        book_name = str(rewrite.get("book_title") or "").strip().strip("《》")
+        cta_original = str(rewrite.get("cta_original") or "").strip()
+        info = {
+            "book_name": book_name,
+            "author": "",
+            "nationality": "",
+            "confidence": "explicit" if book_name else "absent",
+            "cta_text": cta_original,
+            "metadata_source": "history_rewrite_explicit_only",
+            "cta_source": "original_copy" if cta_original else "absent",
+        }
+        info.update(_publication_metadata(task_id, info))
+        info["title_short"] = info["publish_title"]
+        _sync_book_signal(task_id, info, bool(book_name))
+        sp = f"{task_id}/book.json"
+        storage.upload_bytes(sp, json.dumps(info, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+        storage.add_artifact(task_id, "book", "book", sp, meta={
+            "book_name": book_name or None,
+            "confidence": info["confidence"],
+            "metadata_source": info["metadata_source"],
+            "cta_source": info["cta_source"],
+        })
+        return "done", sp
 
     client, model = _llm_client()
     resp = client.chat.completions.create(
