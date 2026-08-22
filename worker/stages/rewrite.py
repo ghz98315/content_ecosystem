@@ -285,7 +285,7 @@ def _generate_candidates(
     tolerance_label = "8%" if mode == "repost_dedup" else "12%"
     terms = "、".join(protected_terms(source)) or "无额外词语"
     last_issues: list[str] = []
-    attempts = 1
+    attempts = 2 if context["category"] == "social_science" and narration_mode != "dual_dialogue" else 1
     for attempt in range(attempts):
         correction = ""
         if attempt:
