@@ -222,7 +222,16 @@ def _candidate_issues(
             issues.append("改写稿疑似被截断")
         if text.rstrip().endswith(("，", ",", "：", ":", "；", ";", "、")):
             issues.append("改写稿结尾不完整")
-        if narration_mode != "dual_dialogue" and _similarity(source, comparison_text) < 0.40:
+        if category == "social_science" and narration_mode != "dual_dialogue":
+            similarity = _similarity(source, comparison_text)
+            if similarity >= 0.40:
+                issues.append(f"历史类改写相似度未低于40%（当前 {similarity:.2f}）")
+            source_lead = re.split(r"[。！？!?；;]", source, maxsplit=4)[:4]
+            source_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", "".join(source_lead))
+            candidate_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", comparison_text)
+            if source_lead and not candidate_lead.startswith(source_lead):
+                issues.append("历史类开头3-4句未按要求原样保留")
+        elif narration_mode != "dual_dialogue" and _similarity(source, comparison_text) < 0.40:
             issues.append("改写幅度过大，未保持原文主体")
         for title in re.findall(r"《([^》]+)》", source):
             if f"《{title}》" not in text:
@@ -294,6 +303,8 @@ def _generate_candidates(
         history_pacing = (
             "历史类口播节奏：改写后的正文必须尽量使用短句。较长句子在自然语义停顿处补逗号，"
             "每个口播分句尽量控制在10-12个汉字以内；不得删减原文信息，不得把一句话机械切碎。"
+            "中段必须做实质性重构，可使用信息顺序重组、叙事视角转换、主动被动转换、句式重写和同等强度细节替换；"
+            "保留原文五感描写、情绪强度和核心共鸣句，禁止空洞套话、AI腔和简单同义词替换。"
             if context["category"] == "social_science" else ""
         )
         resp = _request_rewrite(
