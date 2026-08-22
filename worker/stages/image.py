@@ -541,7 +541,9 @@ def _generate_grid_bytes(
     *,
     stage_id: str = "",
     batch_key: str = "",
+    size: str | None = None,
 ) -> bytes:
+    request_size = size or _GRID_SIZE
     client_base_url = getattr(client, "base_url", "")
     base_url = (
         str(client_base_url)
@@ -561,7 +563,7 @@ def _generate_grid_bytes(
             job.get("provider_task_id")
             and job.get("prompt_sha256") == prompt_sha256
             and job.get("model") == image_model
-            and job.get("size") == _GRID_SIZE
+            and job.get("size") == request_size
             # Older APIMart jobs predate the explicit field and therefore
             # used the provider's documented 1k default.
             and job.get("resolution", "1k") == config.APIMART_IMAGE_RESOLUTION
@@ -579,7 +581,7 @@ def _generate_grid_bytes(
                 model=image_model,
                 prompt=prompt,
                 n=1,
-                size=_GRID_SIZE,
+                size=request_size,
                 extra_body={"resolution": config.APIMART_IMAGE_RESOLUTION},
                 extra_headers={"Idempotency-Key": idempotency_key},
             )
@@ -594,7 +596,7 @@ def _generate_grid_bytes(
                 "prompt_sha256": prompt_sha256,
                 "idempotency_key": idempotency_key,
                 "model": image_model,
-                "size": _GRID_SIZE,
+                "size": request_size,
                 "resolution": config.APIMART_IMAGE_RESOLUTION,
                 "status": "submitted",
             }
@@ -636,7 +638,7 @@ def _generate_grid_bytes(
         )
 
     response = client.with_options(timeout=config.IMAGE_REQUEST_TIMEOUT).images.generate(
-        model=image_model, prompt=prompt, n=1, size=_GRID_SIZE,
+        model=image_model, prompt=prompt, n=1, size=request_size,
     )
     item = response.data[0]
     if getattr(item, "b64_json", None):
@@ -983,6 +985,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
+                    size="1024x1792" if is_history else None,
                 )
             except Exception as exc:
                 if not _is_safety_block(exc):
@@ -992,6 +995,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 )
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
+                    size="1024x1792" if is_history else None,
                 )
             storage.upload_bytes(grid_path, raw, "image/png")
             storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
@@ -1006,15 +1010,16 @@ def run(stage: dict) -> tuple[str, str | None]:
         from PIL import Image
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
-        _validate_grid_source(*grid_size)
+        if not is_history:
+            _validate_grid_source(*grid_size)
         source_meta = existing_artifacts.get(grid_path) or {}
         actual_prompt = grid_prompt or source_meta.get("prompt")
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
-            "grid": "3x3",
-            "cell_ratio": "4:3",
-            "cell_bounds_x": _grid_bounds(grid_size[0]),
-            "cell_bounds_y": _grid_bounds(grid_size[1]),
+            "grid": "portrait_single" if is_history else "3x3",
+            "cell_ratio": "9:16" if is_history else "4:3",
+            "cell_bounds_x": [0, grid_size[0]] if is_history else _grid_bounds(grid_size[0]),
+            "cell_bounds_y": [0, grid_size[1]] if is_history else _grid_bounds(grid_size[1]),
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
             "text_policy": "no_visible_text",
             "validated": True,
@@ -1024,7 +1029,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "history_director_analysis": is_history,
         })
         source_cells = len(source_meta.get("cell_bounds_x") or []) or _GRID
-        for i, piece_bytes in enumerate(_split_grid(raw, len(batch), source_cells)):
+        pieces = [raw] if is_history else _split_grid(raw, len(batch), source_cells)
+        for i, piece_bytes in enumerate(pieces):
             idx = batch_start + i
             path = expected_paths[i]
             storage.upload_bytes(path, piece_bytes, "image/png")
@@ -1035,7 +1041,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "char_count": shot["char_count"], "char_start": shot["char_start"],
                 "char_end": shot["char_end"], "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"], "source_grid": grid_path,
-                "cell_ratio": "4:3",
+                "cell_ratio": "9:16" if is_history else "4:3",
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
                 "prompt": actual_prompt,
