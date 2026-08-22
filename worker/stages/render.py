@@ -191,7 +191,11 @@ def _make_ass(segments: list[dict], out_path: str) -> None:
     Path(out_path).write_text("".join(lines), encoding="utf-8-sig")
 
 
-def _find_cjk_font(bold: bool = False) -> str:
+def _find_cjk_font(bold: bool = False, calligraphy: bool = False) -> str:
+    if calligraphy:
+        for path in (r"C:\Windows\Fonts\STKAITI.TTF", r"C:\Windows\Fonts\simkai.ttf"):
+            if Path(path).exists():
+                return path
     candidates = ([
         r"C:\Windows\Fonts\msyhbd.ttc",
     ] if bold else [
@@ -263,7 +267,16 @@ def _disclaimer_fill() -> tuple[int, int, int]:
     )
 
 
-def _make_layout_frame(book_name: str, author: str, out_png: str, *, show_book_metadata: bool = True) -> None:
+def _make_layout_frame(
+    book_name: str,
+    author: str,
+    out_png: str,
+    *,
+    show_book_metadata: bool = True,
+    show_disclaimer: bool = True,
+    cover_title: str = "",
+    cover_subtitle: str = "",
+) -> None:
     from PIL import Image, ImageDraw
 
     image = Image.new("RGB", (W, H), (18, 20, 24))
@@ -294,23 +307,35 @@ def _make_layout_frame(book_name: str, author: str, out_png: str, *, show_book_m
 
     draw.line((0, PHOTO_Y - 1, W, PHOTO_Y - 1), fill=(55, 60, 68), width=1)
     draw.line((0, PHOTO_Y + PHOTO_H, W, PHOTO_Y + PHOTO_H), fill=(55, 60, 68), width=1)
-    disclaimer_lines: list[str] = []
-    disclaimer_source = _disclaimer_text(book_name) if show_book_metadata and book_name.strip() else "本视频内容基于公开资料整理，仅用于科普分享。"
-    for raw_line in disclaimer_source.splitlines():
-        disclaimer_lines.extend(_wrap_text(draw, raw_line, disclaimer_font, W - 120, max_lines=2))
-    disclaimer_heights = [draw.textbbox((0, 0), line, font=disclaimer_font)[3] for line in disclaimer_lines]
-    disclaimer_block_height = sum(disclaimer_heights) + 10 * max(0, len(disclaimer_lines) - 1)
-    disclaimer_y = PHOTO_Y + PHOTO_H + DISCLAIMER_GAP_LINES * DISCLAIMER_FONT_SIZE
-    if disclaimer_y + disclaimer_block_height > H - 30:
-        disclaimer_y = H - 30 - disclaimer_block_height
-    _draw_centered_lines(
-        draw,
-        disclaimer_lines,
-        disclaimer_font,
-        disclaimer_y,
-        _disclaimer_fill(),
-        spacing=10,
-    )
+    if show_disclaimer:
+        disclaimer_lines: list[str] = []
+        disclaimer_source = _disclaimer_text(book_name) if show_book_metadata and book_name.strip() else "本视频内容基于公开资料整理，仅用于科普分享。"
+        for raw_line in disclaimer_source.splitlines():
+            disclaimer_lines.extend(_wrap_text(draw, raw_line, disclaimer_font, W - 120, max_lines=2))
+        disclaimer_heights = [draw.textbbox((0, 0), line, font=disclaimer_font)[3] for line in disclaimer_lines]
+        disclaimer_block_height = sum(disclaimer_heights) + 10 * max(0, len(disclaimer_lines) - 1)
+        disclaimer_y = PHOTO_Y + PHOTO_H + DISCLAIMER_GAP_LINES * DISCLAIMER_FONT_SIZE
+        if disclaimer_y + disclaimer_block_height > H - 30:
+            disclaimer_y = H - 30 - disclaimer_block_height
+        _draw_centered_lines(draw, disclaimer_lines, disclaimer_font, disclaimer_y, _disclaimer_fill(), spacing=10)
+    if cover_title.strip() or cover_subtitle.strip():
+        cover_font = _font(88, calligraphy=True)
+        sub_font = _font(52, calligraphy=True)
+        yellow = (248, 211, 72)
+        if cover_title.strip():
+            lines = _wrap_text(draw, cover_title.strip(), cover_font, W - 160, max_lines=2)
+            y = 150
+            for line in lines:
+                box = draw.textbbox((0, 0), line, font=cover_font, stroke_width=2)
+                draw.text(((W - (box[2] - box[0])) // 2, y), line, font=cover_font, fill=yellow, stroke_width=2, stroke_fill=(8, 8, 8))
+                y += box[3] - box[1] + 12
+        if cover_subtitle.strip():
+            lines = _wrap_text(draw, cover_subtitle.strip(), sub_font, W - 180, max_lines=2)
+            y = 330
+            for line in lines:
+                box = draw.textbbox((0, 0), line, font=sub_font, stroke_width=2)
+                draw.text(((W - (box[2] - box[0])) // 2, y), line, font=sub_font, fill=yellow, stroke_width=2, stroke_fill=(8, 8, 8))
+                y += box[3] - box[1] + 10
     image.save(out_png, "PNG")
 
 
@@ -540,6 +565,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
     is_history = str(task_context.get("content_category") or "health") == "social_science"
+    rewrite_data = _load_json_artifact(task_id, "rewrite") if is_history else {}
     book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "")
     author = str(book_data.get("author", "") if isinstance(book_data, dict) else "")
 
@@ -554,11 +580,26 @@ def run(stage: dict) -> tuple[str, str | None]:
             db.set_stage(stage["id"], "failed", error="图片列表为空")
             return "failed", None
         layout_png = os.path.join(tmpdir, "layout.png")
-        _make_layout_frame(book_name, author, layout_png, show_book_metadata=not is_history or bool(book_name.strip()))
+        _make_layout_frame(
+            book_name,
+            author,
+            layout_png,
+            show_book_metadata=not is_history,
+            show_disclaimer=not is_history,
+        )
+        cover_layout_png = layout_png
+        if is_history:
+            paragraphs = rewrite_data.get("paragraphs") if isinstance(rewrite_data, dict) else []
+            if not isinstance(paragraphs, list):
+                paragraphs = []
+            cover_title = str(rewrite_data.get("hook") or (segments[0].get("text") if segments else "")).strip()
+            cover_subtitle = str(paragraphs[1] if len(paragraphs) > 1 else (segments[1].get("text") if len(segments) > 1 else "")).strip()
+            cover_layout_png = os.path.join(tmpdir, "history_cover_layout.png")
+            _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title, cover_subtitle=cover_subtitle)
         cover_local = storage.download_artifact(images[0]["path"], ".png")
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
         try:
-            _make_cover_clip(cover_local, layout_png, INTRO_DUR, cover_mp4)
+            _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4)
         finally:
             try:
                 os.remove(cover_local)
