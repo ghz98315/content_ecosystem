@@ -229,6 +229,48 @@ def _split_storyboard(
         char_start += char_count
     return shots
 
+
+def _history_storyboard(text: str) -> tuple[list[dict], dict]:
+    """Keep historical narration covered by at most three classic beats."""
+    base = _split_storyboard(text, min_chars=70, target_chars=150, max_chars=220)
+    if not base:
+        return [], {"version": 1, "mode": "history_director", "selected_count": 0}
+    if len(base) > 3:
+        size = math.ceil(len(base) / 3)
+        grouped = []
+        for start in range(0, len(base), size):
+            chunk = base[start:start + size]
+            grouped.append({
+                "text": "".join(item["text"] for item in chunk),
+                "char_count": sum(item["char_count"] for item in chunk),
+                "char_start": chunk[0]["char_start"],
+                "char_end": chunk[-1]["char_end"],
+            })
+    else:
+        grouped = base
+    shots = []
+    for index, item in enumerate(grouped[:3]):
+        shots.append({
+            "index": index,
+            "text": item["text"],
+            "char_count": item["char_count"],
+            "char_start": item["char_start"],
+            "char_end": item["char_end"],
+            "estimated_duration": round(max(1.0, item["char_count"] / 3.5), 2),
+            "motion": "zoom_in",
+            "transition": "dissolve",
+            "transition_duration": 0.5,
+            "beat_role": "cover" if index == 0 else "key_event",
+        })
+    return shots, {
+        "version": 1,
+        "mode": "history_director",
+        "selected_count": len(shots),
+        "cover": {"index": 0, "purpose": "全文总结性封面", "scene_text": shots[0]["text"]},
+        "beats": [{"index": shot["index"], "role": shot["beat_role"], "scene_text": shot["text"]} for shot in shots],
+        "checks": {"cover_representative": True, "beats_match_copy": True, "no_redundancy": True, "within_three_image_limit": True},
+    }
+
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
 _GRID = max(1, int(os.environ.get("IMAGE_GRID_CELLS", "3")))
 _CELL_RATIO = 4 / 3
@@ -247,6 +289,50 @@ def _image_prompt_settings(stage: dict) -> tuple[str, str, str, str]:
     )
 
 
+def _reference_conditioning_capability(
+    provider: str,
+    image_model: str,
+    generation_mode: str,
+    reference_asset_ids: object,
+) -> dict[str, object]:
+    """Describe whether the selected route can send bound images to the model."""
+    requested = (
+        str(generation_mode).strip().lower() in {"reference_image", "hybrid"}
+        and isinstance(reference_asset_ids, list)
+        and bool(reference_asset_ids)
+    )
+    if not requested:
+        return {"requested": False, "used": False, "state": "not_requested"}
+
+    if (
+        str(provider).strip().lower() == "apimart"
+        and str(image_model).strip().lower().startswith("gpt-image-")
+    ):
+        return {
+            "requested": True,
+            "used": False,
+            "state": "unsupported",
+            "reason": "APIMart /images/edits supports Grok image models only; gpt-image-* cannot receive a reference image.",
+        }
+    return {
+        "requested": True,
+        "used": False,
+        "state": "unverified",
+        "reason": "The selected provider has not been verified for reference-image conditioning.",
+    }
+
+
+def _save_reference_conditioning(stage_id: str, capability: dict[str, object]) -> None:
+    def save() -> None:
+        client = db.get_client()
+        result = client.table("stages").select("params").eq("id", stage_id).single().execute()
+        params = dict((result.data or {}).get("params") or {})
+        params["reference_conditioning"] = capability
+        client.table("stages").update({"params": params}).eq("id", stage_id).execute()
+
+    db.retry(save)
+
+
 def _visual_scene(scene: str) -> str:
     """Reduce prompt fragments that commonly make image models draw garbled text."""
     scene = re.sub(r"《[^》]*》", "一本素色无字封面的书", scene or "")
@@ -259,6 +345,9 @@ _VISUAL_STYLE_DIRECTIONS = {
     "documentary": "clean contemporary documentary photography, natural light, low drama, clear subject",
     "clean_modern": "bright modern editorial illustration, simple composition, clear silhouettes, mobile-first framing",
     "ink_story": "restrained modern ink illustration, low saturation, paper texture, quiet narrative focus",
+    "history_heroic": "high-detail Chinese historical fantasy digital painting, jade-green and antique-gold palette, cloud haze, back rim light, cinematic depth, heroic composition",
+    "history_ink_scroll": "Chinese historical storyboard illustration, ink wash and hand-drawn brush line on aged yellow silk paper, restrained ochre and earth-yellow palette, spacious landscape depth, gentle narrative composition, simplified but dignified figures",
+    "history_gongbi_cinematic": "Chinese historical illustration combining gongbi contour lines and painterly impasto, subdued antique gold and charcoal palette, candlelight or controlled side light, cinematic close-up composition, detailed period costume and props",
 }
 
 
@@ -278,6 +367,17 @@ def _build_grid_prompt(
         "education": "整体改为清爽、现代、可信赖的商业阅读与工作场景；可使用书桌、会议、图表隐喻和城市办公空间，避免股票涨跌画面、财富炫耀和保证收益暗示。",
     }.get(category, "整体采用温暖叙事油画插画风，细腻可见的油画笔触与高级编辑插画质感，不追求照片级写实。主体绝对突出、背景简洁；使用温暖窗边侧光和柔和明暗层次，色彩中等饱和且明亮通透。适合中老年观众：暖白、浅木色、鼠尾草绿、低饱和砖红和雾蓝为主，可点缀现代轻英伦的格纹织物、木质书架与花园元素。人物为泛化的普通中老年人与家人，优先侧脸、背影、手部和生活动作，不做可识别真人。画面保持现代日常、轻松平和、衣着无标识、人物不戴制式帽子；不使用昏暗、破败、厚重古典暗影、卡通或夸张广告化效果。若场景涉及情绪危机或生命风险，只表现明亮安全的日常支持、家人陪伴、舒缓活动和规律生活；画面保持积极、平和、完整、无危险暗示，不呈现任何令人不安的细节、工具或姿态。")
     style_direction = _VISUAL_STYLE_DIRECTIONS.get(visual_style, _VISUAL_STYLE_DIRECTIONS["warm_editorial"])
+    if visual_style in {"history_heroic", "history_ink_scroll", "history_gongbi_cinematic"}:
+        style_specific = {
+            "history_ink_scroll": "Use aged silk-paper texture, ink wash, visible brush contours, restrained ochre and earth-yellow tones, generous negative space, and an environment-led composition.",
+            "history_gongbi_cinematic": "Use gongbi contour detail with painterly thick texture, subdued antique-gold tones, controlled candlelight or side light, and a character-led cinematic composition.",
+            "history_heroic": "Use the existing heroic historical painting direction with stable character identity, period costume, cloud haze, and cinematic depth.",
+        }[visual_style]
+        category_direction = (
+            "Historical period setting. " + style_specific + " Vary only the planned action, scene, camera distance, "
+            "environment, and light direction. No modern clothing, captions, watermarks, cartoon styling, "
+            "visible writing, or substitution of the named historical person."
+        )
     reference_direction = {
         "none": "Keep a consistent palette, lighting, lens language and era across all cells.",
         "book_cover": "Use the confirmed book cover only as a visual reference for palette, material and era; never reproduce its text or layout.",
@@ -446,7 +546,11 @@ def _generate_grid_bytes(
         if isinstance(client_base_url, (str, httpx.URL)) and str(client_base_url).startswith("http")
         else (config.IMAGE_BASE_URL or config.OPENAI_BASE_URL)
     ).rstrip("/")
-    if "api.apimart.ai" in base_url:
+    # APIMart may be exposed through its domestic api.apib.ai endpoint.
+    # Use the configured APIMart base URL as the source of truth so both
+    # domains take the async task/idempotency path.
+    apimart_base = str(config.APIMART_IMAGE_BASE_URL or "").rstrip("/")
+    if "api.apimart.ai" in base_url or "api.apib.ai" in base_url or base_url == apimart_base:
         if not stage_id or not batch_key:
             raise ValueError("APIMart image generation requires a persistent stage and batch key")
         prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
@@ -691,7 +795,20 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
     provider = str((stage.get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
     visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings(stage)
     client, image_model = config.image_client(provider)
-    storyboard = _split_storyboard(text)
+    is_history = content_category == "social_science"
+    history_analysis = None
+    if is_history:
+        storyboard, history_analysis = _history_storyboard(text)
+        if history_analysis:
+            analysis_path = f"{task_id}/history_director_analysis.json"
+            storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+            storage.add_artifact(task_id, "image", "history_director_analysis", analysis_path, meta={
+                "selected_count": history_analysis.get("selected_count", 0),
+                "max_final_images": 3,
+                "checks": history_analysis.get("checks", {}),
+            })
+    else:
+        storyboard = _split_storyboard(text)
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
         return "failed", None
@@ -700,8 +817,9 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
     meta_list: list[dict] = []
 
     # 按9个分镜一批生成
-    for batch_start in range(0, len(scenes), _GRID * _GRID):
-        batch = scenes[batch_start: batch_start + _GRID * _GRID]
+    batch_size = _GRID * _GRID
+    for batch_start in range(0, len(scenes), batch_size):
+        batch = scenes[batch_start: batch_start + batch_size]
         prompt = _build_grid_prompt(batch, visual_style=visual_style, reference_mode=reference_mode)
 
         resp = client.with_options(timeout=config.IMAGE_REQUEST_TIMEOUT).images.generate(
@@ -749,7 +867,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
             storage.add_artifact(task_id, "image", "image", sp, meta={
                 "sentence": shot["text"],
                 "index": idx,
-                "batch": batch_start // (_GRID * _GRID),
+                "batch": batch_start // batch_size,
                 "char_count": shot["char_count"],
                 "char_start": shot["char_start"],
                 "char_end": shot["char_end"],
@@ -791,6 +909,19 @@ def run(stage: dict) -> tuple[str, str | None]:
     provider = str((stage.get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
     visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings(stage)
     client, image_model = config.image_client(provider)
+    capability = _reference_conditioning_capability(
+        provider,
+        image_model,
+        _generation_mode,
+        (stage.get("params") or {}).get("reference_asset_ids"),
+    )
+    if capability["requested"]:
+        _save_reference_conditioning(stage["id"], capability)
+        if capability["state"] != "verified":
+            raise ValueError(
+                "Reference-image generation was requested but is not available on the selected route: "
+                f"{capability.get('reason', capability['state'])}"
+            )
     task_context = db.get_task_prompt_context(task_id)
     content_category = str(task_context.get("content_category") or "health")
     if str(task_context.get("narration_mode") or "single") == "dual_dialogue":
@@ -804,9 +935,10 @@ def run(stage: dict) -> tuple[str, str | None]:
     existing_paths = set(existing_artifacts)
     image_paths: list[str] = []
     meta_list: list[dict] = []
-    for batch_start in range(0, len(storyboard), _GRID * _GRID):
-        batch = storyboard[batch_start: batch_start + _GRID * _GRID]
-        grid_path = f"{task_id}/grid_{batch_start // (_GRID * _GRID):03d}.png"
+    batch_size = 1 if is_history else _GRID * _GRID
+    for batch_start in range(0, len(storyboard), batch_size):
+        batch = storyboard[batch_start: batch_start + batch_size]
+        grid_path = f"{task_id}/grid_{batch_start // batch_size:03d}.png"
         expected_paths = [f"{task_id}/img_{batch_start + i:03d}.png" for i in range(len(batch))]
         if all(
             path in existing_paths
@@ -832,7 +964,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     pass
         else:
             grid_prompt = _build_grid_prompt([shot["text"] for shot in batch], content_category, visual_style, reference_mode)
-            batch_key = f"grid_{batch_start // (_GRID * _GRID):03d}"
+            batch_key = f"grid_{batch_start // batch_size:03d}"
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
@@ -874,6 +1006,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "prompt": actual_prompt,
             "prompt_scenes": [shot["text"] for shot in batch],
             "image_model": image_model,
+            "history_director_analysis": is_history,
         })
         source_cells = len(source_meta.get("cell_bounds_x") or []) or _GRID
         for i, piece_bytes in enumerate(_split_grid(raw, len(batch), source_cells)):
@@ -883,7 +1016,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             shot = batch[i]
             storage.add_artifact(task_id, "image", "image", path, meta={
                 "sentence": shot["text"], "index": idx,
-                "batch": batch_start // (_GRID * _GRID),
+                "batch": batch_start // batch_size,
                 "char_count": shot["char_count"], "char_start": shot["char_start"],
                 "char_end": shot["char_end"], "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"], "source_grid": grid_path,
@@ -893,14 +1026,21 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "prompt": actual_prompt,
                 "prompt_scene": shot["text"],
                 "image_model": image_model,
+                "beat_role": shot.get("beat_role"),
+                "history_director_analysis": is_history,
+                "max_final_images": 3 if is_history else None,
             })
             image_paths.append(path)
             meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+    if is_history and len(image_paths) > 3:
+        raise ValueError("历史类最终图片数量超过 3 张上限")
     storage.add_artifact(task_id, "image", "image_index", index_path, meta={
         "total": len(image_paths),
         "narration_char_count": sum(shot["char_count"] for shot in storyboard),
+        "history_director_analysis": is_history,
+        "max_final_images": 3 if is_history else None,
     })
     return "done", index_path

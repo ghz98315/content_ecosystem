@@ -31,6 +31,7 @@ from stages.image import (
     _grid_bounds,
     _split_grid,
     _split_storyboard,
+    _history_storyboard,
     _validate_grid_source,
     _visual_scene,
     _medical_safe,
@@ -396,6 +397,16 @@ class ComplianceTests(unittest.TestCase):
 
 
 class StoryboardTests(unittest.TestCase):
+
+    def test_history_storyboard_caps_at_three_and_marks_cover(self):
+        source = "。".join(["第%d段记录了人物、时间、地点和关键事件" % i for i in range(1, 13)])
+        shots, analysis = _history_storyboard(source)
+        self.assertGreaterEqual(len(shots), 1)
+        self.assertLessEqual(len(shots), 3)
+        self.assertEqual("cover", shots[0]["beat_role"])
+        self.assertTrue(all(shot["beat_role"] == ("cover" if i == 0 else "key_event") for i, shot in enumerate(shots)))
+        self.assertTrue(analysis["checks"]["within_three_image_limit"])
+        self.assertEqual(len(shots), analysis["selected_count"])
 
     def test_wechat_channels_uses_authorized_manual_upload_path(self):
         self.assertTrue(_requires_manual_upload("wechat_channels"))

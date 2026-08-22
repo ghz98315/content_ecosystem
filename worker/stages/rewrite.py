@@ -137,11 +137,26 @@ def _rewrite_structure(raw: str, text: str) -> dict:
         paragraphs = [item.strip() for item in re.split(r"\n\s*\n|\n", text) if item.strip()]
     if not hook:
         hook = paragraphs[0] if paragraphs else text[:120]
+    cta_original = str(payload.get("cta_original") or "").strip() if isinstance(payload, dict) else ""
+    cta_revised = str(payload.get("cta_revised") or "").strip() if isinstance(payload, dict) else ""
+    cta_range = payload.get("cta_range") if isinstance(payload, dict) else None
+    if not isinstance(cta_range, dict):
+        cta_range = {}
+    book_title = str(payload.get("book_title") or "").strip() if isinstance(payload, dict) else ""
+    book_title_source = str(payload.get("book_title_source") or ("reference_copy" if book_title else "absent")).strip()
     return {
         "hook": hook,
         "hook_strategy": strategy or "counter_intuitive",
         "paragraphs": paragraphs,
         "delivery_plan": _dialogue_delivery_plan(raw, text),
+        "cta_original": cta_original,
+        "cta_revised": cta_revised,
+        "cta_range": {
+            "start": max(0, int(cta_range.get("start") or 0)),
+            "end": max(0, int(cta_range.get("end") or 0)),
+        },
+        "book_title": book_title,
+        "book_title_source": book_title_source if book_title else "absent",
     }
 
 
@@ -155,8 +170,8 @@ def _dialogue_structure_issues(text: str) -> list[str]:
         content = match.group(2).strip()
         if len(re.sub(r"\s+", "", content)) < 6:
             return ["双人播客单轮发言过短，无法形成自然问答"]
-        if len(re.sub(r"\s+", "", content)) > 180:
-            return ["双人播客单轮发言过长，应控制在 180 字以内"]
+        if len(re.sub(r"\s+", "", content)) > 90:
+            return ["双人播客单轮发言过长，应控制在 90 字以内"]
         turns.append((match.group(1), content))
     if len(turns) < 4:
         return ["双人播客至少需要 4 个交替轮次"]
@@ -166,6 +181,11 @@ def _dialogue_structure_issues(text: str) -> list[str]:
         return ["双人播客首轮必须由主持人以问题或反差钩子开启"]
     if not any(speaker == "主持人" and ("?" in content or "？" in content) for speaker, content in turns):
         return ["主持人至少需要提出一个明确问题"]
+    same_speaker_turns = 1
+    for previous, current in zip(turns, turns[1:]):
+        same_speaker_turns = same_speaker_turns + 1 if previous[0] == current[0] else 1
+        if same_speaker_turns > 2:
+            return ["双人播客同一角色不能连续超过 2 轮，应增加自然承接"]
     return []
 
 
@@ -283,6 +303,7 @@ def _generate_candidates(
                         f"原作者标识：{context['author']}\n"
                         f"补充要求：{rewrite_notes or '无'}\n"
                         f"必须原样保留的词：{terms}\n"
+                        "历史类规则：若原文存在 CTA，只允许在 cta_revised 中调整语序和口语表达，不得新增卖点、优惠、承诺或购买引导；若原文没有 CTA，cta_original 和 cta_revised 必须为空。若原文明确出现书名则保留，否则 book_title 必须为空且 book_title_source=absent。\n"
                         f"原文有效字数约 {source_len} 字。目标差异控制在 {tolerance_label} 以内。"
                         + (
                             f"双人播客必须保留开头钩子核心语义，可参考原文前 120 字：{source[:120]}；"

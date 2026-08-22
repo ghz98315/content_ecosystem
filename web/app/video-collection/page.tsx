@@ -99,6 +99,20 @@ function VideoCollectionContent() {
   const [secondaryVoiceProfileId, setSecondaryVoiceProfileId] = useState("");
   const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
   const [voiceSampleState, setVoiceSampleState] = useState<"idle" | "loading" | "missing" | "error">("idle");
+  const historyVisualStyles = [
+    { id: "history_ink_scroll", label: "方案一：水墨绢本叙事", note: "泛黄绢本、墨线留白、赭石土黄" },
+    { id: "history_gongbi_cinematic", label: "方案二：古工笔厚涂史诗", note: "暗金厚涂、人物特写、电影侧光" },
+    { id: "history_heroic", label: "方案三：历史英雄叙事", note: "保留现有历史英雄画风" },
+  ];
+  useEffect(() => {
+    if (contentCategory === "social_science" && !historyVisualStyles.some(style => style.id === visualStyle)) {
+      setVisualPresetId("history-ink-scroll");
+      setVisualStyle("history_ink_scroll");
+    } else if (contentCategory !== "social_science" && historyVisualStyles.some(style => style.id === visualStyle)) {
+      setVisualPresetId(contentCategory === "education" ? "education-clean-modern" : "health-warm-editorial");
+      setVisualStyle(contentCategory === "education" ? "clean_modern" : "warm_editorial");
+    }
+  }, [contentCategory, visualStyle]);
   const defaultEdgeProfile = useMemo(() => voiceProfiles.find(profile => profile.provider === "edge" && profile.voice_id === DEFAULT_EDGE_VOICE_ID), [voiceProfiles]);
   const defaultVoiceProfile = useMemo(() => voiceProfiles.find(profile => profile.is_default) || defaultEdgeProfile, [defaultEdgeProfile, voiceProfiles]);
   const defaultVoiceLabel = defaultVoiceProfile ? `${defaultVoiceProfile.display_name} · ${defaultVoiceProfile.model || defaultVoiceProfile.provider}` : DEFAULT_EDGE_LABEL;
@@ -389,14 +403,17 @@ function VideoCollectionContent() {
       <section className="collection-import" aria-label="视频画面设置">
         <div><h2>视频画面</h2><p>风格与参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
         <div className="collection-import-footer">
-          <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => setVisualStyle(event.target.value)} aria-label="视频画面风格"><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></select><small>统一色彩、光线和构图语汇</small></div>
+          <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => setVisualStyle(event.target.value)} aria-label="视频画面风格">
+            {contentCategory === "social_science" ? historyVisualStyles.map(style => <option key={style.id} value={style.id}>{style.label}</option>) : <><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></>}
+          </select><small>{contentCategory === "social_science" ? (historyVisualStyles.find(style => style.id === visualStyle)?.note || "历史类三套风格，任务创建后固定") : "统一色彩、光线和构图语汇"}</small></div>
           <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
         </div>
       </section>
+      {contentCategory === "social_science" && <section className="collection-import" aria-label="历史视觉风格预览"><div><h2>历史风格预览</h2><p>预览图用于确认整体画面方向，任务创建后随风格快照保存。</p></div><div className="collection-import-footer"><img src={`/history-style-previews/${visualStyle === "history_ink_scroll" ? "history-ink-scroll" : visualStyle === "history_gongbi_cinematic" ? "history-gongbi-cinematic" : "history-heroic"}.png`} alt="历史类视觉风格预览" style={{ display: "block", width: "min(100%, 520px)", aspectRatio: "3 / 2", objectFit: "cover", borderRadius: 6, border: "1px solid #d7d1c7" }} /></div></section>}
       <section className="collection-import" aria-label="视觉生成策略">
         <div><h2>视觉生成策略</h2><p>配置会随任务快照保存；参考素材将在后续步骤按任务绑定。</p></div>
         <div className="collection-import-footer">
-          <div className="collection-voice-setting"><span>类别预设</span><select value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); if (id === "history-documentary") { setGenerationMode("hybrid"); setVisualStyle("documentary"); } else if (id === "education-clean-modern") { setGenerationMode("prompt"); setVisualStyle("clean_modern"); } else { setGenerationMode("prompt"); setVisualStyle("warm_editorial"); } }} aria-label="视觉类别预设"><option value="health-warm-editorial">健康：温暖生活叙事</option><option value="history-documentary">历史：史料感人物叙事</option><option value="education-clean-modern">经管：现代商业阅读</option></select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
+          <div className="collection-voice-setting"><span>类别预设</span><select value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); if (id === "history-documentary") { setGenerationMode("prompt"); setVisualStyle("history_heroic"); } else if (id === "education-clean-modern") { setGenerationMode("prompt"); setVisualStyle("clean_modern"); } else { setGenerationMode("prompt"); setVisualStyle("warm_editorial"); } }} aria-label="视觉类别预设"><option value="health-warm-editorial">健康：温暖生活叙事</option>{contentCategory === "social_science" && <><option value="history-ink-scroll">历史：水墨绢本叙事</option><option value="history-gongbi-cinematic">历史：古工笔厚涂史诗</option><option value="history-documentary">历史：英雄叙事</option></>}{contentCategory !== "social_science" && <><option value="education-clean-modern">经管：现代商业阅读</option></>}</select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
           <div className="collection-voice-setting"><span>生成方式</span><select value={generationMode} onChange={event => setGenerationMode(event.target.value as "prompt" | "reference_image" | "hybrid")} aria-label="视觉生成方式"><option value="prompt">提示词风格</option><option value="reference_image">参考图片</option><option value="hybrid">提示词 + 参考图片</option></select><small>{generationMode === "prompt" ? "仅使用镜头提示词与类别预设。" : "待绑定已授权素材；供应商不支持图片输入时自动降级为提示词。"}</small></div>
         </div>
       </section>
