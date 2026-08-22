@@ -441,13 +441,14 @@ def _trim_cell_edges(piece, inset_ratio: float = _CELL_EDGE_INSET_RATIO):
     return piece.crop((inset_x, inset_y, width - inset_x, height - inset_y))
 
 
-def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None) -> list[bytes]:
+def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None, cell_ratio: float = _CELL_RATIO) -> list[bytes]:
     """切成 n 张4:3小图；边界使用同一组精确像素坐标，避免累计误差。"""
     from PIL import Image
     cells = max(1, int(grid_cells or _GRID))
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     w, h = img.size
-    _validate_grid_source(w, h)
+    if abs((w / h) - (int(_GRID_SIZE.split("x")[0]) / int(_GRID_SIZE.split("x")[1]))) > 0.02 and cell_ratio == _CELL_RATIO:
+        _validate_grid_source(w, h)
     x_bounds = [(round(i * w / cells), round((i + 1) * w / cells)) for i in range(cells)]
     y_bounds = [(round(i * h / cells), round((i + 1) * h / cells)) for i in range(cells)]
     pieces = []
@@ -458,7 +459,7 @@ def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None) -> list
             x0, x1 = x_bounds[c]
             y0, y1 = y_bounds[r]
             piece = img.crop((x0, y0, x1, y1))
-            piece = _crop_to_cell_ratio(_trim_cell_edges(piece))
+            piece = _crop_to_cell_ratio(_trim_cell_edges(piece), cell_ratio)
             buf = io.BytesIO()
             piece.save(buf, format="PNG")
             pieces.append(buf.getvalue())
@@ -1016,7 +1017,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         actual_prompt = grid_prompt or source_meta.get("prompt")
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
-            "grid": "portrait_single" if is_history else "3x3",
+            "grid": "3x3",
             "cell_ratio": "9:16" if is_history else "4:3",
             "cell_bounds_x": [0, grid_size[0]] if is_history else _grid_bounds(grid_size[0]),
             "cell_bounds_y": [0, grid_size[1]] if is_history else _grid_bounds(grid_size[1]),
@@ -1029,7 +1030,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "history_director_analysis": is_history,
         })
         source_cells = len(source_meta.get("cell_bounds_x") or []) or _GRID
-        pieces = [raw] if is_history else _split_grid(raw, len(batch), source_cells)
+        pieces = _split_grid(raw, len(batch), source_cells, 9 / 16 if is_history else _CELL_RATIO)
         for i, piece_bytes in enumerate(pieces):
             idx = batch_start + i
             path = expected_paths[i]
