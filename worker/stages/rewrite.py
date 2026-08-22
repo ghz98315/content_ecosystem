@@ -494,6 +494,9 @@ def run(stage: dict) -> tuple[str, str | None]:
                     "final_text": final_text,
                     "final_length": _text_len(final_text),
                 })
+                if context["category"] == "social_science":
+                    rw["cover_title"] = str(params.get("cover_title") or "").strip()
+                    rw["cover_subtitle"] = str(params.get("cover_subtitle") or "").strip()
                 plan = rw.get("delivery_plan")
                 if (
                     str(task_context.get("narration_mode") or params.get("narration_mode") or "single") == "dual_dialogue"

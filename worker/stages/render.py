@@ -592,8 +592,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             paragraphs = rewrite_data.get("paragraphs") if isinstance(rewrite_data, dict) else []
             if not isinstance(paragraphs, list):
                 paragraphs = []
-            cover_title = str(rewrite_data.get("hook") or (segments[0].get("text") if segments else "")).strip()
-            cover_subtitle = str(paragraphs[1] if len(paragraphs) > 1 else (segments[1].get("text") if len(segments) > 1 else "")).strip()
+            cover_title = str(rewrite_data.get("cover_title") or rewrite_data.get("hook") or (segments[0].get("text") if segments else "")).strip()
+            cover_subtitle = str(rewrite_data.get("cover_subtitle") or (paragraphs[1] if len(paragraphs) > 1 else (segments[1].get("text") if len(segments) > 1 else ""))).strip()
             cover_layout_png = os.path.join(tmpdir, "history_cover_layout.png")
             _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title, cover_subtitle=cover_subtitle)
         cover_local = storage.download_artifact(images[0]["path"], ".png")

@@ -16,6 +16,8 @@ interface RewriteData {
   hook?: string;
   hook_strategy?: string;
   paragraphs?: string[];
+  cover_title?: string;
+  cover_subtitle?: string;
 }
 
 interface ComplianceIssue {
@@ -43,13 +45,15 @@ function textLength(text: string) {
   return text.replace(/\s/g, "").length;
 }
 
-export function RewriteDetail({ stage, onRerun }: DetailCommon) {
+export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
   const [data, setData] = useState<RewriteData | null>(null);
   const [drafts, setDrafts] = useState<string[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [activeIssue, setActiveIssue] = useState<number | null>(null);
+  const [coverTitle, setCoverTitle] = useState("");
+  const [coverSubtitle, setCoverSubtitle] = useState("");
   const draftRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
 
   useEffect(() => {
@@ -60,6 +64,8 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
       .then((d: RewriteData) => {
         setData(d);
         setDrafts(d.candidates || []);
+        setCoverTitle(d.cover_title || d.hook || "");
+        setCoverSubtitle(d.cover_subtitle || d.paragraphs?.[1] || "");
         if (d.chosen != null) setSelected(d.chosen);
         else if (d.candidates?.length === 1) setSelected(0);
       })
@@ -72,6 +78,19 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
     if (!finalText) {
       setErr("最终文案不能为空");
       return;
+    }
+    const isHistory = task.content_category === "social_science";
+    if (isHistory && (!coverTitle.trim() || !coverSubtitle.trim())) {
+      setErr("历史类请先填写封面主标题和副标题");
+      return;
+    }
+    if (isHistory) {
+      const nextParams = { ...(stage.params || {}), cover_title: coverTitle.trim(), cover_subtitle: coverSubtitle.trim() };
+      const { error: paramsError } = await supabase.from("stages").update({ params: nextParams }).eq("id", stage.id);
+      if (paramsError) {
+        setErr(`封面标题保存失败：${paramsError.message}`);
+        return;
+      }
     }
     setBusy(true);
     setErr(null);
@@ -131,6 +150,14 @@ export function RewriteDetail({ stage, onRerun }: DetailCommon) {
           </section>
           {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
 
+          {task.content_category === "social_science" && (
+            <section className="rewrite-cover-fields" aria-label="历史类封面标题">
+              <h3>封面标题确认</h3>
+              <p>主标题和副标题将用于封面前 15 帧，正文不显示书名和作者。</p>
+              <label>主标题<input value={coverTitle} onChange={event => setCoverTitle(event.target.value)} maxLength={24} placeholder="输入封面主标题" /></label>
+              <label>副标题<input value={coverSubtitle} onChange={event => setCoverSubtitle(event.target.value)} maxLength={36} placeholder="输入封面副标题" /></label>
+            </section>
+          )}
           <div className="rewrite-workspace">
           <aside className="rewrite-advice" aria-label="合规检查建议">
           {report && (
