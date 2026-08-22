@@ -924,9 +924,22 @@ def run(stage: dict) -> tuple[str, str | None]:
             )
     task_context = db.get_task_prompt_context(task_id)
     content_category = str(task_context.get("content_category") or "health")
+    is_history = content_category == "social_science"
     if str(task_context.get("narration_mode") or "single") == "dual_dialogue":
         return _run_dialogue_visual(stage, text, content_category, client, image_model)
-    storyboard = _split_storyboard(text)
+    history_analysis = None
+    if is_history:
+        storyboard, history_analysis = _history_storyboard(text)
+        if history_analysis:
+            analysis_path = f"{task_id}/history_director_analysis.json"
+            storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+            storage.add_artifact(task_id, "image", "history_director_analysis", analysis_path, meta={
+                "selected_count": history_analysis.get("selected_count", 0),
+                "max_final_images": 3,
+                "checks": history_analysis.get("checks", {}),
+            })
+    else:
+        storyboard = _split_storyboard(text)
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
         return "failed", None
