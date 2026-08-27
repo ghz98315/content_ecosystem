@@ -144,9 +144,15 @@ def _rewrite_structure(raw: str, text: str) -> dict:
         cta_range = {}
     book_title = str(payload.get("book_title") or "").strip() if isinstance(payload, dict) else ""
     book_title_source = str(payload.get("book_title_source") or ("reference_copy" if book_title else "absent")).strip()
+    hook_text = str(payload.get("hook_text") or hook).strip() if isinstance(payload, dict) else hook
+    body_text = str(payload.get("body_text") or "").strip() if isinstance(payload, dict) else ""
+    tail_text = str(payload.get("tail_text") or "").strip() if isinstance(payload, dict) else ""
     return {
         "hook": hook,
         "hook_strategy": strategy or "counter_intuitive",
+        "hook_text": hook_text,
+        "body_text": body_text,
+        "tail_text": tail_text,
         "paragraphs": paragraphs,
         "delivery_plan": _dialogue_delivery_plan(raw, text),
         "cta_original": cta_original,
@@ -218,21 +224,35 @@ def _candidate_issues(
                 issues.append(f"改写稿过短（{length}/{source_len} 字）")
             if length > max_len:
                 issues.append(f"改写稿明显超出原文长度（{length}/{source_len} 字）")
+            source_sentences = [s.strip() for s in re.split(r"(?<=[。！？!?；;])", source) if s.strip()]
+            candidate_sentences = [s.strip() for s in re.split(r"(?<=[。！？!?；;])", text) if s.strip()]
+            lock_count = min(4, len(source_sentences), len(candidate_sentences))
+            if lock_count:
+                source_hook = _normalized("".join(source_sentences[:lock_count]))
+                candidate_hook = _normalized("".join(candidate_sentences[:lock_count]))
+                if not candidate_hook.startswith(source_hook):
+                    issues.append("开头黄金钩子未按原文保留")
+            tail_count = min(2, len(source_sentences), len(candidate_sentences))
+            if tail_count:
+                source_tail = _normalized("".join(source_sentences[-tail_count:]))
+                candidate_tail = _normalized("".join(candidate_sentences[-tail_count:]))
+                if not candidate_tail.endswith(source_tail):
+                    issues.append("结尾收束未按原文保留")
+            if len(source_sentences) > lock_count + tail_count:
+                source_body = _normalized("".join(source_sentences[lock_count:-tail_count]))
+                candidate_body = _normalized("".join(candidate_sentences[lock_count:-tail_count]))
+                if source_body and candidate_body and _similarity(source_body, candidate_body) >= 0.20:
+                    issues.append("中段相似度未低于20%")
         if re.search(r"(?:未完待续|请继续|继续输出|\.\.\.|……)\s*$", text):
             issues.append("改写稿疑似被截断")
         if text.rstrip().endswith(("，", ",", "：", ":", "；", ";", "、")):
             issues.append("改写稿结尾不完整")
-        if category == "social_science" and narration_mode != "dual_dialogue":
-            similarity = _similarity(source, comparison_text)
-            if similarity >= 0.40:
-                issues.append(f"历史类改写相似度未低于40%（当前 {similarity:.2f}）")
-            source_lead = re.split(r"[。！？!?；;]", source, maxsplit=4)[:4]
-            source_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", "".join(source_lead))
-            candidate_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", comparison_text)
-            if source_lead and not candidate_lead.startswith(source_lead):
-                issues.append("历史类开头3-4句未按要求原样保留")
-        elif narration_mode != "dual_dialogue" and _similarity(source, comparison_text) < 0.40:
-            issues.append("改写幅度过大，未保持原文主体")
+            if category == "social_science":
+                source_lead = re.split(r"[。！？!?；;]", source, maxsplit=4)[:4]
+                source_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", "".join(source_lead))
+                candidate_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", comparison_text)
+                if source_lead and not candidate_lead.startswith(source_lead):
+                    issues.append("历史类开头3-4句未按要求原样保留")
         for title in re.findall(r"《([^》]+)》", source):
             if f"《{title}》" not in text:
                 issues.append(f"未完整保留书名《{title}》")
@@ -301,11 +321,11 @@ def _generate_candidates(
         else:
             temperature = 0.35 if mode == "repost_dedup" else 0.7
         history_pacing = (
-            "历史类口播节奏：改写后的正文必须尽量使用短句。较长句子在自然语义停顿处补逗号，"
+            "统一深度二创规则：开头和结尾锁定，中段实质重构。改写后的正文必须尽量使用短句。较长句子在自然语义停顿处补逗号，"
             "每个口播分句尽量控制在10-12个汉字以内；不得删减原文信息，不得把一句话机械切碎。"
             "中段必须做实质性重构，可使用信息顺序重组、叙事视角转换、主动被动转换、句式重写和同等强度细节替换；"
             "保留原文五感描写、情绪强度和核心共鸣句，禁止空洞套话、AI腔和简单同义词替换。"
-            if context["category"] == "social_science" else ""
+            if narration_mode != "dual_dialogue" else ""
         )
         resp = _request_rewrite(
             model=config.REWRITE_MODEL,
@@ -320,7 +340,7 @@ def _generate_candidates(
                         f"补充要求：{rewrite_notes or '无'}\n"
                         f"{history_pacing}\n"
                         f"必须原样保留的词：{terms}\n"
-                        "历史类规则：若原文存在 CTA，只允许在 cta_revised 中调整语序和口语表达，不得新增卖点、优惠、承诺或购买引导；若原文没有 CTA，cta_original 和 cta_revised 必须为空。若原文明确出现书名则保留，否则 book_title 必须为空且 book_title_source=absent。\n"
+                        "统一规则：CTA 不生成、不改写、不追加；书名只读取原文明确出现的内容，否则 book_title 为空且 book_title_source=absent。\n"
                         f"原文有效字数约 {source_len} 字。目标差异控制在 {tolerance_label} 以内。"
                         + (
                             f"双人播客必须保留开头钩子核心语义，可参考原文前 120 字：{source[:120]}；"

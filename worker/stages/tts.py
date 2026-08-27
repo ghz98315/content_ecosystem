@@ -672,6 +672,8 @@ def _get_cta(task_id: str) -> str | None:
     local = storage.download_artifact(res.data[0]["storage_path"], ".json")
     try:
         data = json.load(open(local, encoding="utf-8"))
+        if data.get("skipped") is True:
+            return None
         return data.get("cta_text") or None
     finally:
         try:

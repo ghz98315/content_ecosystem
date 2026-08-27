@@ -24,6 +24,10 @@ def normalize_category(value: object) -> str:
 
 def load_prompt(category: str, kind: str) -> str:
     category = normalize_category(category)
+    if kind == "initial_dedup":
+        shared = PROMPT_ROOT.parent / "rewrite_deep_rewrite.txt"
+        if shared.is_file():
+            return shared.read_text(encoding="utf-8").strip()
     path = PROMPT_ROOT / category / f"{kind}.txt"
     if not path.is_file():
         raise ValueError(f"未配置 {category} 分类的 {kind} 提示词")

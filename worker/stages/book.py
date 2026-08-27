@@ -214,6 +214,34 @@ def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
 
+    # New tasks carry book metadata in rewrite.json; retain a compatibility
+    # artifact without making an additional model call.
+    if params.get("skipped") is True:
+        rewrite = _find_rewrite_payload(task_id)
+        book_name = str(rewrite.get("book_title") or "").strip().strip("《》")
+        info = {
+            "book_name": book_name,
+            "author": "",
+            "nationality": "",
+            "confidence": "explicit" if book_name else "absent",
+            "cta_text": "",
+            "metadata_source": "rewrite_explicit_only",
+            "cta_source": "absent",
+            "skipped": True,
+        }
+        info.update(_publication_metadata(task_id, info))
+        info["title_short"] = info["publish_title"]
+        _sync_book_signal(task_id, info, bool(book_name))
+        sp = f"{task_id}/book.json"
+        storage.upload_bytes(sp, json.dumps(info, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+        storage.add_artifact(task_id, "book", "book", sp, meta={
+            "book_name": book_name or None,
+            "confidence": info["confidence"],
+            "metadata_source": info["metadata_source"],
+            "skipped": True,
+        })
+        return "done", sp
+
     # 若人工已确认书名(从 params 里拿)
     text = _find_rewrite_text(task_id, stage)
     if not text:

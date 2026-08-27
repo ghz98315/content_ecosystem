@@ -8,7 +8,7 @@ const COPY: Record<StageKind, { title: string; description: string }> = {
   clean: { title: "清洗稿", description: "口语冗余和异常字符已完成整理" },
   rewrite: { title: "改写稿", description: "合规改写内容已经确认" },
   image: { title: "场景图片", description: "分镜画面与对应文案已生成" },
-  book: { title: "书籍与 CTA", description: "书名、作者、封面和引导文案已确认" },
+  book: { title: "书名信息", description: "书名随改写文案确认；书籍阶段已跳过" },
   tts: { title: "配音与字幕", description: "音色、朗读和字幕时间轴已生成" },
   render: { title: "输出规格", description: "竖版成片参数与自动质检已准备" },
 };

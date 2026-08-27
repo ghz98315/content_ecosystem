@@ -15,6 +15,11 @@ interface RewriteData {
   compliance?: ComplianceReport;
   hook?: string;
   hook_strategy?: string;
+  hook_text?: string;
+  body_text?: string;
+  tail_text?: string;
+  book_title?: string;
+  book_title_source?: string;
   paragraphs?: string[];
   cover_title?: string;
   cover_subtitle?: string;
@@ -150,6 +155,12 @@ export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
           </section>
           {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
 
+          {(data.hook_text || data.body_text || data.tail_text) && <section className="rewrite-lock-status" aria-label="改写结构" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-hover)" }}>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>开头</span><strong>已锁定</strong><small style={{ display: "block" }}>{data.hook_text ? `${textLength(data.hook_text)} 字` : ""}</small></div>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>中段</span><strong>深度重写</strong><small style={{ display: "block" }}>{data.body_text ? `${textLength(data.body_text)} 字` : ""}</small></div>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>已锁定</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>书名</span><strong>{data.book_title ? "随文案确认" : "未识别"}</strong></div>
+          </section>}
           {task.content_category === "social_science" && (
             <section className="rewrite-cover-fields" aria-label="历史类封面标题">
               <h3>封面标题确认</h3>
