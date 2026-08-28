@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
+import { supabase } from "@/lib/supabase";
 
 interface TtsData {
   provider?: string;
@@ -35,6 +36,26 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
   const [activeBatch, setActiveBatch] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [rate, setRate] = useState("-8%");
+  const [rateBusy, setRateBusy] = useState(false);
+
+  useEffect(() => {
+    const configured = (stage?.params as Record<string, unknown> | undefined)?.primary_provider_options as Record<string, unknown> | undefined;
+    setRate(String(configured?.rate || "-8%"));
+  }, [stage?.params]);
+
+  const saveRateAndRerun = async () => {
+    if (!stage) return;
+    setRateBusy(true); setLoadError(null);
+    const params = { ...(stage.params || {}), primary_provider_options: { ...(((stage.params || {}) as Record<string, unknown>).primary_provider_options as Record<string, unknown> || {}), rate } };
+    const [{ error: stageError }, { error: taskError }] = await Promise.all([
+      supabase.from("stages").update({ params }).eq("id", stage.id),
+      supabase.from("tasks").update({ tts_rate: rate }).eq("id", stage.task_id),
+    ]);
+    if (stageError || taskError) setLoadError(stageError?.message || taskError?.message || "保存配音速度失败");
+    else await onRerun(stage.id);
+    setRateBusy(false);
+  };
 
   useEffect(() => {
     if (!stage?.output_ref) {
@@ -109,6 +130,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
       )}
       {audioUrl && (
         <div style={{ marginBottom: 20 }}>
+          <div className="tts-rate-control"><label htmlFor="tts-rate">重跑速度</label><select id="tts-rate" value={rate} onChange={event => setRate(event.target.value)}><option value="-5%">稍慢 5%</option><option value="-8%">舒缓 8%（推荐）</option><option value="-12%">慢速 12%</option><option value="0%">标准速度</option></select><button type="button" className="secondary-action" disabled={rateBusy} onClick={saveRateAndRerun}>{rateBusy ? "保存中" : "保存并重跑配音"}</button></div>
           <div className="tts-snapshot-note" role="note"><strong>任务配音快照</strong><span>以下生产音频与音色来自任务创建时的配置，不会随全局音色 profile 后续修改而变化。</span></div>
           <div className="tts-audio-heading"><div><strong>完整配音</strong><small>当前任务生产音频快照 · 不会被试听或后续对比覆盖</small></div><a className="secondary-action" href={audioUrl} download="tts.mp3">下载音频</a></div>
           <audio

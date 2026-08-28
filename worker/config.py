@@ -27,15 +27,24 @@ REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "deepseek-chat" if REWRITE_PROVI
 BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "gpt-5.5")
 
 # ---- 生图（可独立于文字模型，支持 openai / doubao 两个后端）----
-IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")   # openai | doubao
+IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "apimart").strip().lower()
 
 # gpt 生图
 IMAGE_API_KEY  = os.environ.get("IMAGE_API_KEY",  "")   # 留空则复用 OPENAI_API_KEY
 IMAGE_BASE_URL = os.environ.get("IMAGE_BASE_URL", "")   # 留空则复用 OPENAI_BASE_URL
 IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "dall-e-3")
+APIMART_IMAGE_API_KEY = os.environ.get("APIMART_IMAGE_API_KEY", "").strip()
+APIMART_IMAGE_BASE_URL = os.environ.get("APIMART_IMAGE_BASE_URL", "https://api.apimart.ai/v1").strip()
+APIMART_IMAGE_MODEL = os.environ.get("APIMART_IMAGE_MODEL", "gpt-image-2").strip()
+APIMART_IMAGE_RESOLUTION = os.environ.get("APIMART_IMAGE_RESOLUTION", "1k").strip().lower()
+if APIMART_IMAGE_RESOLUTION not in {"1k", "2k", "4k"}:
+    raise ValueError("APIMART_IMAGE_RESOLUTION must be one of: 1k, 2k, 4k")
+XCODE_IMAGE_API_KEY = os.environ.get("XCODE_IMAGE_API_KEY", "").strip() or IMAGE_API_KEY
+XCODE_IMAGE_BASE_URL = os.environ.get("XCODE_IMAGE_BASE_URL", "https://api.xcode.best/v1").strip()
+XCODE_IMAGE_MODEL = os.environ.get("XCODE_IMAGE_MODEL", "gpt-image-2").strip()
 # Grid source size. gpt-image-2 supports a 3:2 landscape canvas; each 3x3
 # cell is then cropped deterministically to the required 4:3 video still.
-IMAGE_GRID_SIZE = os.environ.get("IMAGE_GRID_SIZE", "1536x1024")
+IMAGE_GRID_SIZE = os.environ.get("IMAGE_GRID_SIZE", "1024x1536")
 
 # doubao（豆包）生图
 DOUBAO_API_KEY     = os.environ.get("DOUBAO_API_KEY", "")
@@ -43,10 +52,23 @@ DOUBAO_BASE_URL    = os.environ.get("DOUBAO_BASE_URL", "https://ark.cn-beijing.v
 DOUBAO_IMAGE_MODEL = os.environ.get("DOUBAO_IMAGE_MODEL", "doubao-seedream-3-0-t2i-250415")
 
 
-def image_client():
+def image_client(provider: str | None = None):
     """生图专用客户端。按 IMAGE_PROVIDER 选后端，返回 (client, model)。"""
-    if IMAGE_PROVIDER == "doubao":
+    selected = str(provider or IMAGE_PROVIDER).strip().lower()
+    if selected == "apimart":
+        if not APIMART_IMAGE_API_KEY:
+            raise ValueError("APIMart 生图未配置 APIMART_IMAGE_API_KEY")
+        return openai_client(api_key=APIMART_IMAGE_API_KEY, base_url=APIMART_IMAGE_BASE_URL), APIMART_IMAGE_MODEL
+    if selected in {"xcode", "xcode.best"}:
+        if not XCODE_IMAGE_API_KEY:
+            raise ValueError("xcode.best 生图未配置 XCODE_IMAGE_API_KEY 或 IMAGE_API_KEY")
+        return openai_client(api_key=XCODE_IMAGE_API_KEY, base_url=XCODE_IMAGE_BASE_URL), XCODE_IMAGE_MODEL
+    if selected == "doubao":
         return openai_client(api_key=DOUBAO_API_KEY, base_url=DOUBAO_BASE_URL), DOUBAO_IMAGE_MODEL
+    if selected != "openai":
+        raise ValueError(f"不支持的生图 Provider: {selected}")
+    # Prefer the dedicated image credential when configured. This lets xcode
+    # use a newly rotated IMAGE_API_KEY while preserving the general fallback.
     key = IMAGE_API_KEY or OPENAI_API_KEY
     url = IMAGE_BASE_URL or OPENAI_BASE_URL
     return openai_client(api_key=key, base_url=url), IMAGE_MODEL
@@ -92,6 +114,9 @@ def rewrite_client():
 POLL_INTERVAL = float(os.environ.get("WORKER_POLL_INTERVAL", "3"))
 # Optional safety filter for isolated end-to-end testing.
 WORKER_TASK_ID = os.environ.get("WORKER_TASK_ID", "").strip()
+WORKER_STAGE_KINDS = tuple(
+    item.strip() for item in os.environ.get("WORKER_STAGE_KINDS", "").split(",") if item.strip()
+)
 # A running stage refreshes updated_at on this cadence. A restarted worker
 # requeues processing stages whose heartbeat has expired.
 WORKER_HEARTBEAT_INTERVAL = float(os.environ.get("WORKER_HEARTBEAT_INTERVAL", "20"))
@@ -113,6 +138,7 @@ COSYVOICE2_VOICE = (
     os.environ.get("COSYVOICE2_VOICE", "").strip()
     or os.environ.get("COSYVOICE_VOICE", "").strip()
 )
+INDEXTTS25_VOICE = os.environ.get("INDEXTTS25_VOICE", "").strip()
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")       # tiny/base/small/medium/large-v3
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")       # cpu / cuda
 WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")    # int8(cpu) / float16(cuda)

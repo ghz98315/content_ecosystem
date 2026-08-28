@@ -20,6 +20,7 @@ import config
 import db
 import storage
 from narration import clean_tts_text
+from image_style_profiles import get_profile, historical_era_lock, history_visual_safe
 
 # ── 医疗安全关键词 → 生活隐喻 ──────────────────────────────────────────────
 _MEDICAL_MAP = {
@@ -275,10 +276,10 @@ def _history_storyboard(text: str) -> tuple[list[dict], dict]:
 
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
 _GRID = max(1, int(os.environ.get("IMAGE_GRID_CELLS", "3")))
-_CELL_RATIO = 4 / 3
+_CELL_RATIO = 9 / 16
 _GRID_SIZE = config.IMAGE_GRID_SIZE
 _CELL_EDGE_INSET_RATIO = 0.02
-_IMAGE_SPLIT_VERSION = 2
+_IMAGE_SPLIT_VERSION = 3
 
 
 def _image_prompt_settings(stage: dict) -> tuple[str, str, str, str]:
@@ -360,7 +361,8 @@ def _build_grid_prompt(
     reference_mode: str = "none",
 ) -> str:
     """构建9宫格提示词：1张图包含3×3=9个独立场景，从左到右从上到下编号。"""
-    padded = list(scenes[:_GRID * _GRID])
+    safe_scenes = [history_visual_safe(scene) for scene in scenes] if category == "social_science" else list(scenes)
+    padded = list(safe_scenes[:_GRID * _GRID])
     while len(padded) < _GRID * _GRID:
         padded.append("安静明亮的书房或自然生活空镜，主体居中，画面简洁")
     numbered = "\n".join(f"场景{i+1}：{_visual_scene(s)}" for i, s in enumerate(padded))
@@ -368,28 +370,33 @@ def _build_grid_prompt(
         "social_science": "整体改为清晰、克制、有史料感的当代纪实摄影风格；可使用书房、档案、城市、人文场景，避免戏剧化战争、仇恨符号和伪造史料文字。",
         "education": "整体改为清爽、现代、可信赖的商业阅读与工作场景；可使用书桌、会议、图表隐喻和城市办公空间，避免股票涨跌画面、财富炫耀和保证收益暗示。",
     }.get(category, "整体采用温暖叙事油画插画风，细腻可见的油画笔触与高级编辑插画质感，不追求照片级写实。主体绝对突出、背景简洁；使用温暖窗边侧光和柔和明暗层次，色彩中等饱和且明亮通透。适合中老年观众：暖白、浅木色、鼠尾草绿、低饱和砖红和雾蓝为主，可点缀现代轻英伦的格纹织物、木质书架与花园元素。人物为泛化的普通中老年人与家人，优先侧脸、背影、手部和生活动作，不做可识别真人。画面保持现代日常、轻松平和、衣着无标识、人物不戴制式帽子；不使用昏暗、破败、厚重古典暗影、卡通或夸张广告化效果。若场景涉及情绪危机或生命风险，只表现明亮安全的日常支持、家人陪伴、舒缓活动和规律生活；画面保持积极、平和、完整、无危险暗示，不呈现任何令人不安的细节、工具或姿态。")
-    style_direction = _VISUAL_STYLE_DIRECTIONS.get(visual_style, _VISUAL_STYLE_DIRECTIONS["warm_editorial"])
-    if visual_style in {"history_heroic", "history_ink_scroll", "history_gongbi_cinematic"}:
-        style_specific = {
-            "history_ink_scroll": "Use aged silk-paper texture, ink wash, visible brush contours, restrained ochre and earth-yellow tones, generous negative space, and an environment-led composition.",
-            "history_gongbi_cinematic": "Use gongbi contour detail with painterly thick texture, subdued antique-gold tones, controlled candlelight or side light, and a character-led cinematic composition.",
-            "history_heroic": "Use the existing heroic historical painting direction with stable character identity, period costume, cloud haze, and cinematic depth.",
-        }[visual_style]
-        category_direction = (
-            "Historical period setting. " + style_specific + " Vary only the planned action, scene, camera distance, "
-            "environment, and light direction. No modern clothing, captions, watermarks, cartoon styling, "
-            "visible writing, or substitution of the named historical person."
-        )
+    profile = get_profile(visual_style, category)
+    if visual_style.startswith("history_") and not profile:
+        visual_style = "warm_editorial"
+    style_direction = _VISUAL_STYLE_DIRECTIONS.get(
+        visual_style, _VISUAL_STYLE_DIRECTIONS["warm_editorial"]
+    )
+    if profile:
+        style_direction = profile.direction
+        era_lock = historical_era_lock("；".join(safe_scenes)) if category == "social_science" else ""
+        category_direction = f"{profile.positive} {era_lock} 负面约束：{profile.negative}"
+    grid_direction = (
+        "请生成一张竖版九宫格总图，将画面平均分为3×3共9个等大的竖版格子，从左到右从上到下对应1-9。"
+        "每格按9:16竖版画面构图，主体完整并保持在格子中央安全区域。"
+        if profile else
+        "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
+        "每格按4:3画面构图，主体完整并保持在格子中央安全区域。"
+    )
+    grid_direction = grid_direction.replace("4:3", "9:16")
     reference_direction = {
         "none": "Keep a consistent palette, lighting, lens language and era across all cells.",
         "book_cover": "Use the confirmed book cover only as a visual reference for palette, material and era; never reproduce its text or layout.",
         "scene_continuity": "Keep subjects, clothing, space and lighting consistent across cells as continuous shots from one film.",
     }.get(reference_mode, "Keep a consistent palette, lighting, lens language and era across all cells.")
     return (
-        "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
+        grid_direction +
         "每个格子描绘对应的独立场景，所有格子共享同一套色彩、光线、镜头、材质和时代感。"
         f"{style_direction}. {category_direction} {reference_direction}"
-        "每格按4:3画面构图，主体完整并保持在格子中央安全区域。"
         "九个画面必须无缝、无间距地铺满画布，格子之间不要绘制任何分隔线、白线、黑线、边框或留白。"
         "只生成视觉画面，不得把场景描述绘制进图片；所有书籍封面、屏幕、招牌、包装和背景均保持无字。"
         "整张图禁止出现中文、外文、字母、数字、标点、字幕、标签、徽标、水印和界面文字。\n\n"
@@ -417,7 +424,7 @@ def _validate_grid_source(width: int, height: int) -> None:
 
 
 def _crop_to_cell_ratio(piece, ratio: float = _CELL_RATIO):
-    """Center-crop one source cell to 4:3 without changing its pixel geometry."""
+    """Center-crop one source cell to the portrait video ratio."""
     width, height = piece.size
     current = width / height
     if abs(current - ratio) < 0.005:
@@ -852,7 +859,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
             "grid": "3x3",
-            "cell_ratio": "4:3",
+            "cell_ratio": "9:16",
             "cell_bounds_x": _grid_bounds(grid_size[0]),
             "cell_bounds_y": _grid_bounds(grid_size[1]),
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
@@ -879,7 +886,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
                 "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"],
                 "source_grid": grid_path,
-                "cell_ratio": "4:3",
+                "cell_ratio": "9:16",
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
                 "prompt": prompt,
@@ -953,7 +960,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     existing_paths = set(existing_artifacts)
     image_paths: list[str] = []
     meta_list: list[dict] = []
-    batch_size = 1 if is_history else _GRID * _GRID
+    # Historical scenes use the same 3x3 source-grid contract as every other
+    # category.  Only their output cell ratio is vertical.
+    batch_size = _GRID * _GRID
     for batch_start in range(0, len(storyboard), batch_size):
         batch = storyboard[batch_start: batch_start + batch_size]
         grid_path = f"{task_id}/grid_{batch_start // batch_size:03d}.png"
@@ -986,7 +995,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
-                    size="1024x1792" if is_history else None,
+                    size=_GRID_SIZE,
                 )
             except Exception as exc:
                 if not _is_safety_block(exc):
@@ -996,7 +1005,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 )
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
-                    size="1024x1792" if is_history else None,
+                    size=_GRID_SIZE,
                 )
             storage.upload_bytes(grid_path, raw, "image/png")
             storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
@@ -1011,16 +1020,15 @@ def run(stage: dict) -> tuple[str, str | None]:
         from PIL import Image
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
-        if not is_history:
-            _validate_grid_source(*grid_size)
+        _validate_grid_source(*grid_size)
         source_meta = existing_artifacts.get(grid_path) or {}
         actual_prompt = grid_prompt or source_meta.get("prompt")
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
             "grid": "3x3",
-            "cell_ratio": "9:16" if is_history else "4:3",
-            "cell_bounds_x": [0, grid_size[0]] if is_history else _grid_bounds(grid_size[0]),
-            "cell_bounds_y": [0, grid_size[1]] if is_history else _grid_bounds(grid_size[1]),
+            "cell_ratio": "9:16",
+            "cell_bounds_x": _grid_bounds(grid_size[0]),
+            "cell_bounds_y": _grid_bounds(grid_size[1]),
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
             "text_policy": "no_visible_text",
             "validated": True,
@@ -1029,8 +1037,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "image_model": image_model,
             "history_director_analysis": is_history,
         })
-        source_cells = len(source_meta.get("cell_bounds_x") or []) or _GRID
-        pieces = _split_grid(raw, len(batch), source_cells, 9 / 16 if is_history else _CELL_RATIO)
+        source_cells = _GRID
+        pieces = _split_grid(raw, len(batch), source_cells, _CELL_RATIO)
         for i, piece_bytes in enumerate(pieces):
             idx = batch_start + i
             path = expected_paths[i]
@@ -1042,7 +1050,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "char_count": shot["char_count"], "char_start": shot["char_start"],
                 "char_end": shot["char_end"], "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"], "source_grid": grid_path,
-                "cell_ratio": "9:16" if is_history else "4:3",
+                "cell_ratio": "9:16",
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
                 "prompt": actual_prompt,

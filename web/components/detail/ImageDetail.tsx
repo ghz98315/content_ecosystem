@@ -181,7 +181,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
           </section>
           <section className="image-config-strip" aria-label="当前生图配置">
             <div><span>生成模式</span><strong>3×3 九宫格切分</strong><small>每批最多 9 个分镜</small></div>
-            <div><span>单图比例</span><strong>4:3</strong><small>与成片画面一致</small></div>
+            <div><span>单图比例</span><strong>9:16</strong><small>与成片画面一致</small></div>
             <div><span>Provider</span><strong>{providerName}</strong><small>{imageModel}</small></div>
             <div><span>安全规则</span><strong>无可见文字</strong><small>违规语义转生活化类比</small></div>
           </section>
@@ -203,7 +203,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
                   title={e.sentence}
                   className="image-review-card"
                 >
-                  <div style={{ aspectRatio: "4 / 3", overflow: "hidden" }}>
+                  <div style={{ aspectRatio: "9 / 16", overflow: "hidden" }}>
                     {url
                       ? <img src={url} alt={`图片${e.index + 1}`}
                           style={{ width: "100%", height: "100%", objectFit: "cover" }} />

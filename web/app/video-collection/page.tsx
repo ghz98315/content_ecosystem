@@ -95,14 +95,16 @@ function VideoCollectionContent() {
   const [generationMode, setGenerationMode] = useState<"prompt" | "reference_image" | "hybrid">("prompt");
   const [visualPresetId, setVisualPresetId] = useState("health-warm-editorial");
   const [bgmVolume, setBgmVolume] = useState("0.08");
+  const [ttsRate, setTtsRate] = useState("-8%");
+  const [imageAspectRatio] = useState("9:16");
   const [narrationMode, setNarrationMode] = useState<"single" | "dual_dialogue">("single");
   const [secondaryVoiceProfileId, setSecondaryVoiceProfileId] = useState("");
   const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
   const [voiceSampleState, setVoiceSampleState] = useState<"idle" | "loading" | "missing" | "error">("idle");
   const historyVisualStyles = [
-    { id: "history_ink_scroll", label: "方案一：水墨绢本叙事", note: "泛黄绢本、墨线留白、赭石土黄" },
-    { id: "history_gongbi_cinematic", label: "方案二：古工笔厚涂史诗", note: "暗金厚涂、人物特写、电影侧光" },
-    { id: "history_heroic", label: "方案三：历史英雄叙事", note: "保留现有历史英雄画风" },
+    { id: "history_heroic", presetId: "history-documentary", label: "正统帝王画卷·朝代考据", note: "工笔院体、朝代服化道考据、明朗庙堂构图" },
+    { id: "history_ink_scroll", presetId: "history-ink-scroll", label: "工笔淡彩·古代世情", note: "熟宣淡彩、庭院人情、微表情与关系叙事" },
+    { id: "history_gongbi_cinematic", presetId: "history-gongbi-cinematic", label: "工笔淡彩·民国近代", note: "青砖书房、长幼互动、民国服化道锁定" },
   ];
   useEffect(() => {
     if (contentCategory === "social_science" && !historyVisualStyles.some(style => style.id === visualStyle)) {
@@ -293,10 +295,11 @@ function VideoCollectionContent() {
       tts_secondary_model: secondaryProfile?.model || null,
       tts_secondary_voice: secondaryProfile?.voice_id || null,
       tts_secondary_voice_label: secondaryProfile?.display_name || null,
+      tts_rate: ttsRate,
     }))).select("id");
     if (!error && createdTasks?.length) {
       const { error: imageConfigError } = await supabase.from("stages").update({
-        params: { image_provider: imageProvider, image_model: "gpt-image-2", visual_style: visualStyle, reference_mode: referenceMode, generation_mode: generationMode, visual_preset_id: visualPresetId, reference_asset_ids: [] },
+        params: { image_provider: imageProvider, image_model: "gpt-image-2", visual_style: visualStyle, reference_mode: referenceMode, generation_mode: generationMode, visual_preset_id: visualPresetId, image_aspect_ratio: imageAspectRatio, reference_asset_ids: [] },
       }).in("task_id", createdTasks.map(task => task.id)).eq("kind", "image");
       if (imageConfigError) {
         setCreating(false);
@@ -403,7 +406,7 @@ function VideoCollectionContent() {
       <section className="collection-import" aria-label="视频画面设置">
         <div><h2>视频画面</h2><p>风格与参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
         <div className="collection-import-footer">
-          <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => setVisualStyle(event.target.value)} aria-label="视频画面风格">
+          <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => { const style = event.target.value; setVisualStyle(style); const selected = historyVisualStyles.find(item => item.id === style); if (selected) setVisualPresetId(selected.presetId); }} aria-label="视频画面风格">
             {contentCategory === "social_science" ? historyVisualStyles.map(style => <option key={style.id} value={style.id}>{style.label}</option>) : <><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></>}
           </select><small>{contentCategory === "social_science" ? (historyVisualStyles.find(style => style.id === visualStyle)?.note || "历史类三套风格，任务创建后固定") : "统一色彩、光线和构图语汇"}</small></div>
           <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
@@ -413,7 +416,7 @@ function VideoCollectionContent() {
       <section className="collection-import" aria-label="视觉生成策略">
         <div><h2>视觉生成策略</h2><p>配置会随任务快照保存；参考素材将在后续步骤按任务绑定。</p></div>
         <div className="collection-import-footer">
-          <div className="collection-voice-setting"><span>类别预设</span><select value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); if (id === "history-documentary") { setGenerationMode("prompt"); setVisualStyle("history_heroic"); } else if (id === "education-clean-modern") { setGenerationMode("prompt"); setVisualStyle("clean_modern"); } else { setGenerationMode("prompt"); setVisualStyle("warm_editorial"); } }} aria-label="视觉类别预设"><option value="health-warm-editorial">健康：温暖生活叙事</option>{contentCategory === "social_science" && <><option value="history-ink-scroll">历史：水墨绢本叙事</option><option value="history-gongbi-cinematic">历史：古工笔厚涂史诗</option><option value="history-documentary">历史：英雄叙事</option></>}{contentCategory !== "social_science" && <><option value="education-clean-modern">经管：现代商业阅读</option></>}</select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
+          <div className="collection-voice-setting"><span>类别预设</span><select value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); const selected = historyVisualStyles.find(item => item.presetId === id); setGenerationMode("prompt"); if (selected) setVisualStyle(selected.id); else if (id === "education-clean-modern") setVisualStyle("clean_modern"); else setVisualStyle("warm_editorial"); }} aria-label="视觉类别预设"><option value="health-warm-editorial">健康：温暖生活叙事</option>{contentCategory === "social_science" && <><option value="history-documentary">历史：正统帝王画卷</option><option value="history-ink-scroll">历史：古代世情工笔淡彩</option><option value="history-gongbi-cinematic">历史：民国近代工笔淡彩</option></>}{contentCategory !== "social_science" && <><option value="education-clean-modern">经管：现代商业阅读</option></>}</select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
           <div className="collection-voice-setting"><span>生成方式</span><select value={generationMode} onChange={event => setGenerationMode(event.target.value as "prompt" | "reference_image" | "hybrid")} aria-label="视觉生成方式"><option value="prompt">提示词风格</option><option value="reference_image">参考图片</option><option value="hybrid">提示词 + 参考图片</option></select><small>{generationMode === "prompt" ? "仅使用镜头提示词与类别预设。" : "待绑定已授权素材；供应商不支持图片输入时自动降级为提示词。"}</small></div>
         </div>
       </section>
@@ -421,6 +424,7 @@ function VideoCollectionContent() {
         <div><h2>背景音乐预设</h2><p>新任务会保存默认音量；音乐文件仍在成片设置中上传并确认授权。</p></div>
         <div className="collection-import-footer"><div className="collection-voice-setting"><span>配音下的背景音乐音量</span><select value={bgmVolume} onChange={event => setBgmVolume(event.target.value)} aria-label="默认背景音乐音量"><option value="0.05">轻柔 5%</option><option value="0.08">轻柔 8%（推荐）</option><option value="0.12">清晰 12%</option><option value="0.20">明显 20%</option><option value="0.30">上限 30%</option></select><small>建议保持在 5%–12%；任何任务都不会超过 30%。</small></div></div>
       </section>
+      <section className="collection-import" aria-label="配音速度设置"><div><h2>配音速度</h2><p>速度会随新任务保存，也可在配音阶段调整后重跑。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>口播速度</span><select value={ttsRate} onChange={event => setTtsRate(event.target.value)} aria-label="默认配音速度"><option value="-5%">稍慢 5%</option><option value="-8%">舒缓 8%（推荐）</option><option value="-12%">慢速 12%</option><option value="0%">标准速度</option></select></div></div></section>
       {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
       {loading && <div className="collection-loading" role="status"><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>}
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}
