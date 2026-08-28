@@ -403,21 +403,18 @@ function VideoCollectionContent() {
           </div>
         </div>
       </section>
-      <section className="collection-import" aria-label="视频画面设置">
-        <div><h2>视频画面</h2><p>风格与参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
+      <section className="collection-import" aria-label="画面生成设置">
+        <div><h2>画面生成设置</h2><p>风格、类别预设、生成方式和参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
         <div className="collection-import-footer">
           <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => { const style = event.target.value; setVisualStyle(style); const selected = historyVisualStyles.find(item => item.id === style); if (selected) setVisualPresetId(selected.presetId); }} aria-label="视频画面风格">
             {contentCategory === "social_science" ? historyVisualStyles.map(style => <option key={style.id} value={style.id}>{style.label}</option>) : <><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></>}
           </select><small>{contentCategory === "social_science" ? (historyVisualStyles.find(style => style.id === visualStyle)?.note || "历史类三套风格，任务创建后固定") : "统一色彩、光线和构图语汇"}</small></div>
           <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
-        </div>
-      </section>
       {contentCategory === "social_science" && <section className="collection-import" aria-label="历史视觉风格预览"><div><h2>历史风格预览</h2><p>预览图用于确认整体画面方向，任务创建后随风格快照保存。</p></div><div className="collection-import-footer"><img src={`/history-style-previews/${visualStyle === "history_ink_scroll" ? "history-ink-scroll" : visualStyle === "history_gongbi_cinematic" ? "history-gongbi-cinematic" : "history-heroic"}.png`} alt="历史类视觉风格预览" style={{ display: "block", width: "min(100%, 520px)", aspectRatio: "3 / 2", objectFit: "cover", borderRadius: 6, border: "1px solid #d7d1c7" }} /></div></section>}
-      <section className="collection-import" aria-label="视觉生成策略">
-        <div><h2>视觉生成策略</h2><p>配置会随任务快照保存；参考素材将在后续步骤按任务绑定。</p></div>
         <div className="collection-import-footer">
           <div className="collection-voice-setting"><span>类别预设</span><select value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); const selected = historyVisualStyles.find(item => item.presetId === id); setGenerationMode("prompt"); if (selected) setVisualStyle(selected.id); else if (id === "education-clean-modern") setVisualStyle("clean_modern"); else setVisualStyle("warm_editorial"); }} aria-label="视觉类别预设"><option value="health-warm-editorial">健康：温暖生活叙事</option>{contentCategory === "social_science" && <><option value="history-documentary">历史：正统帝王画卷</option><option value="history-ink-scroll">历史：古代世情工笔淡彩</option><option value="history-gongbi-cinematic">历史：民国近代工笔淡彩</option></>}{contentCategory !== "social_science" && <><option value="education-clean-modern">经管：现代商业阅读</option></>}</select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
           <div className="collection-voice-setting"><span>生成方式</span><select value={generationMode} onChange={event => setGenerationMode(event.target.value as "prompt" | "reference_image" | "hybrid")} aria-label="视觉生成方式"><option value="prompt">提示词风格</option><option value="reference_image">参考图片</option><option value="hybrid">提示词 + 参考图片</option></select><small>{generationMode === "prompt" ? "仅使用镜头提示词与类别预设。" : "待绑定已授权素材；供应商不支持图片输入时自动降级为提示词。"}</small></div>
+        </div>
         </div>
       </section>
       <section className="collection-import" aria-label="背景音乐预设">
