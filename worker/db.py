@@ -113,7 +113,7 @@ def get_task_prompt_context(task_id: str) -> dict:
     raise last_error or RuntimeError("读取任务上下文失败")
 
 
-def claim_next_stage(task_id: str = "") -> dict | None:
+def claim_next_stage(task_id: str = "", allowed_kinds: tuple[str, ...] = ()) -> dict | None:
     """认领最靠前的一个 pending stage，原子置为 processing。
 
     只认领"前置 stage 全部 done"的任务，确保 needs_review 阶段阻塞后续流程。
@@ -123,6 +123,8 @@ def claim_next_stage(task_id: str = "") -> dict | None:
     query = sb.table("stages").select("*").eq("status", "pending")
     if task_id:
         query = query.eq("task_id", task_id)
+    if allowed_kinds:
+        query = query.in_("kind", list(allowed_kinds))
     res = query.order("seq").execute()
     if not res.data:
         return None
@@ -132,20 +134,27 @@ def claim_next_stage(task_id: str = "") -> dict | None:
         seq     = stage["seq"]
         task = (
             sb.table("tasks")
-            .select("status")
+            .select("status,content_category")
             .eq("id", stage_task_id)
             .single()
             .execute()
         )
         if not task.data or task.data.get("status") not in ("pending", "processing"):
             continue
+        if (task.data.get("content_category") == "social_science"
+                and stage.get("kind") in ("tts", "render")
+                and not _history_cover_is_confirmed(sb, stage_task_id)):
+            continue
         # 检查同一任务中 seq 更小的 stage 是否都 done
+        # TTS can run as soon as rewrite is done; it does not consume image or
+        # book artifacts. Render remains ordered behind every prior stage.
+        prerequisite_seq = 4 if stage.get("kind") == "tts" else seq - 1
         if seq > 1:
             prior = (
                 sb.table("stages")
                 .select("status")
                 .eq("task_id", stage_task_id)
-                .lt("seq", seq)
+                .lte("seq", prerequisite_seq)
                 .execute()
             )
             if not all(r["status"] == "done" for r in prior.data):
@@ -163,6 +172,15 @@ def claim_next_stage(task_id: str = "") -> dict | None:
             return upd.data[0]
 
     return None
+
+
+def _history_cover_is_confirmed(sb, task_id: str) -> bool:
+    response = (sb.table("stages").select("params").eq("task_id", task_id)
+                .eq("kind", "rewrite").single().execute())
+    params = (response.data or {}).get("params") or {}
+    return bool(params.get("cover_confirmed") is True
+                and str(params.get("cover_title") or "").strip()
+                and str(params.get("cover_subtitle") or "").strip())
 
 
 def set_stage(stage_id: str, status: str, output_ref: str | None = None,

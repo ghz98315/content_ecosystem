@@ -23,6 +23,7 @@ interface RewriteData {
   paragraphs?: string[];
   cover_title?: string;
   cover_subtitle?: string;
+  cover_confirmed?: boolean;
 }
 
 interface ComplianceIssue {
@@ -89,20 +90,14 @@ export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
       setErr("历史类请先填写封面主标题和副标题");
       return;
     }
-    if (isHistory) {
-      const nextParams = { ...(stage.params || {}), cover_title: coverTitle.trim(), cover_subtitle: coverSubtitle.trim() };
-      const { error: paramsError } = await supabase.from("stages").update({ params: nextParams }).eq("id", stage.id);
-      if (paramsError) {
-        setErr(`封面标题保存失败：${paramsError.message}`);
-        return;
-      }
-    }
     setBusy(true);
     setErr(null);
     const { data: confirmed, error } = await supabase.rpc("confirm_rewrite", {
       p_stage_id: stage.id,
       p_chosen_index: selected,
       p_final_text: finalText,
+      p_cover_title: isHistory ? coverTitle.trim() : null,
+      p_cover_subtitle: isHistory ? coverSubtitle.trim() : null,
     });
     if (error || !confirmed) {
       setBusy(false);
@@ -165,6 +160,9 @@ export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
             <section className="rewrite-cover-fields" aria-label="历史类封面标题">
               <h3>封面标题确认</h3>
               <p>主标题和副标题将用于封面前 15 帧，正文不显示书名和作者。</p>
+              <p role="status" style={{ color: data.cover_confirmed ? "var(--status-success)" : "var(--status-warning)" }}>
+                {data.cover_confirmed ? "主标题与副标题已同步确认，可继续语音和成片。" : "主标题与副标题待确认，确认前不会开始语音和成片。"}
+              </p>
               <label>主标题<input value={coverTitle} onChange={event => setCoverTitle(event.target.value)} maxLength={24} placeholder="输入封面主标题" /></label>
               <label>副标题<input value={coverSubtitle} onChange={event => setCoverSubtitle(event.target.value)} maxLength={36} placeholder="输入封面副标题" /></label>
             </section>
