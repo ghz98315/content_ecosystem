@@ -211,7 +211,13 @@ def _candidate_issues(
         return issues
 
     source_len = _text_len(source)
-    tolerance = 0.15 if mode == "repost_dedup" else 0.25
+    # The history/social-science rewrite profile follows the approved
+    # promote-洗稿0827 brief: preserve the opening/closing conversion blocks
+    # and keep the complete script within +/-10% of the source length.
+    if category == "social_science":
+        tolerance = 0.10
+    else:
+        tolerance = 0.15 if mode == "repost_dedup" else 0.25
     min_len = max(40, round(source_len * (1 - tolerance)))
     max_len = max(min_len + 20, round(source_len * (1 + tolerance)))
     for i, text in enumerate(candidates):
@@ -302,7 +308,7 @@ def _generate_candidates(
     prompt_kind = _rewrite_prompt_kind(context["category"], mode, narration_mode)
     prompt = load_prompt(context["category"], prompt_kind)
     source_label = "首发版本最终确认稿" if mode == "repost_dedup" else "已清洗正文"
-    tolerance_label = "8%" if mode == "repost_dedup" else "12%"
+    tolerance_label = "10%" if context["category"] == "social_science" else ("8%" if mode == "repost_dedup" else "12%")
     terms = "、".join(protected_terms(source)) or "无额外词语"
     last_issues: list[str] = []
     attempts = 2 if context["category"] == "social_science" and narration_mode != "dual_dialogue" else 1
@@ -368,11 +374,14 @@ def _generate_candidates(
             structure["quality_warnings"] = last_issues + _candidate_warnings(
                 candidates[0], source, mode, context["category"], narration_mode
             )
-            return (
-                candidates,
-                [_text_len(text) for text in candidates],
-                structure,
+            hard_length_issue = context["category"] == "social_science" and any(
+                issue.startswith("改写稿过短") or issue.startswith("改写稿明显超出")
+                for issue in last_issues
             )
+            if not hard_length_issue or attempt == attempts - 1:
+                if hard_length_issue:
+                    raise ValueError("历史社科类改写未满足全文与原稿相差不超过10%的长度约束")
+                return (candidates, [_text_len(text) for text in candidates], structure)
     raise ValueError("改写模型未返回可解析的正文")
 
 
