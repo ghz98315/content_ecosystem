@@ -53,6 +53,15 @@ class ImageStyleProfileTests(unittest.TestCase):
         self.assertIn("无人物的静物", profile.negative)
         self.assertIn("古代宫殿", profile.negative)
 
+    def test_heroic_profile_is_not_limited_to_court_scenes(self):
+        profile = get_profile("history_heroic", "social_science")
+        assert profile is not None
+        self.assertIn("九格场景必须有明显变化", profile.positive)
+        self.assertIn("帝王出巡", profile.positive)
+        self.assertIn("农耕水利与市井民生", profile.positive)
+        self.assertIn("朝堂最多作为其中一至两格", profile.positive)
+        self.assertIn("远景长卷", profile.positive)
+
     def test_sensitive_history_visuals_are_reframed_before_prompt_generation(self):
         safe = history_visual_safe("中国国家分裂、展示中国地图和现代中国政治人物")
         self.assertIn("国家和睦友好相处", safe)
