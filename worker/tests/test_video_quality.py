@@ -933,6 +933,21 @@ class TtsInputTests(unittest.TestCase):
         self.assertEqual("SentenceBoundary", captured["boundary"])
         self.assertEqual(1.0, segments[0]["end"])
 
+    def test_edge_tts_accepts_explicit_slow_rate(self):
+        captured = {}
+
+        class FakeCommunicate:
+            def __init__(self, text, voice, **kwargs):
+                captured.update(kwargs)
+
+            async def stream(self):
+                yield {"type": "audio", "data": b"audio"}
+
+        with patch("edge_tts.Communicate", FakeCommunicate), patch("tts_providers._probe_duration", return_value=1.0):
+            asyncio.run(get_tts_provider("edge").synthesize("测试。", "voice", request_options={"rate": "-8%"}))
+
+        self.assertEqual("-8%", captured["rate"])
+
     def test_explicit_provider_override_uses_selected_provider(self):
         class FakeProvider:
             def __init__(self):

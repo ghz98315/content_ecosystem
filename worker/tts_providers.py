@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 import tempfile
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 import imageio_ffmpeg
@@ -17,6 +17,7 @@ import imageio_ffmpeg
 class TTSProvider(Protocol):
     async def synthesize(
         self, text: str, voice: str, instruction: str | None = None,
+        request_options: dict[str, Any] | None = None,
     ) -> tuple[bytes, list[dict], float]:
         """Return audio bytes, provider boundaries, and decoded duration."""
 
@@ -39,6 +40,7 @@ def _probe_duration(path: str, segments: list[dict]) -> float:
 class EdgeTTSProvider:
     async def synthesize(
         self, text: str, voice: str, instruction: str | None = None,
+        request_options: dict[str, Any] | None = None,
     ) -> tuple[bytes, list[dict], float]:
         import edge_tts
 
@@ -46,7 +48,20 @@ class EdgeTTSProvider:
         os.close(fd_mp3)
         segments: list[dict] = []
         try:
-            comm = edge_tts.Communicate(text, voice, boundary="SentenceBoundary")
+            options = request_options or {}
+            rate = options.get("rate") or options.get("speed")
+            kwargs = {"boundary": "SentenceBoundary"}
+            if rate is not None:
+                # edge-tts accepts a percentage string (for example, -8%).
+                # Keep the option opt-in so legacy requests are byte-for-byte
+                # equivalent at the provider boundary.
+                rate_value = str(rate).strip()
+                if re.fullmatch(r"[+-]?\d+(?:\.\d+)?%", rate_value):
+                    kwargs["rate"] = rate_value
+                else:
+                    numeric = float(rate_value)
+                    kwargs["rate"] = f"{numeric:+g}%"
+            comm = edge_tts.Communicate(text, voice, **kwargs)
             with open(mp3_path, "wb") as output:
                 async for chunk in comm.stream():
                     if chunk["type"] == "audio":
@@ -153,6 +168,7 @@ class CosyVoice2Provider:
 
     async def synthesize(
         self, text: str, voice: str, instruction: str | None = None,
+        request_options: dict[str, Any] | None = None,
     ) -> tuple[bytes, list[dict], float]:
         use_dashscope = bool(
             self.dashscope_api_key and self.dashscope_model and self.dashscope_endpoint
@@ -196,11 +212,26 @@ class CosyVoice2Provider:
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.post(endpoint, headers=headers, json=request)
             status_code = getattr(response, "status_code", 200)
+            detail_text = getattr(response, "text", "")[:1000]
+            ssml_engine_reject = (
+                status_code == 400
+                and ssml_enabled
+                and ("428" in detail_text or "InvalidParameter" in detail_text)
+            )
+            if getattr(response, "is_error", status_code >= 400) and ssml_engine_reject:
+                # Some cloned voices reject SSML with opaque engine code 428.
+                # Retry this segment as plain text before failing the stage.
+                plain_request = dict(request)
+                plain_input = dict(plain_request["input"])
+                plain_input["text"] = re.sub(r"<[^>]+>", "", text)
+                plain_input["enable_ssml"] = False
+                plain_input.pop("instruction", None)
+                plain_request["input"] = plain_input
+                response = await client.post(endpoint, headers=headers, json=plain_request)
+                status_code = getattr(response, "status_code", 200)
             if getattr(response, "is_error", status_code >= 400):
                 detail = response.text[:1000]
-                raise ValueError(
-                    f"DashScope TTS 请求失败 ({status_code}): {detail}"
-                )
+                raise ValueError(f"DashScope TTS 请求失败 ({status_code}): {detail}")
             content_type = response.headers.get("content-type", "").lower()
             if "json" in content_type:
                 audio, audio_url = self._decode_json_audio(response.json())
@@ -234,6 +265,147 @@ class CosyVoice2Provider:
         return audio, boundaries, duration
 
 
+class IndexTTS25Provider:
+    """HTTP adapter for the self-hosted, single-model IndexTTS2.5 service."""
+
+    def __init__(self, model_override: str | None = None) -> None:
+        base_url = os.environ.get("INDEXTTS25_BASE_URL", "").strip().rstrip("/")
+        self.endpoint = os.environ.get("INDEXTTS25_ENDPOINT", "").strip()
+        if not self.endpoint and base_url:
+            self.endpoint = f"{base_url}/v1/audio/speech"
+        self.health_endpoint = (
+            os.environ.get("INDEXTTS25_HEALTH_ENDPOINT", "").strip()
+            or (f"{base_url}/health" if base_url else "")
+        )
+        self.api_token = os.environ.get("INDEXTTS25_API_TOKEN", "").strip()
+        self.model = model_override or os.environ.get(
+            "INDEXTTS25_MODEL", "index-tts-2.5"
+        ).strip()
+        self.configured_voice = os.environ.get("INDEXTTS25_VOICE", "").strip()
+        self.timeout = max(30.0, float(os.environ.get("INDEXTTS25_TIMEOUT", "300")))
+        self.duration_factor = float(os.environ.get("INDEXTTS25_DURATION_FACTOR", "1.08"))
+        self.emo_alpha = float(os.environ.get("INDEXTTS25_EMO_ALPHA", "0.55"))
+        self.use_qwen_emotion = os.environ.get(
+            "INDEXTTS25_USE_QWEN_EMOTION", "true"
+        ).strip().lower() in {"1", "true", "yes"}
+        self.plain_voices = {
+            item.strip() for item in os.environ.get(
+                "INDEXTTS25_PLAIN_VOICES", ""
+            ).split(",") if item.strip()
+        }
+        self.emotion_text = os.environ.get(
+            "INDEXTTS25_EMOTION_TEXT",
+            "自然、有交流感地讲述，语气随语义起伏；重点自然加强，解释处放松，句末自然收束，不要播音腔。",
+        ).strip()
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Accept": "audio/wav, audio/mpeg, application/json"}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+        return headers
+
+    async def healthcheck(self) -> dict:
+        if not self.health_endpoint:
+            raise ValueError("IndexTTS2.5 未配置健康检查地址")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(self.health_endpoint, headers=self._headers())
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            raise ValueError(f"IndexTTS2.5 健康检查未就绪: {payload}")
+        return payload
+
+    async def synthesize(
+        self, text: str, voice: str, instruction: str | None = None,
+        request_options: dict[str, Any] | None = None,
+    ) -> tuple[bytes, list[dict], float]:
+        if not self.endpoint:
+            raise ValueError(
+                "IndexTTS2.5 未配置：请设置 INDEXTTS25_BASE_URL 或 INDEXTTS25_ENDPOINT"
+            )
+        selected_voice = voice or self.configured_voice
+        if not selected_voice:
+            raise ValueError("IndexTTS2.5 未配置音色 profile")
+        overrides = request_options or {}
+        if not isinstance(overrides, dict):
+            raise ValueError("IndexTTS2.5 task options must be an object")
+        allowed_options = {
+            "duration_factor", "emo_alpha", "emotion_voice", "emo_vector",
+            "emotion_text", "use_qwen_emotion", "temperature", "top_p",
+            "repetition_penalty",
+        }
+        unsupported = set(overrides) - allowed_options
+        if unsupported:
+            raise ValueError(f"unsupported IndexTTS2.5 task options: {sorted(unsupported)}")
+        request = {
+            "model": self.model,
+            "input": text,
+            "voice": selected_voice,
+            "language": "zh",
+            "response_format": "wav",
+            "duration_factor": overrides.get("duration_factor", self.duration_factor),
+            # English reference clips can make the Qwen emotion branch drift
+            # into a non-target language. Keep those profiles on plain
+            # IndexTTS inference while preserving the narrator35 baseline.
+            "use_qwen_emotion": overrides.get(
+                "use_qwen_emotion",
+                self.use_qwen_emotion and selected_voice not in self.plain_voices,
+            ),
+            "emotion_text": str(overrides.get("emotion_text") or instruction or self.emotion_text).strip(),
+            "emo_alpha": overrides.get("emo_alpha", self.emo_alpha),
+        }
+        for name in ("emotion_voice", "emo_vector", "temperature", "top_p", "repetition_penalty"):
+            if name in overrides:
+                request[name] = overrides[name]
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            response = await client.post(
+                self.endpoint, headers=self._headers(), json=request,
+            )
+            if response.is_error:
+                raise ValueError(
+                    f"IndexTTS2.5 请求失败 ({response.status_code}): {response.text[:1000]}"
+                )
+            content_type = response.headers.get("content-type", "").lower()
+            if "json" in content_type:
+                audio, audio_url = CosyVoice2Provider._decode_json_audio(response.json())
+                if audio_url:
+                    audio_response = await client.get(audio_url)
+                    audio_response.raise_for_status()
+                    audio = audio_response.content
+            else:
+                audio = response.content
+        if not audio:
+            raise ValueError("IndexTTS2.5 响应中未找到音频数据")
+
+        fd_audio, audio_path = tempfile.mkstemp(suffix=".audio")
+        os.close(fd_audio)
+        fd_mp3, mp3_path = tempfile.mkstemp(suffix=".mp3")
+        os.close(fd_mp3)
+        try:
+            with open(audio_path, "wb") as output:
+                output.write(audio)
+            duration = _probe_duration(audio_path, [])
+            subprocess.run(
+                [
+                    imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", audio_path,
+                    "-map", "0:a:0", "-c:a", "libmp3lame", "-b:a", "128k", mp3_path,
+                ],
+                check=True,
+                capture_output=True,
+            )
+            with open(mp3_path, "rb") as source:
+                mp3_audio = source.read()
+        finally:
+            for path in (audio_path, mp3_path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        if duration <= 0:
+            raise ValueError("IndexTTS2.5 音频时长探测失败")
+        return mp3_audio, [{"text": text, "start": 0.0, "end": duration}], duration
+
+
 def get_tts_provider(
     name: str | None = None,
     *,
@@ -252,6 +424,15 @@ def get_tts_provider(
                 "CosyVoice2 尚未通过生产启用门；请先使用 tts_compare.py 完成试听验收"
             )
         return CosyVoice2Provider(model_override=model)
+    if provider in {"indextts25", "index-tts-2.5", "indextts2.5"}:
+        production_enabled = os.environ.get(
+            "INDEXTTS25_PRODUCTION_ENABLED", "false"
+        ).strip().lower() in {"1", "true", "yes"}
+        if not allow_experimental and not production_enabled:
+            raise ValueError(
+                "IndexTTS2.5 尚未通过生产启用门；请先完成 2000 字长文试听验收"
+            )
+        return IndexTTS25Provider(model_override=model)
     raise ValueError(
-        f"未适配的 TTS Provider: {provider}。当前可用 provider 为 edge、cosyvoice2。"
+        f"未适配的 TTS Provider: {provider}。当前可用 provider 为 edge、cosyvoice2、indextts25。"
     )

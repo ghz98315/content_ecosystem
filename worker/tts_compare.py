@@ -12,7 +12,7 @@ import config
 from tts_providers import get_tts_provider
 
 
-async def _render_provider(name: str, text: str, voice: str, output_dir: Path) -> dict:
+async def _render_provider(name: str, text: str, voice: str, output_dir: Path, label: str = "baseline", options: dict | None = None) -> dict:
     result = {
         "provider": name,
         "voice": voice,
@@ -24,10 +24,16 @@ async def _render_provider(name: str, text: str, voice: str, output_dir: Path) -
         },
     }
     try:
-        audio, boundaries, duration = await get_tts_provider(
-            name, allow_experimental=True
-        ).synthesize(text, voice)
-        audio_path = output_dir / f"{name}.mp3"
+        provider = get_tts_provider(name, allow_experimental=True)
+        try:
+            audio, boundaries, duration = await provider.synthesize(text, voice, request_options=options)
+        except TypeError as exc:
+            # Keep the isolated tool compatible with lightweight test doubles
+            # and older provider adapters that predate request_options.
+            if "request_options" not in str(exc):
+                raise
+            audio, boundaries, duration = await provider.synthesize(text, voice)
+        audio_path = output_dir / f"{name}-{label}.mp3"
         audio_path.write_bytes(audio)
         result.update({
             "status": "done",
@@ -46,13 +52,22 @@ async def generate_comparison(
     output_dir: Path,
     edge_voice: str,
     cosy_voice: str,
+    profiles: list[dict] | None = None,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "input.txt").write_text(text, encoding="utf-8")
-    results = await asyncio.gather(
-        _render_provider("edge", text, edge_voice, output_dir),
-        _render_provider("cosyvoice2", text, cosy_voice, output_dir),
-    )
+    profiles = profiles or [
+        {"label": "baseline", "edge": {}, "cosyvoice2": {}},
+        {"label": "slow-8", "edge": {"rate": "-8%"}, "cosyvoice2": {"rate": "0.92"}},
+        {"label": "slow-12", "edge": {"rate": "-12%"}, "cosyvoice2": {"rate": "0.88"}},
+    ]
+    results = await asyncio.gather(*[
+        _render_provider("edge", text, edge_voice, output_dir, p["label"], p.get("edge"))
+        for p in profiles
+    ], *[
+        _render_provider("cosyvoice2", text, cosy_voice, output_dir, p["label"], p.get("cosyvoice2"))
+        for p in profiles
+    ])
     report = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "purpose": "isolated_tts_listening_comparison",
@@ -64,6 +79,7 @@ async def generate_comparison(
             "pause_naturalness": "manual review required",
             "voice_quality": "manual review required",
             "subtitle_alignment": "manual review required before production switch",
+            "speed_profiles": [p["label"] for p in profiles],
         },
     }
     (output_dir / "comparison.json").write_text(

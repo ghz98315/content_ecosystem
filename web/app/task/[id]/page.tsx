@@ -82,6 +82,10 @@ export default function TaskDetail() {
   }, [userId, id]);
 
   useEffect(() => {
+    const selectedStage = stages.find(stage => stage.kind === selected);
+    // Keep a rerun stage selected while it is queued/running; otherwise the
+    // first pending upstream stage can make a downstream rerun look global.
+    if (selected !== "ingest" && selectedStage && ["pending", "processing", "needs_review", "failed"].includes(selectedStage.status)) return;
     const active = stages.find(stage => ["processing", "needs_review", "failed"].includes(stage.status)) || stages.find(stage => stage.status === "done");
     if (active) setSelected(active.kind);
   }, [stages]);
@@ -118,7 +122,11 @@ export default function TaskDetail() {
     const { data, error } = await supabase.rpc("rerun_stage", { p_stage_id: stageId });
     setActionBusy(false);
     if (error || !data?.length) setAction(error?.message || "重新运行失败", false);
-    else { setAction("已重新排队运行"); await load(); }
+    else {
+      if (stage) setSelected(stage.kind);
+      setAction("已重新排队运行");
+      await load();
+    }
   };
 
   const approve = async (stageId: string, kind: string) => {

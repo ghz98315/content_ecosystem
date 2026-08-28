@@ -48,7 +48,10 @@ _DIALOGUE_PAUSES = (
 )
 
 
-def _cosyvoice_ssml(text: str, position: str, speaker: str | None = None) -> str:
+def _cosyvoice_ssml(
+    text: str, position: str, speaker: str | None = None,
+    rate_override: str | float | None = None,
+) -> str:
     """Apply semantic and speaker-specific delivery without changing the spoken text."""
     plain_text = text.strip()
     tone = "plain"
@@ -82,6 +85,12 @@ def _cosyvoice_ssml(text: str, position: str, speaker: str | None = None) -> str
         "plain": ("1.00", "1.00", "52"), "close": ("0.97", "1.01", "51"),
     }
     rate, pitch, volume = presets[profile]
+    if rate_override is not None:
+        raw_rate = str(rate_override).strip()
+        if raw_rate.endswith("%"):
+            rate = str(round(float(rate) * (1 + float(raw_rate[:-1]) / 100), 3))
+        else:
+            rate = raw_rate
     # Match the approved pause profile. Do not add mechanical pauses before
     # transition words: punctuation and the role-specific prosody already
     # provide the needed phrasing.
@@ -468,7 +477,10 @@ async def _synthesize_detailed(
             request_text = spoken_part
             if is_cosyvoice and emotion_profile == _COSY_WARM_NARRATIVE and not natural_dialogue:
                 position = "hook" if index == 0 else "close" if index == len(parts) - 1 else "body"
-                request_text = _cosyvoice_ssml(spoken_part, position, speaker)
+                request_text = _cosyvoice_ssml(
+                    spoken_part, position, speaker,
+                    (provider_options or {}).get("rate") or (provider_options or {}).get("speed"),
+                )
             result = await _synthesize_part_with_retry(
                 request_text, voice, provider, model, delivery_instruction, provider_options,
             )
@@ -835,6 +847,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     candidate_model,
                     candidate_emotion,
                     protected_terms=(_book_title(book_name),) if _book_title(book_name) else (),
+                    provider_options=primary_provider_options,
                 ))
                 provider, voice, model, emotion_profile = (
                     candidate, candidate_voice, candidate_model, candidate_emotion,
