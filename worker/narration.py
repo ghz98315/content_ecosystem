@@ -119,7 +119,13 @@ def normalize_tts_numbers(text: str) -> str:
         return f"百分之{_decimal_to_zh(token)}"
 
     def year(match: re.Match[str]) -> str:
-        return "".join("〇" if char == "0" else _DIGIT_ZH[int(char)] for char in match.group(0)[:4]) + "年"
+        digits = match.group(0)[:4]
+        # Use cardinal reading for round millennia such as 5000年. Digit-wise
+        # "五〇〇〇年" is often collapsed by TTS to "五年".
+        spoken = _integer_to_zh(digits) if digits[1:] == "000" else "".join(
+            "〇" if char == "0" else _DIGIT_ZH[int(char)] for char in digits
+        )
+        return spoken + "年"
 
     def decimal(match: re.Match[str]) -> str:
         token = match.group(0)

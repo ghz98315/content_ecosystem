@@ -1,4 +1,4 @@
-"""⑧ 成片 render：固定信息版式 + 4:3 分镜 + 平滑 Zoom In + TTS 字幕。"""
+"""⑧ 成片 render：竖版 9:16 分镜 + 平滑 Zoom In + TTS 字幕。"""
 from __future__ import annotations
 
 import json
@@ -18,8 +18,9 @@ import config
 from quality import inspect_render_quality
 
 W, H = 1080, 1920
-PHOTO_H = 810
-PHOTO_Y = (H - PHOTO_H) // 2
+# Source images are portrait 9:16 and must fill the final portrait canvas.
+PHOTO_H = H
+PHOTO_Y = 0
 FPS = 30
 COVER_FRAMES = 15
 INTRO_DUR = COVER_FRAMES / FPS
@@ -211,11 +212,11 @@ def _find_cjk_font(bold: bool = False, calligraphy: bool = False) -> str:
     raise FileNotFoundError("未找到中文字体，请确认 Windows Fonts 下有微软雅黑或黑体")
 
 
-def _font(size: int, bold: bool = False):
+def _font(size: int, bold: bool = False, calligraphy: bool = False):
     from PIL import ImageFont
 
     try:
-        return ImageFont.truetype(_find_cjk_font(bold), size)
+        return ImageFont.truetype(_find_cjk_font(bold, calligraphy), size)
     except Exception:
         return ImageFont.load_default()
 
@@ -291,10 +292,10 @@ def _make_layout_frame(
         author_text = f"作者：{author}" if author.strip() else ""
         author_box = draw.textbbox((0, 0), author_text, font=author_font) if author_text else (0, 0, 0, 0)
         author_height = author_box[3] - author_box[1]
-        author_y = PHOTO_Y - AUTHOR_TO_PHOTO_GAP - author_height
+        author_y = 120 if PHOTO_Y <= 0 else PHOTO_Y - AUTHOR_TO_PHOTO_GAP - author_height
         title_heights = [draw.textbbox((0, 0), line, font=title_font)[3] for line in title_lines]
         title_block_height = sum(title_heights) + 10 * max(0, len(title_lines) - 1)
-        title_y = author_y - TITLE_AUTHOR_GAP - title_block_height
+        title_y = 40 if PHOTO_Y <= 0 else author_y - TITLE_AUTHOR_GAP - title_block_height
         if title_lines:
             _draw_centered_lines(draw, title_lines, title_font, title_y, (255, 255, 255), spacing=10)
         if author_text:
@@ -592,10 +593,13 @@ def run(stage: dict) -> tuple[str, str | None]:
             paragraphs = rewrite_data.get("paragraphs") if isinstance(rewrite_data, dict) else []
             if not isinstance(paragraphs, list):
                 paragraphs = []
-            cover_title = str(rewrite_data.get("cover_title") or rewrite_data.get("hook") or (segments[0].get("text") if segments else "")).strip()
-            cover_subtitle = str(rewrite_data.get("cover_subtitle") or (paragraphs[1] if len(paragraphs) > 1 else (segments[1].get("text") if len(segments) > 1 else ""))).strip()
+            # History covers use only explicitly confirmed fields. Never infer
+            # a title from the first narration sentence or subtitle.
+            cover_title = str(rewrite_data.get("cover_title") or "").strip()
+            cover_subtitle = str(rewrite_data.get("cover_subtitle") or "").strip()
             cover_layout_png = os.path.join(tmpdir, "history_cover_layout.png")
-            _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title, cover_subtitle=cover_subtitle)
+            confirmed = rewrite_data.get("cover_confirmed") is True
+            _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title if confirmed else "", cover_subtitle=cover_subtitle if confirmed else "")
         cover_local = storage.download_artifact(images[0]["path"], ".png")
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
         try:

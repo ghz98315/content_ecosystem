@@ -40,6 +40,9 @@ interface ComplianceReport {
   semantic_complete?: boolean;
 }
 
+const COVER_TITLE_MAX_LENGTH = 24;
+const COVER_SUBTITLE_MAX_LENGTH = 36;
+
 const LEGACY_STYLE_NAMES = ["A · 痛点共鸣", "B · 故事叙述", "C · 知识科普"];
 const LEGACY_STYLE_HINTS = [
   "直接切入问题，强化情绪共鸣",
@@ -70,8 +73,10 @@ export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
       .then((d: RewriteData) => {
         setData(d);
         setDrafts(d.candidates || []);
-        setCoverTitle(d.cover_title || d.hook || "");
-        setCoverSubtitle(d.cover_subtitle || d.paragraphs?.[1] || "");
+        // Cover copy must be explicitly chosen. Falling back to the hook/body
+        // can silently submit an entire narration paragraph as a title.
+        setCoverTitle(d.cover_title || "");
+        setCoverSubtitle(d.cover_subtitle || "");
         if (d.chosen != null) setSelected(d.chosen);
         else if (d.candidates?.length === 1) setSelected(0);
       })
@@ -88,6 +93,10 @@ export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
     const isHistory = task.content_category === "social_science";
     if (isHistory && (!coverTitle.trim() || !coverSubtitle.trim())) {
       setErr("历史类请先填写封面主标题和副标题");
+      return;
+    }
+    if (isHistory && (coverTitle.trim().length > COVER_TITLE_MAX_LENGTH || coverSubtitle.trim().length > COVER_SUBTITLE_MAX_LENGTH)) {
+      setErr(`封面主标题不得超过 ${COVER_TITLE_MAX_LENGTH} 字，副标题不得超过 ${COVER_SUBTITLE_MAX_LENGTH} 字`);
       return;
     }
     setBusy(true);
@@ -163,8 +172,8 @@ export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
               <p role="status" style={{ color: data.cover_confirmed ? "var(--status-success)" : "var(--status-warning)" }}>
                 {data.cover_confirmed ? "主标题与副标题已同步确认，可继续语音和成片。" : "主标题与副标题待确认，确认前不会开始语音和成片。"}
               </p>
-              <label>主标题<input value={coverTitle} onChange={event => setCoverTitle(event.target.value)} maxLength={24} placeholder="输入封面主标题" /></label>
-              <label>副标题<input value={coverSubtitle} onChange={event => setCoverSubtitle(event.target.value)} maxLength={36} placeholder="输入封面副标题" /></label>
+              <label>主标题<input value={coverTitle} onChange={event => setCoverTitle(event.target.value)} maxLength={COVER_TITLE_MAX_LENGTH} placeholder="输入封面主标题" /></label>
+              <label>副标题<input value={coverSubtitle} onChange={event => setCoverSubtitle(event.target.value)} maxLength={COVER_SUBTITLE_MAX_LENGTH} placeholder="输入封面副标题" /></label>
             </section>
           )}
           <div className="rewrite-workspace">

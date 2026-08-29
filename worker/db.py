@@ -178,9 +178,11 @@ def _history_cover_is_confirmed(sb, task_id: str) -> bool:
     response = (sb.table("stages").select("params").eq("task_id", task_id)
                 .eq("kind", "rewrite").single().execute())
     params = (response.data or {}).get("params") or {}
+    title = str(params.get("cover_title") or "").strip()
+    subtitle = str(params.get("cover_subtitle") or "").strip()
     return bool(params.get("cover_confirmed") is True
-                and str(params.get("cover_title") or "").strip()
-                and str(params.get("cover_subtitle") or "").strip())
+                and title and len(title) <= 24
+                and subtitle and len(subtitle) <= 36)
 
 
 def set_stage(stage_id: str, status: str, output_ref: str | None = None,

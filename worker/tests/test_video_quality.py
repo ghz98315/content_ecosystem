@@ -15,6 +15,8 @@ import config
 import db
 import main as worker_main
 import stages.image as image_stage
+from narration import normalize_tts_numbers
+from stages.render import PHOTO_H, H, W
 from compliance import check_text, scan_text
 from stages.clean import _clean_output_issue, _clean_quality_warnings, _effective_chars, _extract_opening_hook, _hook_preservation_issue, _summarize_changes, _to_simplified_chinese
 from prompt_profiles import (
@@ -394,6 +396,16 @@ class ComplianceTests(unittest.TestCase):
     def test_disease_term_requires_review_without_automatic_block(self):
         report = check_text(_FakeClient({"issues": []}), "test", "health", "书中回顾了糖尿病研究的历史。", {})
         self.assertEqual("warning", report["status"])
+
+
+class RenderAndNarrationRegressionTests(unittest.TestCase):
+    def test_render_photo_contract_is_portrait_full_frame(self):
+        self.assertEqual((W, H), (1080, 1920))
+        self.assertEqual(PHOTO_H, H)
+
+    def test_round_millennium_is_spoken_as_cardinal_number(self):
+        self.assertIn("五千年", normalize_tts_numbers("5000年"))
+        self.assertIn("二〇二四年", normalize_tts_numbers("2024年"))
 
 
 class StoryboardTests(unittest.TestCase):
