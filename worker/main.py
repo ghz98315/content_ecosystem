@@ -205,29 +205,39 @@ def main() -> None:
     print("worker 启动。轮询间隔", config.POLL_INTERVAL, "秒。Ctrl+C 退出。")
     if config.WORKER_TASK_ID:
         print("测试隔离模式：仅处理任务", config.WORKER_TASK_ID)
-    recover_orphaned_stages()
+    recovered_at_startup = False
+    network_failures = 0
     while True:
         try:
+            # Logon can precede network/proxy startup. Do not claim work until
+            # recovery succeeds, and keep recovery inside the retry boundary.
+            if not recovered_at_startup:
+                recover_orphaned_stages()
+                recovered_at_startup = True
             worked = tick()
+            network_failures = 0
+            if not worked:
+                if config.WORKER_TASK_ID and scoped_worker_is_finished(config.WORKER_TASK_ID):
+                    print("阶段范围已完成，Scoped Worker 自动退出", flush=True)
+                    break
+                if config.WORKER_TASK_ID and task_is_terminal(config.WORKER_TASK_ID):
+                    print("任务已进入终态，隔离 Worker 自动退出", flush=True)
+                    break
+                time.sleep(config.POLL_INTERVAL)
         except KeyboardInterrupt:
             print("\n退出。")
             break
         except Exception as e:  # noqa: BLE001
             if db.is_transient_error(e):
+                network_failures += 1
                 db.reset_client()
-                print(f"轮询网络重试: {type(e).__name__}: {str(e)[:180]}")
-                time.sleep(2)   # 短暂退避后重建连接
+                delay = min(30, 2 ** min(network_failures, 5))
+                phase = "启动恢复" if not recovered_at_startup else "轮询"
+                print(f"{phase}网络暂不可用: {type(e).__name__}，{delay} 秒后自动重试", flush=True)
+                time.sleep(delay)
             else:
                 print("循环异常:", e)
-            worked = False
-        if not worked:
-            if config.WORKER_TASK_ID and scoped_worker_is_finished(config.WORKER_TASK_ID):
-                print("阶段范围已完成，Scoped Worker 自动退出", flush=True)
-                break
-            if config.WORKER_TASK_ID and task_is_terminal(config.WORKER_TASK_ID):
-                print("任务已进入终态，隔离 Worker 自动退出", flush=True)
-                break
-            time.sleep(config.POLL_INTERVAL)
+                time.sleep(config.POLL_INTERVAL)
 
 
 if __name__ == "__main__":

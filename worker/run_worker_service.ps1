@@ -28,10 +28,23 @@ try {
     $arguments += @('--dependency-dir', ('"' + $dependency + '"'))
   }
   $scope = if ($TaskId) { $TaskId } else { 'service' }
-  $process = Start-Process -FilePath $runtime.python -ArgumentList $arguments -WorkingDirectory (Split-Path -Parent $PSScriptRoot) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDir ('worker-' + $scope + '.out.log')) -RedirectStandardError (Join-Path $logDir ('worker-' + $scope + '.err.log')) -PassThru
-  @{pid=$process.Id; scope=$scope; started_at=(Get-Date).ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $logDir ('worker-' + $scope + '.pid.json'))
-  $process.WaitForExit()
-  exit $process.ExitCode
+  do {
+    $logStamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
+    foreach ($stream in @('out', 'err')) {
+      $previousLog = Join-Path $logDir ('worker-' + $scope + '.' + $stream + '.log')
+      if (Test-Path -LiteralPath $previousLog) {
+        Move-Item -LiteralPath $previousLog -Destination (Join-Path $logDir ('worker-' + $scope + '.' + $logStamp + '.' + $stream + '.log'))
+      }
+    }
+    $process = Start-Process -FilePath $runtime.python -ArgumentList $arguments -WorkingDirectory (Split-Path -Parent $PSScriptRoot) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDir ('worker-' + $scope + '.out.log')) -RedirectStandardError (Join-Path $logDir ('worker-' + $scope + '.err.log')) -PassThru
+    @{pid=$process.Id; scope=$scope; started_at=(Get-Date).ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $logDir ('worker-' + $scope + '.pid.json'))
+    $process.WaitForExit()
+    $workerExitCode = $process.ExitCode
+    $process.Dispose()
+    if ($TaskId -or $workerExitCode -eq 0) { exit $workerExitCode }
+    Add-Content -LiteralPath (Join-Path $logDir 'worker-supervisor.log') -Value ((Get-Date).ToString('o') + ' Worker exited (' + $workerExitCode + '); restarting in 30 seconds')
+    Start-Sleep -Seconds 30
+  } while ($true)
 } finally {
   $lock.Dispose()
 }
