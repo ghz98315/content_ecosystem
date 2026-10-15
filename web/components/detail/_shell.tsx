@@ -53,7 +53,9 @@ export function DetailShell({
   const recoveryText = isFailed
     ? `可恢复：重跑${downstreamCount > 0 ? `当前阶段及下游 ${downstreamCount} 个阶段` : "当前阶段"}；已完成的上游产物不会被重跑。`
     : isReview
-      ? "下一步：确认当前内容后继续处理；确认不会重跑已经完成的上游阶段。"
+      ? stage?.kind === "ingest" && !stage.output_ref
+        ? "下一步：按错误提示处理后重跑采集，或上传原视频、音频、文案。当前尚未采集成功，不能直接确认继续。"
+        : "下一步：确认当前内容后继续处理；确认不会重跑已经完成的上游阶段。"
       : "";
 
   return (

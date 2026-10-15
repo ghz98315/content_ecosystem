@@ -50,17 +50,22 @@ def ensure_bucket() -> None:
             pass  # 并发或已存在
 
 
-def download(url: str, suffix: str = ".mp4", referer: str = "https://www.douyin.com/") -> str:
+def download(url: str, suffix: str = ".mp4", referer: str = "https://www.douyin.com/", *, use_system_proxy: bool = True) -> str:
     """下载到临时文件，返回本地路径。"""
     fd, path = tempfile.mkstemp(suffix=suffix)
     os.close(fd)
     req = urllib.request.Request(url, headers={"User-Agent": _UA, "Referer": referer})
-    with urllib.request.urlopen(req, timeout=120) as resp, open(path, "wb") as f:
-        while True:
-            chunk = resp.read(1 << 16)
-            if not chunk:
-                break
-            f.write(chunk)
+    opener = urllib.request.build_opener() if use_system_proxy else urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=120) as resp, open(path, "wb") as f:
+            while True:
+                chunk = resp.read(1 << 16)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except BaseException:
+        os.remove(path)
+        raise
     return path
 
 

@@ -120,7 +120,7 @@ def run(stage: dict) -> tuple[str, str | None]:
 
     # 热门评论（best-effort，失败不阻塞流程）
     comments = []
-    if res.aweme_id:
+    if res.aweme_id and res.raw.get("resolver") != "share_page":
         try:
             comments = self_resolver.fetch_hot_comments(res.aweme_id, limit=50)
         except Exception:
@@ -128,7 +128,10 @@ def run(stage: dict) -> tuple[str, str | None]:
 
     # 下载视频 → 抽音频 → 只上传音频（免费档 50MB 限制；原视频仅用于出逐字稿）
     storage.ensure_bucket()
-    local_video = storage.download(res.video_url, suffix=".mp4")
+    if res.raw.get("resolver") == "share_page":
+        local_video = storage.download(res.video_url, suffix=".mp4", use_system_proxy=False)
+    else:
+        local_video = storage.download(res.video_url, suffix=".mp4")
     try:
         audio = storage.extract_audio(local_video)
         sp = f"{task_id}/audio.mp3"

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import httpx
 
 from . import ResolveResult, normalize_douyin_url
 
@@ -199,6 +200,14 @@ def resolve(share_text: str) -> ResolveResult:
     if not vid:
         return ResolveResult(ok=False, error=f"没能从链接解析出 aweme_id：{canonical}")
 
+    # The desktop detail endpoint now requires a newer platform signature.
+    # Prefer metadata already served by the public mobile share page.
+    from . import share_page
+    try:
+        return share_page.resolve(vid, load_cookie_file())
+    except (ValueError, httpx.HTTPError):
+        pass
+
     # 一级：自动生成匿名 cookie（你只给链接，无需手动导出）
     d = _try_fetch(vid, gen_anon_cookie())
     # 二级回退：cookies.txt
@@ -207,7 +216,7 @@ def resolve(share_text: str) -> ResolveResult:
     if not d:
         return ResolveResult(
             ok=False, aweme_id=vid,
-            error="解析失败：自动 cookie 与 cookies.txt 均未拿到数据（可能被风控，稍后重试或导出新 cookie）",
+            error="采集失败：分享页未取得视频，旧版详情接口也未返回数据。请在抖音网页确认视频可播放；若提示验证请先完成验证，再重试。也可上传原视频、音频或文案继续。此错误不一定由 Cookie 过期导致。",
         )
 
     dur = d.get("duration")
