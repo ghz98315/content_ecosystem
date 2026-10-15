@@ -48,7 +48,8 @@ export function DetailShell({
   const diagnosticBorder = errorTone === "warning" ? "#fde68a" : "#fecaca";
   const diagnosticColor = errorTone === "warning" ? "#a16207" : "var(--status-failed)";
   const stageIndex = stage ? STAGES.findIndex(item => item.kind === stage.kind) : -1;
-  const downstreamCount = stageIndex >= 0 ? STAGES.length - stageIndex - 1 : 0;
+  const externalAudio = stage?.kind === 'tts' && stage.params.audio_source === 'external';
+  const downstreamCount = externalAudio ? 1 : stageIndex >= 0 ? STAGES.length - stageIndex - 1 : 0;
   const recoveryText = isFailed
     ? `可恢复：重跑${downstreamCount > 0 ? `当前阶段及下游 ${downstreamCount} 个阶段` : "当前阶段"}；已完成的上游产物不会被重跑。`
     : isReview

@@ -37,6 +37,18 @@ def _probe_duration(path: str, segments: list[dict]) -> float:
     return float(segments[-1].get("end", 0.0)) if segments else 0.0
 
 
+def _index_duration_factor_from_rate(rate: Any) -> float:
+    """Translate the workbench's percentage speed setting to IndexTTS duration."""
+    match = re.fullmatch(r"\s*([+-]?\d+(?:\.\d+)?)%\s*", str(rate))
+    if not match:
+        raise ValueError("IndexTTS2.5 rate must be a percentage such as -8% or 0%")
+    playback_rate = 1.0 + float(match.group(1)) / 100.0
+    if playback_rate <= 0:
+        raise ValueError("IndexTTS2.5 playback rate must be greater than zero")
+    # IndexTTS duration_factor is duration scaling, the inverse of playback rate.
+    return min(2.0, max(0.5, 1.0 / playback_rate))
+
+
 class EdgeTTSProvider:
     async def synthesize(
         self, text: str, voice: str, instruction: str | None = None,
@@ -283,7 +295,7 @@ class IndexTTS25Provider:
         ).strip()
         self.configured_voice = os.environ.get("INDEXTTS25_VOICE", "").strip()
         self.timeout = max(30.0, float(os.environ.get("INDEXTTS25_TIMEOUT", "300")))
-        self.duration_factor = float(os.environ.get("INDEXTTS25_DURATION_FACTOR", "1.08"))
+        self.duration_factor = float(os.environ.get("INDEXTTS25_DURATION_FACTOR", "1.00"))
         self.emo_alpha = float(os.environ.get("INDEXTTS25_EMO_ALPHA", "0.55"))
         self.use_qwen_emotion = os.environ.get(
             "INDEXTTS25_USE_QWEN_EMOTION", "true"
@@ -332,7 +344,8 @@ class IndexTTS25Provider:
         allowed_options = {
             "duration_factor", "emo_alpha", "emotion_voice", "emo_vector",
             "emotion_text", "use_qwen_emotion", "temperature", "top_p",
-            "repetition_penalty",
+            "repetition_penalty", "rate", "interval_silence", "max_text_tokens_per_segment",
+            "top_k", "num_beams", "length_penalty", "seed", "do_sample", "max_mel_tokens",
         }
         unsupported = set(overrides) - allowed_options
         if unsupported:
@@ -343,18 +356,23 @@ class IndexTTS25Provider:
             "voice": selected_voice,
             "language": "zh",
             "response_format": "wav",
-            "duration_factor": overrides.get("duration_factor", self.duration_factor),
+            "duration_factor": (
+                _index_duration_factor_from_rate(overrides["rate"])
+                if "rate" in overrides
+                else overrides.get("duration_factor", self.duration_factor)
+            ),
             # English reference clips can make the Qwen emotion branch drift
             # into a non-target language. Keep those profiles on plain
             # IndexTTS inference while preserving the narrator35 baseline.
             "use_qwen_emotion": overrides.get(
                 "use_qwen_emotion",
-                self.use_qwen_emotion and selected_voice not in self.plain_voices,
+                self.use_qwen_emotion and selected_voice not in self.plain_voices
+                and overrides.get("emo_vector") is None and not overrides.get("emotion_voice"),
             ),
             "emotion_text": str(overrides.get("emotion_text") or instruction or self.emotion_text).strip(),
             "emo_alpha": overrides.get("emo_alpha", self.emo_alpha),
         }
-        for name in ("emotion_voice", "emo_vector", "temperature", "top_p", "repetition_penalty"):
+        for name in ("emotion_voice", "emo_vector", "temperature", "top_p", "repetition_penalty", "interval_silence", "max_text_tokens_per_segment", "top_k", "num_beams", "length_penalty", "seed", "do_sample", "max_mel_tokens"):
             if name in overrides:
                 request[name] = overrides[name]
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:

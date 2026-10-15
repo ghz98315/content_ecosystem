@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { StageKind } from "@/lib/types";
+import { supabase } from '@/lib/supabase';
 
 type Artifact =
   | { type: "audio"; url: string }
@@ -10,7 +11,10 @@ type Artifact =
   | { type: "images"; items: { path: string; sentence: string }[] };
 
 async function getSignedUrl(path: string): Promise<string> {
-  const res = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`);
+  const { data } = await supabase.auth.getSession();
+  const res = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`, {
+    headers: data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {},
+  });
   if (!res.ok) throw new Error("获取链接失败");
   const { signedUrl } = await res.json();
   return signedUrl;

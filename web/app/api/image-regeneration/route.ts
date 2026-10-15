@@ -1,8 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-const BUCKET = "artifacts";
-
 export async function POST(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
@@ -33,15 +31,13 @@ export async function POST(request: Request) {
       .eq("task_id", stage.task_id)
       .in("stage_kind", ["image", "render"]);
     if (artifactError) throw new Error(artifactError.message);
-    const paths = (artifacts || []).map(item => item.storage_path).filter(Boolean);
-    if (paths.length) {
-      const { error: removeError } = await service.storage.from(BUCKET).remove(paths);
-      if (removeError) throw new Error(`删除旧图片失败：${removeError.message}`);
-    }
-
+    // The RPC locks the task, checks running work, then invalidates artifact
+    // records atomically. The worker uses those records for cache lookup, so
+    // deleting Storage objects is unnecessary and can race a new worker claim.
+    // Keep old objects until a separate retention cleanup can remove them safely.
     const { data, error } = await userClient.rpc("regenerate_image_stage", { p_stage_id: stageId });
     if (error || !data?.length) throw new Error(error?.message || "重置图片阶段失败");
-    return NextResponse.json({ stages: data, deleted: paths.length });
+    return NextResponse.json({ stages: data, deleted: 0, invalidated: (artifacts || []).length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "全量重新生成失败" }, { status: 400 });
   }

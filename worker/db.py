@@ -132,6 +132,10 @@ def claim_next_stage(task_id: str = "", allowed_kinds: tuple[str, ...] = ()) -> 
     for stage in res.data:
         stage_task_id = stage["task_id"]
         seq     = stage["seq"]
+        if stage.get('kind') in ('image', 'render'):
+            audio_stage = sb.table('stages').select('status,params').eq('task_id',stage_task_id).eq('kind','tts').single().execute().data or {}
+            if (audio_stage.get('params') or {}).get('audio_source') == 'external' and audio_stage.get('status') != 'done':
+                continue
         task = (
             sb.table("tasks")
             .select("status,content_category")
@@ -161,13 +165,16 @@ def claim_next_stage(task_id: str = "", allowed_kinds: tuple[str, ...] = ()) -> 
                 continue  # 有前置未完成，跳过
 
         # 乐观锁认领
-        upd = (
-            sb.table("stages")
-            .update({"status": "processing"})
-            .eq("id", stage["id"])
-            .eq("status", "pending")
-            .execute()
-        )
+        if stage.get('kind') in ('tts', 'image', 'render'):
+            upd = sb.rpc('claim_media_stage',{'p_stage_id':stage['id']}).execute()
+        else:
+            upd = (
+                sb.table("stages")
+                .update({"status": "processing"})
+                .eq("id", stage["id"])
+                .eq("status", "pending")
+                .execute()
+            )
         if upd.data:
             return upd.data[0]
 
@@ -207,15 +214,16 @@ def set_task_status(task_id: str, status: str) -> None:
 
 
 def claim_next_image_replacement() -> dict | None:
-    sb = get_client()
-    res = retry(lambda: sb.table("image_replacement_requests").select("*").eq("status", "pending").is_("invalidated_at", "null").order("requested_at").limit(20).execute())
+    def pending_requests():
+        query = get_client().table("image_replacement_requests").select("*").eq("status", "pending").is_("invalidated_at", "null")
+        if config.WORKER_TASK_ID:
+            query = query.eq("task_id", config.WORKER_TASK_ID)
+        return query.order("requested_at").limit(20).execute()
+    res = retry(pending_requests)
     if not res.data:
         return None
     for request in res.data:
-        task = retry(lambda request=request: sb.table("tasks").select("status").eq("id", request["task_id"]).single().execute())
-        if not task.data or task.data.get("status") == "cancelled":
-            continue
-        upd = retry(lambda request=request: sb.table("image_replacement_requests").update({"status": "processing", "error": None}).eq("id", request["id"]).eq("status", "pending").execute())
+        upd = retry(lambda request=request: get_client().rpc("claim_image_replacement", {"p_request_id": request["id"]}).execute())
         if upd.data:
             return upd.data[0]
     return None

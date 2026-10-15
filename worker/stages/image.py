@@ -658,6 +658,14 @@ def _generate_grid_bytes(
 
 # ── Stage ─────────────────────────────────────────────────────────────────
 def _find_chosen_text(task_id: str, stage: dict) -> str | None:
+    audio_stage = db.get_client().table('stages').select('status,params').eq('task_id',task_id).eq('kind','tts').single().execute().data or {}
+    if (audio_stage.get('params') or {}).get('audio_source') == 'external':
+        if audio_stage.get('status') != 'done':
+            raise ValueError('请先确认外部配音和字幕')
+        version = db.get_client().table('external_narrations').select('subtitle_text,state').eq('id',audio_stage['params']['external_id']).single().execute().data or {}
+        if version.get('state') != 'approved':
+            raise ValueError('当前外部配音未确认')
+        return version['subtitle_text']
     res = (
         db.get_client().table("artifacts")
         .select("storage_path")
@@ -720,7 +728,7 @@ def _run_dialogue_visual(stage: dict, text: str, category: str, client, image_mo
     prompt = _build_grid_prompt([_dialogue_visual_scene(category)], category, visual_style, reference_mode)
     if path not in existing:
         raw = _generate_grid_bytes(
-            client, image_model, prompt, stage_id=stage["id"], batch_key="dialogue_key_visual",
+            client, image_model, prompt, stage_id=stage["id"], batch_key=f"{(stage.get('params') or {}).get('generation_id', 'baseline')}_dialogue_key_visual",
         )
         piece = _split_grid(raw, 1)[0]
         storage.upload_bytes(path, piece, "image/png")
@@ -956,6 +964,14 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
         return "failed", None
 
+    # External manuscripts get their own reusable asset namespace. A changed
+    # reading must never silently reuse old pictures solely by img_000 name.
+    visual_text = (stage.get('params') or {}).get('external_visual_text')
+    asset_root = (f"{task_id}/external-visuals/{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+                  if visual_text else task_id)
+    generation_id = (stage.get('params') or {}).get('generation_id')
+    if generation_id:
+        asset_root += f"/generations/{generation_id}"
     existing_artifacts = _existing_image_artifacts(task_id)
     existing_paths = set(existing_artifacts)
     image_paths: list[str] = []
@@ -965,8 +981,8 @@ def run(stage: dict) -> tuple[str, str | None]:
     batch_size = _GRID * _GRID
     for batch_start in range(0, len(storyboard), batch_size):
         batch = storyboard[batch_start: batch_start + batch_size]
-        grid_path = f"{task_id}/grid_{batch_start // batch_size:03d}.png"
-        expected_paths = [f"{task_id}/img_{batch_start + i:03d}.png" for i in range(len(batch))]
+        grid_path = f"{asset_root}/grid_{batch_start // batch_size:03d}.png"
+        expected_paths = [f"{asset_root}/img_{batch_start + i:03d}.png" for i in range(len(batch))]
         if all(
             path in existing_paths
             and int(existing_artifacts[path].get("split_version") or 0) >= _IMAGE_SPLIT_VERSION
@@ -991,7 +1007,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                     pass
         else:
             grid_prompt = _build_grid_prompt([shot["text"] for shot in batch], content_category, visual_style, reference_mode)
-            batch_key = f"grid_{batch_start // batch_size:03d}"
+            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_start // batch_size:03d}" if visual_text or generation_id
+                         else f"grid_{batch_start // batch_size:03d}")
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,

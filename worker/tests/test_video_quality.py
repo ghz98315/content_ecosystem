@@ -85,8 +85,10 @@ from narration import (
 
 class RewriteQualityTests(unittest.TestCase):
     def test_structured_single_draft_is_complete(self):
-        source = "这是原文内容。" * 20
-        text = "这为原文内容。" * 20
+        hook = "开篇第一句。开篇第二句。开篇第三句。开篇第四句。"
+        tail = "结尾第一句。结尾第二句。"
+        source = hook + "春雨滋养田野。" * 10 + tail
+        text = hook + "晨风吹过山岗。" * 10 + tail
         raw = json.dumps({"text": text}, ensure_ascii=False)
         candidates = _parse_candidates(raw)
         self.assertEqual(1, len(candidates))
@@ -101,7 +103,8 @@ class RewriteQualityTests(unittest.TestCase):
         source = "你有没有发现越是着急越容易做错决定？中间讲清楚三个关键方法。最后记住先停下来再行动。" * 3
         rewritten = "今天分享一些完全不同的新鲜故事和人物经历，内容主题已经发生变化，最后也换成另一套营销引导。" * 3
         issues = _candidate_issues([rewritten], source, "stop")
-        self.assertIn("改写幅度过大，未保持原文主体", issues)
+        self.assertIn("开头黄金钩子未按原文保留", issues)
+        self.assertIn("结尾收束未按原文保留", issues)
 
     def test_health_initial_rewrite_reports_near_copy_as_warning(self):
         source = "很多人以为少吃一顿饭就能让身体轻松下来，其实真正的问题往往藏在每天的饮食节奏里。" * 3
@@ -349,7 +352,7 @@ class PromptProfileTests(unittest.TestCase):
         self.assertIn("首发独立表达", load_prompt("health", "initial_dedup"))
         self.assertIn("日常比喻", load_prompt("health", "dual_dialogue_initial_dedup"))
         self.assertIn("咱们说句实在话", load_prompt("health", "dual_dialogue_initial_dedup"))
-        self.assertIn("渲染自伤自杀", load_prompt("health", "initial_dedup"))
+        self.assertIn("中段深改", load_prompt("health", "initial_dedup"))
         self.assertIn("二次发布", load_prompt("health", "repost_dedup"))
         self.assertEqual("initial_dedup", rewrite_prompt_kind("initial_dedup"))
         self.assertEqual("repost_dedup", rewrite_prompt_kind("repost_dedup"))
@@ -357,8 +360,9 @@ class PromptProfileTests(unittest.TestCase):
         self.assertIn("疗效和安全承诺", load_compliance_rules("health"))
         self.assertEqual("social_science", normalize_category("social_science"))
         self.assertEqual("education", normalize_category("education"))
-        self.assertIn("不得杜撰史料", load_prompt("social_science", "initial_dedup"))
-        self.assertIn("个性化投资建议", load_prompt("education", "initial_dedup"))
+        shared = (Path(__file__).resolve().parents[1] / "prompts" / "rewrite_deep_rewrite.txt").read_text(encoding="utf-8").strip()
+        for category in ("health", "social_science", "education"):
+            self.assertEqual(shared, load_prompt(category, "initial_dedup"))
         self.assertIn("伪造史实", load_compliance_rules("social_science"))
         self.assertIn("收益承诺", load_compliance_rules("education"))
 
@@ -410,14 +414,14 @@ class RenderAndNarrationRegressionTests(unittest.TestCase):
 
 class StoryboardTests(unittest.TestCase):
 
-    def test_history_storyboard_caps_at_three_and_marks_cover(self):
+    def test_history_storyboard_caps_at_three_per_minute_and_marks_cover(self):
         source = "。".join(["第%d段记录了人物、时间、地点和关键事件" % i for i in range(1, 13)])
         shots, analysis = _history_storyboard(source)
         self.assertGreaterEqual(len(shots), 1)
-        self.assertLessEqual(len(shots), 3)
+        self.assertLessEqual(len(shots), analysis["max_images"])
         self.assertEqual("cover", shots[0]["beat_role"])
         self.assertTrue(all(shot["beat_role"] == ("cover" if i == 0 else "key_event") for i, shot in enumerate(shots)))
-        self.assertTrue(analysis["checks"]["within_three_image_limit"])
+        self.assertTrue(analysis["checks"]["within_three_images_per_minute"])
         self.assertEqual(len(shots), analysis["selected_count"])
 
     def test_wechat_channels_uses_authorized_manual_upload_path(self):
@@ -498,29 +502,29 @@ class StoryboardTests(unittest.TestCase):
         self.assertEqual([(0, 512), (512, 1024), (1024, 1536)], bounds)
         self.assertEqual(1536, bounds[-1][1])
 
-    def test_grid_split_produces_exact_4_3_tiles(self):
+    def test_grid_split_produces_portrait_tiles(self):
         from PIL import Image
 
-        source = Image.new("RGB", (1536, 1024), (40, 80, 120))
+        source = Image.new("RGB", (1024, 1536), (40, 80, 120))
         buf = io.BytesIO()
         source.save(buf, format="PNG")
         pieces = _split_grid(buf.getvalue(), 9)
         self.assertEqual(9, len(pieces))
         for piece_bytes in pieces:
             with Image.open(io.BytesIO(piece_bytes)) as piece:
-                self.assertGreaterEqual(piece.width, 430)
-                self.assertGreaterEqual(piece.height, 320)
-                self.assertAlmostEqual(4 / 3, piece.width / piece.height, places=2)
+                self.assertGreaterEqual(piece.width, 270)
+                self.assertGreaterEqual(piece.height, 480)
+                self.assertAlmostEqual(9 / 16, piece.width / piece.height, places=2)
 
     def test_grid_split_removes_provider_separator_lines(self):
         from PIL import Image, ImageDraw
 
-        source = Image.new("RGB", (1536, 1024), (40, 80, 120))
+        source = Image.new("RGB", (1024, 1536), (40, 80, 120))
         draw = ImageDraw.Draw(source)
-        for x in (512, 1024):
-            draw.rectangle((x - 5, 0, x + 5, 1023), fill=(255, 255, 255))
-        for y in (341, 683):
-            draw.rectangle((0, y - 5, 1535, y + 5), fill=(255, 255, 255))
+        for x in (341, 683):
+            draw.rectangle((x - 5, 0, x + 5, 1535), fill=(255, 255, 255))
+        for y in (512, 1024):
+            draw.rectangle((0, y - 5, 1023, y + 5), fill=(255, 255, 255))
         buf = io.BytesIO()
         source.save(buf, format="PNG")
 
@@ -644,7 +648,7 @@ class StoryboardTests(unittest.TestCase):
         storyboard.assert_not_called()
 
     def test_grid_source_rejects_unexpected_square_canvas(self):
-        _validate_grid_source(1536, 1024)
+        _validate_grid_source(1024, 1536)
         with self.assertRaisesRegex(ValueError, "已停止切图"):
             _validate_grid_source(1024, 1024)
 
@@ -1257,7 +1261,9 @@ class NetworkRetryTests(unittest.TestCase):
             saved = json.loads((output_dir / "comparison.json").read_text(encoding="utf-8"))
 
         self.assertFalse(report["production_audio_replaced"])
-        self.assertEqual(["done", "done"], [item["status"] for item in saved["providers"]])
+        self.assertEqual(["done"] * 6, [item["status"] for item in saved["providers"]])
+        self.assertEqual(["baseline", "slow-8", "slow-12"], saved["acceptance"]["speed_profiles"])
+        self.assertEqual(6, len({item["file"] for item in saved["providers"]}))
         self.assertEqual("pending", saved["providers"][0]["manual_review"]["voice_quality"])
 
     def test_render_ffmpeg_timeout_is_converted_to_render_timeout(self):

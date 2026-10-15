@@ -4,12 +4,28 @@ import hashlib
 import json
 import unittest
 from unittest.mock import MagicMock, patch
+import stages.image as image_stage
 
-from stages.image import _download_image, _generate_grid_bytes, _replacement_path, process_replacement_request, _is_safety_block
+from stages.image import _download_image, _generate_grid_bytes, _replacement_path, process_replacement_request, _is_safety_block, _reference_conditioning_capability
 from stages.render import _apply_image_replacements
 
 
 class APIMartIdempotencyTests(unittest.TestCase):
+    def test_apimart_gpt_image_reference_conditioning_is_explicitly_blocked(self):
+        capability = _reference_conditioning_capability(
+            "apimart", "gpt-image-2", "hybrid", ["reference-1"]
+        )
+        self.assertTrue(capability["requested"])
+        self.assertFalse(capability["used"])
+        self.assertEqual("unsupported", capability["state"])
+
+    def test_prompt_mode_does_not_claim_reference_conditioning(self):
+        capability = _reference_conditioning_capability(
+            "apimart", "gpt-image-2", "prompt", ["reference-1"]
+        )
+        self.assertFalse(capability["requested"])
+        self.assertEqual("not_requested", capability["state"])
+
     def test_apimart_unknown_task_failure_is_safe_retryable(self):
         self.assertTrue(_is_safety_block(RuntimeError(
             "APIMart image task failed: task_failed: unknown"
@@ -105,7 +121,7 @@ class APIMartIdempotencyTests(unittest.TestCase):
                 "provider_task_id": "provider-task-failed",
                 "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
                 "model": "gpt-image-2",
-                "size": "1536x1024",
+                "size": image_stage._GRID_SIZE,
                 "status": "submitted",
             }
         }

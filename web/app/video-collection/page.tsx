@@ -96,6 +96,7 @@ function VideoCollectionContent() {
   const [visualPresetId, setVisualPresetId] = useState("health-warm-editorial");
   const [bgmVolume, setBgmVolume] = useState("0.08");
   const [ttsRate, setTtsRate] = useState("-8%");
+  const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
   const [imageAspectRatio] = useState("9:16");
   const [narrationMode, setNarrationMode] = useState<"single" | "dual_dialogue">("single");
   const [secondaryVoiceProfileId, setSecondaryVoiceProfileId] = useState("");
@@ -249,7 +250,7 @@ function VideoCollectionContent() {
     let selectedProfile = selectedVoiceProfileId === "system-default"
       ? defaultVoiceProfile
       : voiceProfiles.find(profile => profile.id === selectedVoiceProfileId);
-    if (selectedVoiceProfileId !== "system-default") {
+    if (ttsSource === 'automatic' && selectedVoiceProfileId !== "system-default") {
       const { data, error: profileError } = await supabase
         .from("voice_profiles")
         .select("id,display_name,provider,model,voice_id,sample_path,enabled,is_default")
@@ -272,7 +273,7 @@ function VideoCollectionContent() {
       voice_id: DEFAULT_EDGE_VOICE_ID,
     };
     const secondaryProfile = voiceProfiles.find(profile => profile.id === secondaryVoiceProfileId);
-    if (narrationMode === "dual_dialogue" && (!secondaryProfile || !isDualDialogueProfile(taskVoice) || !isDualDialogueProfile(secondaryProfile) || taskVoice.id === secondaryProfile.id)) {
+    if (ttsSource === 'automatic' && narrationMode === "dual_dialogue" && (!secondaryProfile || !isDualDialogueProfile(taskVoice) || !isDualDialogueProfile(secondaryProfile) || taskVoice.id === secondaryProfile.id)) {
       setCreating(false);
       setMessage("双人口播需要分别选择已验收的 IndexTTS 主持人与嘉宾音色");
       return;
@@ -296,6 +297,7 @@ function VideoCollectionContent() {
       tts_secondary_voice: secondaryProfile?.voice_id || null,
       tts_secondary_voice_label: secondaryProfile?.display_name || null,
       tts_rate: ttsRate,
+      tts_source: ttsSource,
     }))).select("id");
     if (!error && createdTasks?.length) {
       const { error: imageConfigError } = await supabase.from("stages").update({
@@ -389,6 +391,7 @@ function VideoCollectionContent() {
     <div className="collection-page anim-fade-in">
       <header className="collection-heading"><div><p className="eyebrow">素材运营台</p><h1>视频采集工作台</h1><p>批量导入来源视频，按采集结果、互动数据和任务进度统一查看。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
       <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
+      <section className="collection-import" aria-label="配音来源"><h2>配音来源</h2><label>配音方式 <select value={ttsSource} onChange={event => setTtsSource(event.target.value as 'external' | 'automatic')}><option value="external">确认文案后上传外部配音</option><option value="automatic">自动配音</option></select></label><p>外部配音模式在确认文案后等待上传，字幕核对通过后再生图；下方音色与语速仅用于自动配音。</p></section>
       <section className="collection-import" aria-label="内容生产设置"><div><h2>内容生产设置</h2><p>设置会随新任务保存；不影响已创建任务。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>内容流程</span><select value={contentCategory} onChange={event => setContentCategory(event.target.value as "health" | "social_science" | "education")} aria-label="内容流程模板"><option value="health">健康类书籍</option><option value="social_science">历史社科</option><option value="education">经管书籍</option></select><small>{contentCategory === "health" ? "健康合规红线与温润生活视觉" : contentCategory === "social_science" ? "史实边界、克制叙事与史料感画面" : "数据边界、非投顾表达与现代商务画面"}</small></div><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色">{narrationMode !== "dual_dialogue" && <option value="system-default">{defaultVoiceLabel}（新任务默认）</option>}{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? `${defaultVoiceLabel}，当前未登记可试听样本。` : "该音色未登记样本，无法试听。"}</small>}</div><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => { const next = event.target.value as "single" | "dual_dialogue"; setNarrationMode(next); if (next === "dual_dialogue") { setSelectedVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_host_male")?.id || ""); setSecondaryVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_guest_female")?.id || ""); } else if (isDualDialogueProfile(voiceProfiles.find(profile => profile.id === selectedVoiceProfileId) || {} as VoiceProfile)) { setSelectedVoiceProfileId("system-default"); setSecondaryVoiceProfileId(""); } }} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue">双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "角色顺序：第一音色＝男主持人，第二音色＝女嘉宾。改写稿按主持人/嘉宾分段。" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{dialogueVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select><small>角色顺序：第一音色为男主持人；此处第二音色为女嘉宾。两套音色分别快照保存。</small></div>}</div></section>
       <section className="collection-import" aria-label="生图通道设置">
         <div><h2>生图通道</h2><p>默认使用 APIMart；接口异常时可切换 xcode.best，新选择随任务快照保存。</p></div>

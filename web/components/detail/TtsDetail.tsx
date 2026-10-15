@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 import { supabase } from "@/lib/supabase";
+import { ExternalNarrationPanel } from './ExternalNarrationPanel';
 
 interface TtsData {
   provider?: string;
@@ -38,6 +39,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rate, setRate] = useState("-8%");
   const [rateBusy, setRateBusy] = useState(false);
+  const external = stage?.params.audio_source === 'external';
 
   useEffect(() => {
     const configured = (stage?.params as Record<string, unknown> | undefined)?.primary_provider_options as Record<string, unknown> | undefined;
@@ -47,7 +49,11 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
   const saveRateAndRerun = async () => {
     if (!stage) return;
     setRateBusy(true); setLoadError(null);
-    const params = { ...(stage.params || {}), primary_provider_options: { ...(((stage.params || {}) as Record<string, unknown>).primary_provider_options as Record<string, unknown> || {}), rate } };
+    const providerOptions = { ...(((stage.params || {}) as Record<string, unknown>).primary_provider_options as Record<string, unknown> || {}) };
+    // A speed selection supersedes a saved IndexTTS duration factor. Leaving
+    // both in the snapshot makes the effective setting ambiguous.
+    delete providerOptions.duration_factor;
+    const params = { ...(stage.params || {}), primary_provider_options: { ...providerOptions, rate } };
     const [{ error: stageError }, { error: taskError }] = await Promise.all([
       supabase.from("stages").update({ params }).eq("id", stage.id),
       supabase.from("tasks").update({ tts_rate: rate }).eq("id", stage.task_id),
@@ -58,7 +64,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
   };
 
   useEffect(() => {
-    if (!stage?.output_ref) {
+    if (!stage?.output_ref || external) {
       setData(null);
       setAudioUrl(null);
       setLoadError(null);
@@ -70,7 +76,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
     setData(null);
     setAudioUrl(null);
     // 加载字幕/元数据 JSON
-    const subsPath = stage.output_ref.replace("tts.mp3", "tts_subtitles.json");
+    const subsPath = String(stage.params.subtitle_path || `${taskId}/tts_subtitles.json`);
     fetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
       .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json()).then(async (payload: TtsData) => {
@@ -94,7 +100,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
       })
       .catch(() => setLoadError(current => current || "生产音频暂时无法加载"))
       .finally(() => setLoading(false));
-  }, [stage?.output_ref]);
+  }, [stage?.output_ref, stage?.params.subtitle_path, external, taskId]);
 
   const retry = () => {
     if (!stage?.output_ref) return;
@@ -102,7 +108,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
     setAudioUrl(null);
     setLoadError(null);
     setLoading(true);
-    const subsPath = stage.output_ref.replace("tts.mp3", "tts_subtitles.json");
+    const subsPath = String(stage.params.subtitle_path || `${taskId}/tts_subtitles.json`);
     fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(r => r.json()).then(({ signedUrl }) => { if (!signedUrl) throw new Error(); setAudioUrl(signedUrl); })
       .catch(() => setLoadError("生产音频暂时无法加载"))
@@ -118,10 +124,11 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
   }
 
   return (
-    <DetailShell title="配音" stage={stage} onRerun={onRerun}>
+    <DetailShell title="配音" stage={stage} onRerun={onRerun} showChildrenOnPending>
+      <ExternalNarrationPanel stage={stage} />
       {loading && <div className="tts-state" role="status" aria-live="polite">正在加载配音产物…</div>}
       {loadError && <div className="tts-state is-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={retry}>重试</button></div>}
-      {!loading && !loadError && !stage?.output_ref && <div className="tts-state" role="status">当前阶段尚未生成配音产物。</div>}
+      {!external && !loading && !loadError && !stage?.output_ref && <div className="tts-state" role="status">当前阶段尚未生成配音产物。</div>}
       {data && (
         <section className="media-workbench-heading tts-workbench-heading">
           <div><p className="eyebrow">AUDIO</p><h2>音频生成与时长预估</h2><p>使用当前任务快照中的 Provider、音色和语速生成配音，并按真实边界校准字幕。</p></div>

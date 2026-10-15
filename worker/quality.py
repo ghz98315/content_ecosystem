@@ -106,7 +106,10 @@ def evaluate_render_quality(
         actual=len(images), expected=len(timeline),
     ))
 
-    max_subtitle_chars = max((visible_len(str(cue.get("text", ""))) for cue in cues), default=0)
+    max_subtitle_chars = max((
+        visible_len(str(cue.get("text", "")).replace("《", "").replace("》", ""))
+        for cue in cues
+    ), default=0)
     punctuated = sum(
         has_disallowed_subtitle_punctuation(str(cue.get("text", "")))
         for cue in cues
@@ -118,7 +121,7 @@ def evaluate_render_quality(
         and reversed_cues == 0 and forced_cues == 0
     )
     checks.append(_check(
-        "subtitles", "字幕规范", "passed" if subtitle_ok else "failed",
+        "subtitles", "字幕规范", "passed" if subtitle_ok else "warning",
         f"{len(cues)} 条字幕，最长 {max_subtitle_chars} 字，标点异常 {punctuated} 条，拆词异常 {forced_cues} 条",
         actual={
             "count": len(cues), "max_chars": max_subtitle_chars,

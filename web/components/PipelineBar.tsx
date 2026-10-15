@@ -17,9 +17,13 @@ const STATUS_ICON: Record<string, string> = {
 };
 
 export function PipelineBar({ stages, selected, onSelect }: Props) {
+  const external = stages.find(s => s.kind === 'tts')?.params.audio_source === 'external';
+  const definitions = external
+    ? [...STAGES.slice(0, 4), STAGES[6], STAGES[4], STAGES[5], STAGES[7]]
+    : STAGES;
   return (
     <div className="pipeline-bar">
-      {STAGES.map((def, i) => {
+      {definitions.map((def, i) => {
         const st = stages.find(s => s.kind === def.kind);
         const status = st?.status ?? "pending";
         const isSelected = selected === def.kind;
@@ -69,7 +73,7 @@ export function PipelineBar({ stages, selected, onSelect }: Props) {
             </span>
 
             {/* 箭头分隔 */}
-            {i < STAGES.length - 1 && (
+            {i < definitions.length - 1 && (
               <span style={{
                 position: "absolute", right: -6, top: "50%", transform: "translateY(-50%)",
                 fontSize: 10, color: "var(--border)", zIndex: 1,

@@ -1,0 +1,7 @@
+# Verified on Windows/Python 3.12 on 2026-10-15. Add to the existing Worker env.
+# Keep the audio/array versions together; newer wheels failed to load here.
+faster-whisper==1.2.1
+av==14.2.0
+numpy==2.3.5
+ctranslate2==4.8.3
+onnxruntime==1.31.0

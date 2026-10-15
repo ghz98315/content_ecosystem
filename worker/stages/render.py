@@ -555,6 +555,21 @@ def run(stage: dict) -> tuple[str, str | None]:
     book_data = _load_json_artifact(task_id, "book")
     print("  [render] 下载完整配音", flush=True)
     audio_path = _load_audio(task_id)
+    audio_stage = db.get_client().table('stages').select('status,params,output_ref').eq('task_id',task_id).eq('kind','tts').single().execute().data or {}
+    if (audio_stage.get('params') or {}).get('audio_source') == 'external':
+        if audio_stage.get('status') != 'done':
+            raise ValueError('当前外部配音尚未确认')
+        row = db.get_client().table('external_narrations').select('state,audio_path,subtitle_path').eq('id',audio_stage['params']['external_id']).single().execute().data or {}
+        if row.get('state') != 'approved' or row.get('audio_path') != audio_stage.get('output_ref'):
+            raise ValueError('配音版本已变化，请重新确认')
+        if audio_path:
+            Path(audio_path).unlink(missing_ok=True)
+        audio_path = storage.download_artifact(row['audio_path'], '.wav')
+        local_subs = storage.download_artifact(row['subtitle_path'], '.json')
+        try:
+            subs_data = json.loads(Path(local_subs).read_text(encoding='utf-8'))
+        finally:
+            Path(local_subs).unlink(missing_ok=True)
     bgm_path, bgm_volume, narration_volume = _load_bgm_config(task_id)
 
     if not images_data or not audio_path:

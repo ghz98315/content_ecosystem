@@ -48,6 +48,30 @@ _DIALOGUE_PAUSES = (
 )
 
 
+def _history_delivery_instruction(text: str, index: int, total: int) -> str:
+    """Give IndexTTS restrained, segment-aware direction for history narration."""
+    if index == 0:
+        return "像一位可靠的历史讲述者自然开场，清晰沉稳，带一点引导兴趣；先收敛铺垫，为事件起伏留出空间，不要播音腔。"
+    if index == total - 1:
+        return "克制而有余韵地收束历史叙述，事实清楚，最后自然放慢并落下，不煽情。"
+    if re.search(r"(战争|冲突|灾难|屠杀|危机|失败|代价)", text):
+        return "以克制、严肃但不沉重的方式讲述历史冲突；关键事件和代价自然加重，再平稳回落，不渲染惨烈情绪。"
+    if re.search(r"(改革|转折|突破|影响|奠定|改变|兴起)", text):
+        return "清楚表现历史转折和影响：转折词与关键结果自然加重，前后层次分明但不要激昂。"
+    if "？" in text or "?" in text:
+        return "像在历史课堂中自然提出问题，问句轻微上扬；解释时保持清晰沉稳，表现因果起伏，不要表演。"
+    return "清晰、沉稳、有时间纵深感地讲述历史；铺垫平稳，事件、转折、因果和结果自然加重，不要播音腔。"
+
+
+def _is_history_narration(context: dict) -> bool:
+    tags = context.get("source_tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    values = [context.get("content_category"), *tags]
+    joined = " ".join(str(value) for value in values if value)
+    return any(token in joined.lower() for token in ("历史", "国学", "古籍", "经典", "history", "guoxue"))
+
+
 def _cosyvoice_ssml(
     text: str, position: str, speaker: str | None = None,
     rate_override: str | float | None = None,
@@ -445,6 +469,7 @@ async def _synthesize_detailed(
     delivery_instruction: str | None = None, natural_dialogue: bool = False,
     protected_terms: tuple[str, ...] = (),
     provider_options: dict | None = None,
+    history_narration: bool = False,
 ) -> tuple[bytes, list[dict], list[dict]]:
     """Synthesize natural batches and retain each batch for UI and alignment."""
     provider_name = str(provider or config.TTS_PROVIDER).lower()
@@ -481,8 +506,11 @@ async def _synthesize_detailed(
                     spoken_part, position, speaker,
                     (provider_options or {}).get("rate") or (provider_options or {}).get("speed"),
                 )
+            part_instruction = delivery_instruction
+            if is_indextts and history_narration and not part_instruction:
+                part_instruction = _history_delivery_instruction(part, index, len(parts))
             result = await _synthesize_part_with_retry(
-                request_text, voice, provider, model, delivery_instruction, provider_options,
+                request_text, voice, provider, model, part_instruction, provider_options,
             )
             if is_cosyvoice and _COSYVOICE_REQUEST_GAP:
                 await asyncio.sleep(_COSYVOICE_REQUEST_GAP)
@@ -781,6 +809,9 @@ def _provider_defaults(
 
 
 def run(stage: dict) -> tuple[str, str | None]:
+    if (stage.get('params') or {}).get('audio_source') == 'external':
+        from stages.external_narration import run as run_external
+        return run_external(stage)
     task_id = stage["task_id"]
     rewrite_text = _get_chosen_text(task_id, stage)
     if not rewrite_text:
@@ -792,6 +823,11 @@ def run(stage: dict) -> tuple[str, str | None]:
     rewrite_text = _clean_tts_text(rewrite_text)
     cta = _clean_tts_text(_get_cta(task_id) or "")
     book_name = _get_book_name(task_id)
+    try:
+        history_narration = _is_history_narration(db.get_task_prompt_context(task_id))
+    except Exception:
+        # Older deployments may not have optional category metadata yet.
+        history_narration = False
     text = rewrite_text + ("\n\n" + cta if cta else "")
     tts_params = stage.get("params", {}) or {}
     requested_provider = _canonical_provider(tts_params.get("provider") or config.TTS_PROVIDER)
@@ -848,6 +884,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     candidate_emotion,
                     protected_terms=(_book_title(book_name),) if _book_title(book_name) else (),
                     provider_options=primary_provider_options,
+                    history_narration=history_narration,
                 ))
                 provider, voice, model, emotion_profile = (
                     candidate, candidate_voice, candidate_model, candidate_emotion,

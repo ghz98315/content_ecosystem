@@ -21,6 +21,7 @@ export type StageStatus =
   | "cancelled";
 
 export interface Task {
+  tts_source?: 'automatic' | 'external';
   id: string;
   source_url: string | null;
   title: string | null;

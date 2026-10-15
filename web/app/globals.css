@@ -671,3 +671,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .collection-import[aria-label="内容生产设置"] .collection-voice-setting { min-width: 0; }
 .collection-import[aria-label="内容生产设置"] .collection-voice-setting select, .collection-import[aria-label="内容生产设置"] .collection-voice-preview audio { width: 100%; }
 @media (max-width: 1120px) { .collection-import[aria-label="内容生产设置"] .collection-import-footer { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* External narration review */
+.external-narration-panel { border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:20px; }
+.external-narration-panel p { font-size:13px; line-height:1.7; margin:10px 0; color:var(--text-secondary); }
+.external-narration-panel textarea { display:block; width:100%; min-height:180px; margin:10px 0; padding:12px; line-height:1.8; }
+.external-narration-panel pre { white-space:pre-wrap; font-size:13px; max-height:250px; overflow:auto; }
+.external-heading, .external-actions { display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.external-actions { justify-content:flex-start; margin:12px 0; }
+.external-actions input[type=file] { display:block; max-width:250px; margin-top:6px; }
+.external-cues { max-height:460px; overflow:auto; margin:16px 0; }
+.external-cue { display:grid; grid-template-columns:70px minmax(100px,1fr) 90px 90px; gap:8px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.external-cue input { width:65px; }
+.external-cue small, .external-error { color:var(--status-failed); }
+.external-confirm { display:grid; gap:14px; }
+@media(max-width:650px) { .external-cue { grid-template-columns:60px 1fr; } }

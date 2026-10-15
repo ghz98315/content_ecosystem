@@ -18,13 +18,28 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [creating, setCreating] = useState(false);
+  const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksError, setTasksError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
-    const { data } = await supabase.from("tasks").select("*").order("created_at", { ascending: false });
-    if (data) setTasks(data as Task[]);
+    setTasksLoading(true);
+    setTasksError(null);
+    try {
+      const { data, error } = await supabase.from("tasks").select("*").order("created_at", { ascending: false });
+      if (error) {
+        setTasksError(error.message);
+        return;
+      }
+      setTasks((data || []) as Task[]);
+    } catch (error) {
+      setTasksError(error instanceof Error ? error.message : "读取任务时发生未知错误");
+    } finally {
+      setTasksLoading(false);
+    }
   };
   useEffect(() => { if (!userId) return; load(); const ch = supabase.channel("tasks-dashboard").on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, load).subscribe(); return () => { supabase.removeChannel(ch); }; }, [userId]);
 
@@ -44,6 +59,7 @@ export default function HomePage() {
       owner: userId,
       source_url: url.trim(),
       status: "pending",
+      tts_source: ttsSource,
       tts_provider: "indextts25",
       tts_model: "index-tts-2.5",
       tts_voice: "narrator35",
@@ -79,19 +95,20 @@ export default function HomePage() {
       </section>
 
       {showForm && <section className="create-panel create-panel-large anim-fade-in" aria-label="新建项目">
-        <div className="section-heading"><div><h2>新建内容项目</h2><p>粘贴抖音分享链接，系统会自动完成逐字稿、改写、配音、生图与成片。</p></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="关闭新建项目">×</button></div>
-        <div className="setup-strip"><span className="setup-label">本次默认设置</span><span className="setup-pill">自动完成</span><span className="setup-pill">IndexTTS 2.5 · 旁白35</span><span className="setup-pill">APIMart 生图</span><span className="setup-note">高级选项请在视频集合页调整</span></div>
+        <div className="section-heading"><div><h2>新建内容项目</h2><p>粘贴抖音分享链接，先完成逐字稿与二创确认，再按所选配音方式制作视频。</p></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="关闭新建项目">×</button></div>
+        <div className="setup-strip"><label>配音方式 <select value={ttsSource} onChange={event => setTtsSource(event.target.value as 'external' | 'automatic')}><option value="external">确认文案后上传配音</option><option value="automatic">自动配音</option></select></label><span className="setup-pill">APIMart 生图</span><span className="setup-note">高级选项请在视频集合页调整</span></div>
         <div className="create-row"><input ref={inputRef} className="url-input" placeholder="粘贴抖音分享链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && createTask()} /><button className="primary-action" onClick={createTask} disabled={creating || !url.trim()}>{creating ? "创建中…" : "开始处理"}</button><button className="secondary-action" onClick={() => { setShowForm(false); setUrl(""); }}>取消</button></div>
         <p className="form-hint">支持单条分享链接。任务创建后会锁定本次音色与处理设置，避免中途混用。</p>
       </section>}
 
       {msg && <div className={`notice ${msg.ok ? "notice-success" : "notice-error"}`} role={msg.ok ? "status" : "alert"}>{msg.text}</div>}
+      {tasksError && <div className="notice notice-error" role="alert"><span>读取项目失败：{tasksError}</span><button className="secondary-action" onClick={() => void load()}>重试</button></div>}
 
       <section className="dashboard-section"><div className="section-heading"><div><p className="eyebrow">项目总览</p><h2>按书籍查看进度</h2></div><Link href="/xhs" className="text-link">打开知识图文 →</Link></div>
-        {groups.length ? <div className="book-grid">{groups.map(([name, items]) => { const done = items.filter(t => t.status === "done").length; const active = items.filter(t => t.status === "processing").length; const failed = items.filter(t => t.status === "failed").length; return <article className="book-card" key={name}><div className="book-card-top"><span className="book-glyph" aria-hidden="true">▤</span><span className="status-label">{active ? "处理中" : failed ? "有异常" : done ? "最近完成" : "待开始"}</span></div><h3>{name}</h3><div className="book-card-meta"><span>{items.length} 个任务</span><span>{done} 个成片</span></div><div className="progress-track"><span style={{ width: `${Math.round((done / items.length) * 100)}%` }} /></div><div className="book-card-footer"><span>最近更新 {new Date(items[0].updated_at || items[0].created_at).toLocaleDateString("zh-CN")}</span><Link href={`/task/${items[0].id}`} aria-label={`打开${name}最近任务`}>打开 →</Link></div></article>; })}</div> : <div className="state-panel"><span className="state-icon" aria-hidden="true">＋</span><strong>还没有内容项目</strong><span>从一个分享链接开始，完成第一条可发布的成片。</span><button className="primary-action" onClick={openForm}>新建第一个项目</button></div>}
+        {tasksLoading ? <div className="state-panel"><strong>正在读取项目</strong><span>正在同步当前账号可访问的任务。</span></div> : groups.length ? <div className="book-grid">{groups.map(([name, items]) => { const done = items.filter(t => t.status === "done").length; const active = items.filter(t => t.status === "processing").length; const failed = items.filter(t => t.status === "failed").length; return <article className="book-card" key={name}><div className="book-card-top"><span className="book-glyph" aria-hidden="true">▤</span><span className="status-label">{active ? "处理中" : failed ? "有异常" : done ? "最近完成" : "待开始"}</span></div><h3>{name}</h3><div className="book-card-meta"><span>{items.length} 个任务</span><span>{done} 个成片</span></div><div className="progress-track"><span style={{ width: `${Math.round((done / items.length) * 100)}%` }} /></div><div className="book-card-footer"><span>最近更新 {new Date(items[0].updated_at || items[0].created_at).toLocaleDateString("zh-CN")}</span><Link href={`/task/${items[0].id}`} aria-label={`打开${name}最近任务`}>打开 →</Link></div></article>; })}</div> : tasksError ? <div className="state-panel"><strong>暂时无法读取项目</strong><span>连接恢复后可重试；如果当前浏览器刚重新建立匿名会话，原会话创建的项目可能不可见。</span><button className="secondary-action" onClick={() => void load()}>重试</button></div> : <div className="state-panel"><span className="state-icon" aria-hidden="true">＋</span><strong>当前账号下没有内容项目</strong><span>项目按浏览器匿名账号隔离；如果清理过网站数据或换了浏览器，旧项目可能属于原来的会话。</span><button className="primary-action" onClick={openForm}>新建第一个项目</button></div>}
       </section>
 
-      <section className="dashboard-section recent-section"><div className="section-heading"><div><p className="eyebrow">生产队列</p><h2>最近任务</h2></div><div className="list-tools"><input aria-label="搜索任务" placeholder="搜索项目" value={query} onChange={e => setQuery(e.target.value)} /><div className="filter-tabs" role="tablist">{FILTERS.map(item => <button key={item.id} className={filter === item.id ? "is-active" : ""} onClick={() => setFilter(item.id)} role="tab" aria-selected={filter === item.id}>{item.label}</button>)}</div></div></div>{visible.length ? <div className="task-table">{visible.slice(0, 12).map(task => <Link className="task-table-row" href={`/task/${task.id}`} key={task.id}><span className="status-dot" style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] || "var(--status-pending)" }} /><span className="task-main"><strong>{task.title || "未命名项目"}</strong><small>{task.source_url || task.id}</small></span><span className={`status-badge status-${task.status}`}>{STATUS_LABEL[task.status] || task.status}</span><span className="task-date">{new Date(task.created_at).toLocaleDateString("zh-CN")}</span><span className="row-arrow" aria-hidden="true">→</span></Link>)}</div> : <div className="state-panel compact"><strong>没有匹配任务</strong><span>尝试清空搜索或切换状态筛选。</span></div>}</section>
+      <section className="dashboard-section recent-section"><div className="section-heading"><div><p className="eyebrow">生产队列</p><h2>最近任务</h2></div><div className="list-tools"><input aria-label="搜索任务" placeholder="搜索项目" value={query} onChange={e => setQuery(e.target.value)} /><div className="filter-tabs" role="tablist">{FILTERS.map(item => <button key={item.id} className={filter === item.id ? "is-active" : ""} onClick={() => setFilter(item.id)} role="tab" aria-selected={filter === item.id}>{item.label}</button>)}</div></div></div>{tasksLoading ? <div className="state-panel compact"><strong>正在读取最近任务…</strong></div> : visible.length ? <div className="task-table">{visible.slice(0, 12).map(task => <Link className="task-table-row" href={`/task/${task.id}`} key={task.id}><span className="status-dot" style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] || "var(--status-pending)" }} /><span className="task-main"><strong>{task.title || "未命名项目"}</strong><small>{task.source_url || task.id}</small></span><span className={`status-badge status-${task.status}`}>{STATUS_LABEL[task.status] || task.status}</span><span className="task-date">{new Date(task.created_at).toLocaleDateString("zh-CN")}</span><span className="row-arrow" aria-hidden="true">→</span></Link>)}</div> : <div className="state-panel compact"><strong>{tasksError ? "任务暂不可用" : "没有匹配任务"}</strong><span>{tasksError ? "请检查上方连接错误后重试。" : "尝试清空搜索或切换状态筛选。"}</span></div>}</section>
     </div>
   </AppShell>;
 }

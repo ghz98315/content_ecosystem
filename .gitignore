@@ -7,6 +7,7 @@ worker/.env
 worker/cookies.txt
 worker/downloads/
 worker/output/
+worker/runtime-logs/
 worker/tmp/
 worker/f2out.json
 

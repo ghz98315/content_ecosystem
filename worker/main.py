@@ -87,6 +87,32 @@ def maybe_finish_task(task_id: str) -> None:
         db.set_task_status(task_id, "processing")
 
 
+def task_is_terminal(task_id: str) -> bool:
+    """Return true once an isolated worker has nothing left to poll."""
+    if not task_id:
+        return False
+    result = db.retry(
+        lambda: db.get_client().table("tasks")
+        .select("status").eq("id", task_id).single().execute()
+    )
+    return bool(result.data and result.data.get("status") in {"done", "failed", "cancelled"})
+
+
+def scoped_worker_is_finished(task_id: str) -> bool:
+    """A stage-scoped child exits once its assigned kinds have no work left."""
+    if not config.WORKER_STAGE_KINDS:
+        return False
+    rows = db.retry(
+        lambda: db.get_client().table("stages")
+        .select("status")
+        .eq("task_id", task_id)
+        .in_("kind", list(config.WORKER_STAGE_KINDS))
+        .in_("status", ["pending", "processing"])
+        .execute()
+    )
+    return not rows.data
+
+
 def tick() -> bool:
     """处理一个 stage。返回是否处理了任务。"""
     replacement = db.claim_next_image_replacement()
@@ -101,7 +127,7 @@ def tick() -> bool:
             print(f"  [FAIL] replacement failed: {exc}", flush=True)
         return True
 
-    stage = db.claim_next_stage(config.WORKER_TASK_ID)
+    stage = db.claim_next_stage(config.WORKER_TASK_ID, config.WORKER_STAGE_KINDS)
     if not stage:
         return False
 
@@ -129,7 +155,9 @@ def tick() -> bool:
             # Handlers may create paid external side effects. Retrying the whole
             # handler can submit them again; each handler owns its safe retries.
             status, output_ref = handler(stage)
-            if status == "needs_review":
+            if status == 'managed':
+                print(f"  [REVIEW] {kind} external narration result recorded atomically")
+            elif status == "needs_review":
                 # 处理器内部已 set 过 stage，这里只打印
                 print(f"  [REVIEW] {kind} needs_review")
             elif status == "done":
@@ -149,8 +177,22 @@ def tick() -> bool:
                 db.set_stage(stage["id"], "done", output_ref=f"m0-fake://{kind}")
                 print(f"  [OK] {kind} done")
     except Exception as e:  # noqa: BLE001
-        db.set_stage(stage["id"], "failed", error=str(e))
-        print(f"  [FAIL] {kind} failed: {e}")
+        # Provider read/connect/poll timeouts are recoverable. Requeue the
+        # stage instead of turning the whole task terminal, so the same Worker
+        # can retry without manual intervention. APIMart polling is persisted
+        # by the image handler and resumes the existing provider job safely.
+        retryable = isinstance(e, TimeoutError) or db.is_transient_error(e)
+        is_external = kind == 'tts' and (stage.get('params') or {}).get('audio_source') == 'external'
+        if is_external:
+            # A lost completion response must not overwrite a newer generation.
+            # Leave the lease to recovery if the fenced completion RPC failed.
+            print(f"  [FAIL] external completion unavailable; lease recovery will retry: {e}", flush=True)
+        elif retryable:
+            db.set_stage(stage["id"], "pending", error=f"temporary provider error; retrying: {e}")
+            print(f"  [RETRY] {kind} temporary error; stage requeued: {e}", flush=True)
+        else:
+            db.set_stage(stage["id"], "failed", error=str(e))
+            print(f"  [FAIL] {kind} failed: {e}")
     finally:
         heartbeat.stop()
 
@@ -179,6 +221,12 @@ def main() -> None:
                 print("循环异常:", e)
             worked = False
         if not worked:
+            if config.WORKER_TASK_ID and scoped_worker_is_finished(config.WORKER_TASK_ID):
+                print("阶段范围已完成，Scoped Worker 自动退出", flush=True)
+                break
+            if config.WORKER_TASK_ID and task_is_terminal(config.WORKER_TASK_ID):
+                print("任务已进入终态，隔离 Worker 自动退出", flush=True)
+                break
             time.sleep(config.POLL_INTERVAL)
 
 

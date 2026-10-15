@@ -104,7 +104,7 @@ export default function TaskDetail() {
       ["时长", formatDuration(sourceMeta?.duration)],
       ["采集时间", sourceCapturedAt ? new Date(sourceCapturedAt).toLocaleString("zh-CN", { hour12: false }) : "-"],
       ["互动数据", `${formatCount(sourceMeta?.digg_count ?? task.play_count)} 赞 / ${formatCount(sourceMeta?.comment_count)} 评 / ${formatCount(sourceMeta?.share_count)} 转 / ${formatCount(sourceMeta?.collect_count)} 藏`],
-      ["配音快照", voice ? `${voice} / ${task.tts_provider || "edge"}` : "Edge · 晓晓（zh-CN-XiaoxiaoNeural）"],
+      ["配音快照", task.tts_source === 'external' ? '外部配音 · 上传后核对字幕' : voice ? `${voice} / ${task.tts_provider || "edge"}` : "Edge · 晓晓（zh-CN-XiaoxiaoNeural）"],
     ];
   }, [sourceCapturedAt, sourceMeta, task]);
 
@@ -115,7 +115,8 @@ export default function TaskDetail() {
     if (actionBusy) return;
     const stage = stages.find(item => item.id === stageId);
     const stageIndex = stage ? STAGES.findIndex(item => item.kind === stage.kind) : -1;
-    const downstreamCount = stageIndex >= 0 ? STAGES.length - stageIndex - 1 : 0;
+    const externalAudio = stages.find(item => item.kind === 'tts')?.params.audio_source === 'external';
+    const downstreamCount = externalAudio && (stage?.kind === 'tts' || stage?.kind === 'image') ? 1 : stageIndex >= 0 ? STAGES.length - stageIndex - 1 : 0;
     const scope = downstreamCount > 0 ? `当前阶段及下游 ${downstreamCount} 个阶段` : "当前阶段";
     if (!window.confirm(`确认重跑${scope}？已完成的上游产物不会被重跑。`)) return;
     setActionBusy(true);

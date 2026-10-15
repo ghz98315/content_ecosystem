@@ -12,10 +12,19 @@ from stages.tts import (
     _dialogue_delivery_instruction,
     _synthesize_detailed,
 )
-from tts_providers import get_tts_provider
+from tts_providers import CosyVoice2Provider, get_tts_provider
 
 
 class CosyVoiceSsmlTests(unittest.TestCase):
+    def test_json_voice_profile_config_is_loaded(self):
+        with patch.dict("os.environ", {
+            "DASHSCOPE_VOICE_PROFILE": "history",
+            "DASHSCOPE_VOICE_PROFILES_JSON": '{"history": {"model": "cosyvoice-v3.5-flash", "voice": "history-voice"}}',
+        }, clear=False):
+            provider = CosyVoice2Provider()
+        self.assertEqual("cosyvoice-v3.5-flash", provider.dashscope_model)
+        self.assertEqual("history-voice", provider.dashscope_voice)
+
     def test_warm_narrative_ssml_uses_restrained_prosody_and_escapes_text(self):
         ssml = _cosyvoice_ssml("先听我说。A&B", "hook")
         self.assertIn('<speak rate="0.99" pitch="1.06" volume="55">', ssml)
@@ -73,7 +82,7 @@ class CosyVoiceSsmlTests(unittest.TestCase):
     def test_natural_dialogue_keeps_punctuation_and_turn_instruction(self):
         captured = {}
 
-        async def fake_synthesize(text, voice, provider=None, model=None, instruction=None):
+        async def fake_synthesize(text, voice, provider=None, model=None, instruction=None, request_options=None):
             captured.update({"text": text, "voice": voice, "instruction": instruction})
             return b"audio", [{"text": text, "start": 0.0, "end": 1.0}], 1.0
 
@@ -118,6 +127,35 @@ class CosyVoiceSsmlTests(unittest.TestCase):
         self.assertEqual("测试用的逐轮指令", captured["request"]["input"]["instruction"])
         self.assertEqual("你好世界", boundaries[0]["text"])
 
+
+    def test_dashscope_retries_plain_text_when_ssml_engine_rejects(self):
+        captured = []
+
+        class Response:
+            headers = {"content-type": "audio/mpeg"}
+            content = b"audio"
+            text = '{"code":"InvalidParameter","message":"engine 428"}'
+            def __init__(self, status_code):
+                self.status_code = status_code
+                self.is_error = status_code >= 400
+
+        class Client:
+            def __init__(self, **_kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_args): return None
+            async def post(self, _endpoint, **kwargs):
+                captured.append(kwargs["json"])
+                return Response(400 if len(captured) == 1 else 200)
+
+        env = {"DASHSCOPE_API_KEY": "key", "DASHSCOPE_MODEL": "cosyvoice-v3.5-flash", "DASHSCOPE_VOICE": "voice", "DASHSCOPE_ENDPOINT": "https://tts.example"}
+        with patch.dict(os.environ, env, clear=True), patch("tts_providers.httpx.AsyncClient", Client), patch("tts_providers._probe_duration", return_value=1.0):
+            audio, _boundaries, _duration = asyncio.run(get_tts_provider("cosyvoice2", allow_experimental=True).synthesize('<speak rate="1.01">你好<break time="260ms"/></speak>', "voice"))
+
+        self.assertEqual(b"audio", audio)
+        self.assertTrue(captured[0]["input"]["enable_ssml"])
+        self.assertFalse(captured[1]["input"]["enable_ssml"])
+        self.assertEqual("你好", captured[1]["input"]["text"])
+        self.assertNotIn("instruction", captured[1]["input"])
 
 if __name__ == "__main__":
     unittest.main()
