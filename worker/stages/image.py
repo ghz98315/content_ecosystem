@@ -472,12 +472,14 @@ def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None, cell_ra
             pieces.append(buf.getvalue())
     return pieces
 
-def _download_image(url: str) -> bytes:
+def _download_image(url: str, *, direct: bool = False) -> bytes:
     last_error: Exception | None = None
     for attempt in range(3):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=60) as response:
+            open_url = (urllib.request.build_opener(urllib.request.ProxyHandler({})).open
+                        if direct else urllib.request.urlopen)
+            with open_url(req, timeout=60) as response:
                 return response.read()
         except (TimeoutError, urllib.error.URLError, OSError) as exc:
             last_error = exc
@@ -552,10 +554,12 @@ def _generate_grid_bytes(
     size: str | None = None,
 ) -> bytes:
     request_size = size or _GRID_SIZE
-    client_base_url = getattr(client, "base_url", "")
+    # SDK versions may use httpx2.URL rather than the worker's httpx.URL.
+    # Recognize the URL by its value so async APIMart responses are persisted.
+    client_base_url = str(getattr(client, "base_url", ""))
     base_url = (
-        str(client_base_url)
-        if isinstance(client_base_url, (str, httpx.URL)) and str(client_base_url).startswith("http")
+        client_base_url
+        if client_base_url.startswith(("http://", "https://"))
         else (config.IMAGE_BASE_URL or config.OPENAI_BASE_URL)
     ).rstrip("/")
     # APIMart may be exposed through its domestic api.apib.ai endpoint.
@@ -615,7 +619,8 @@ def _generate_grid_bytes(
         api_key = config.APIMART_IMAGE_API_KEY
         deadline = time.monotonic() + config.IMAGE_TASK_TIMEOUT
         with httpx.Client(
-            headers={"Authorization": f"Bearer {api_key}"}, timeout=30.0
+            headers={"Authorization": f"Bearer {api_key}"}, timeout=30.0,
+            trust_env=config.APIMART_IMAGE_TRUST_ENV,
         ) as http:
             while time.monotonic() < deadline:
                 try:
@@ -638,7 +643,7 @@ def _generate_grid_bytes(
                     continue
                 if url:
                     _save_image_provider_job(stage_id, batch_key, {**job, "status": "completed"})
-                    return _download_image(url)
+                    return _download_image(url, direct=not config.APIMART_IMAGE_TRUST_ENV)
                 time.sleep(3)
         _save_image_provider_job(stage_id, batch_key, {**job, "status": "polling_timeout"})
         raise TimeoutError(

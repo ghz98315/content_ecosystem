@@ -1,6 +1,7 @@
 """M0 worker 配置。所有密钥从环境变量读取，绝不进前端。"""
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -35,6 +36,10 @@ IMAGE_BASE_URL = os.environ.get("IMAGE_BASE_URL", "")   # 留空则复用 OPENAI
 IMAGE_MODEL    = os.environ.get("IMAGE_MODEL",    "dall-e-3")
 APIMART_IMAGE_API_KEY = os.environ.get("APIMART_IMAGE_API_KEY", "").strip()
 APIMART_IMAGE_BASE_URL = os.environ.get("APIMART_IMAGE_BASE_URL", "https://api.apimart.ai/v1").strip()
+APIMART_IMAGE_TRUST_ENV = os.environ.get(
+    "APIMART_IMAGE_TRUST_ENV",
+    "false" if urlsplit(APIMART_IMAGE_BASE_URL).hostname == "api.apib.ai" else "true",
+).strip().lower() in {"1", "true", "yes"}
 APIMART_IMAGE_MODEL = os.environ.get("APIMART_IMAGE_MODEL", "gpt-image-2").strip()
 APIMART_IMAGE_RESOLUTION = os.environ.get("APIMART_IMAGE_RESOLUTION", "1k").strip().lower()
 if APIMART_IMAGE_RESOLUTION not in {"1k", "2k", "4k"}:
@@ -58,7 +63,11 @@ def image_client(provider: str | None = None):
     if selected == "apimart":
         if not APIMART_IMAGE_API_KEY:
             raise ValueError("APIMart 生图未配置 APIMART_IMAGE_API_KEY")
-        return openai_client(api_key=APIMART_IMAGE_API_KEY, base_url=APIMART_IMAGE_BASE_URL), APIMART_IMAGE_MODEL
+        from openai import DefaultHttpxClient
+        return openai_client(
+            api_key=APIMART_IMAGE_API_KEY, base_url=APIMART_IMAGE_BASE_URL,
+            http_client=DefaultHttpxClient(trust_env=APIMART_IMAGE_TRUST_ENV),
+        ), APIMART_IMAGE_MODEL
     if selected in {"xcode", "xcode.best"}:
         if not XCODE_IMAGE_API_KEY:
             raise ValueError("xcode.best 生图未配置 XCODE_IMAGE_API_KEY 或 IMAGE_API_KEY")

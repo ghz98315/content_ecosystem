@@ -11,6 +11,25 @@ from stages.render import _apply_image_replacements
 
 
 class APIMartIdempotencyTests(unittest.TestCase):
+    def test_foreign_sdk_url_type_still_uses_async_submission(self):
+        class SDKURL:
+            def __str__(self):
+                return "https://api.apib.ai/v1/"
+
+        provider = MagicMock()
+        provider.base_url = SDKURL()
+        raw = MagicMock()
+        raw.text = json.dumps({"data": [{"task_id": "persisted-sdk-task"}]})
+        provider.with_options.return_value.images.with_raw_response.generate.return_value = raw
+        with patch("stages.image._load_image_provider_jobs", return_value={}), \
+             patch("stages.image._save_image_provider_job") as save, \
+             patch("stages.image.httpx.Client", return_value=self._completed_http()), \
+             patch("stages.image._download_image", return_value=b"grid"):
+            self.assertEqual(b"grid", _generate_grid_bytes(
+                provider, "gpt-image-2", "prompt", stage_id="stage", batch_key="grid_000"))
+        self.assertEqual("persisted-sdk-task", save.call_args_list[0].args[2]['provider_task_id'])
+        provider.with_options.return_value.images.generate.assert_not_called()
+
     def test_apimart_gpt_image_reference_conditioning_is_explicitly_blocked(self):
         capability = _reference_conditioning_capability(
             "apimart", "gpt-image-2", "hybrid", ["reference-1"]
