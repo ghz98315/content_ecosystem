@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
     .map(row => row.storage_path))];
 
   let removed = 0;
+  let missingObjects = 0;
   let skippedNewer = 0;
   const failures: string[] = [];
   // A task can have hundreds of stills. Bound concurrency to fit one cron
@@ -57,6 +58,17 @@ export async function GET(request: NextRequest) {
         if (!latest?.length || latest[0].created_at >= cutoff) { skippedNewer++; return; }
         // Older releases did not refresh artifact.created_at on overwrite.
         const { data: objectInfo, error: infoError } = await supabase.storage.from('artifacts').info(path);
+        if (infoError && /object not found/i.test(infoError.message)) {
+          // Older manual cleanups removed the object but left its DB row.
+          // Clear only the stale media record; no Storage deletion is needed.
+          missingObjects++;
+          if (!dryRun) {
+            const { error: deleteError } = await supabase.from('artifacts').delete()
+              .eq('storage_path', path).in('type', MEDIA_TYPES).lt('created_at', cutoff);
+            if (deleteError) throw deleteError;
+          }
+          return;
+        }
         if (infoError || !objectInfo?.lastModified) throw infoError || new Error('Object timestamp unavailable');
         if (new Date(objectInfo.lastModified).getTime() >= new Date(cutoff).getTime()) {
           skippedNewer++;
@@ -81,5 +93,6 @@ export async function GET(request: NextRequest) {
     }));
   }
   return NextResponse.json({ dryRun, scanned: rows?.length || 0, eligible: paths.length,
-    removed, skippedNewer, failures: failures.length, moreCandidates: (rows?.length || 0) === 500 });
+    removed, missingObjects, skippedNewer, failures: failures.length,
+    moreCandidates: (rows?.length || 0) === 500 });
 }
