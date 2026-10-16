@@ -10,6 +10,16 @@ from stages.render import _make_ass, _prepare_title_font, H, _landscape_composit
 
 
 class GuoxueLayoutTests(unittest.TestCase):
+    def test_main_title_font_and_light_red_do_not_change_subtitle(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'font.ass'
+            _make_ass([],str(path),title='主标题',subtitle='副标题',title_font='PlayFont-ChenkunGBT',duration=2,landscape_layout=True)
+            content=path.read_text(encoding='utf-8-sig')
+            self.assertIn('Style: Heading,PlayFont-ChenkunGBT,88,&H009AA0E8,',content)
+            self.assertIn('Style: Subheading,KaiTi,52,&H00F4F4F4,',content)
+        with self.assertRaises(ValueError):
+            _make_ass([], 'unused.ass', title_color='red,invalid')
+
     def test_saved_text_overrides_fallback_and_can_hide_fields(self):
         settings = _render_text_settings({'params': {'video_text': {'title': '自定义标题', 'subtitle': '', 'footnote': '第一期'}}}, {'book_name': '旧书名'}, {'cover_title': '旧标题', 'cover_confirmed': True})
         self.assertEqual('自定义标题', settings['title'])

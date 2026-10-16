@@ -1,5 +1,14 @@
 # 国学画面文字定位与设置入口
 
+## 主标题字体与颜色 V4
+
+- 用户指定“造字侠陈坤风行简繁.ttf”，字体内部家族名为 `PlayFont-ChenkunGBT`，已实测由 FFmpeg 正确选中，无替代字体。
+- 主标题浅红色 `#E8A09A`（ASS BGR：`&H009AA0E8`），保持原定位与描边。
+- 副标题仍使用 KaiTi 和原色；正文字幕及脚注不改字体。
+- 字体已复制到本机 `worker/local-assets/fonts/main-title.ttf`，该目录已忽略，不随公开代码分发。`worker/.env` 已设 `RENDER_TITLE_FONT_FILE`、`RENDER_TITLE_FONT` 和 `RENDER_TITLE_COLOR`。更换运行机器时需要同步本地字体配置。
+- 本地 V4 样片：`worker/output/guoxue-layout-v4/layout-preview.mp4` 与同目录 PNG。实际字体加载日志和预览截图均已检查。
+- 213项 Python 回归通过。本次为本地配置与版式预览，未重启线上处理进程或发布网站。
+
 ## 当前版式 V3
 
 用户确认 V2 图片风格和4:3主体布局后，要求文字靠近图片：上方主副标题与图片上缘留一行，下方脚注与图片下缘留一行。

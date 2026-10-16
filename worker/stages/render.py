@@ -177,9 +177,14 @@ def _make_ass(
     footnote: str = "", title_font: str = "KaiTi", duration: float = 0,
     subtitle_y: float = 2 / 3,
     landscape_layout: bool = False,
+    subtitle_font: str = "KaiTi", title_color: str = "#E8A09A",
 ) -> None:
-    if not title_font or len(title_font) > 64 or re.search(r"[,\r\n{}\\/]", title_font):
-        raise ValueError("不支持的标题字体")
+    for font_name in (title_font, subtitle_font):
+        if not font_name or len(font_name) > 64 or re.search(r"[,\r\n{}\\/]", font_name):
+            raise ValueError("不支持的标题字体")
+    if not re.fullmatch(r'#[0-9a-fA-F]{6}', title_color):
+        raise ValueError('主标题颜色须为六位十六进制颜色')
+    ass_title_color = '&H00' + title_color[5:7] + title_color[3:5] + title_color[1:3]
     if not 0.55 <= float(subtitle_y) <= 0.82:
         raise ValueError("字幕位置须在画面高度的55%至82%之间")
     if any(len(value) > limit for value, limit in ((title, 32), (subtitle, 48), (footnote, 60))):
@@ -193,8 +198,8 @@ def _make_ass(
         "Encoding\n"
         f"Style: Default,Microsoft YaHei,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,"
         f"-1,0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
-        f"Style: Heading,{title_font},88,&H00D9F4FF,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,2,0,1,3,1,8,80,80,120,1\n"
-        f"Style: Subheading,{title_font},52,&H00F4F4F4,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,1,0,1,2,1,8,90,90,238,1\n"
+        f"Style: Heading,{title_font},88,{ass_title_color},&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,2,0,1,3,1,8,80,80,120,1\n"
+        f"Style: Subheading,{subtitle_font},52,&H00F4F4F4,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,1,0,1,2,1,8,90,90,238,1\n"
         "Style: Footnote,Microsoft YaHei,28,&H00E9E9E9,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,0,0,1,1.5,0,3,70,70,110,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
@@ -229,10 +234,10 @@ def _make_ass(
     Path(out_path).write_text("".join(lines), encoding="utf-8-sig")
 
 
-def _prepare_title_font(requested: str, fonts_dir: str) -> tuple[str, bool]:
+def _prepare_title_font(requested: str, fonts_dir: str, *, use_configured: bool = True) -> tuple[str, bool]:
     """Load only installed fonts or the operator-configured title font file."""
     from PIL import ImageFont
-    configured = os.environ.get('RENDER_TITLE_FONT_FILE', '').strip()
+    configured = os.environ.get('RENDER_TITLE_FONT_FILE', '').strip() if use_configured else ''
     aliases = {
         'KaiTi': r'C:\Windows\Fonts\simkai.ttf',
         'Microsoft YaHei': r'C:\Windows\Fonts\msyhbd.ttc',
@@ -266,6 +271,7 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'subtitle': str(configured.get('subtitle', sub)).strip(),
         'footnote': str(configured.get('footnote', params.get('footnote', '读书分享'))).strip(),
         'title_font': str(params.get('title_font') or os.environ.get('RENDER_TITLE_FONT', '锐气楷')),
+        'title_color': str(params.get('title_color') or os.environ.get('RENDER_TITLE_COLOR', '#E8A09A')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
     }
 
@@ -804,6 +810,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
         requested_font = text_settings['title_font']
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'))
+        text_settings['subtitle_font'], _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
