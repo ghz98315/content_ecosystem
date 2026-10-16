@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks } from "@/lib/productionTemplates";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
@@ -17,7 +18,7 @@ const DEFAULT_EDGE_VOICE_ID = "zh-CN-XiaoxiaoNeural";
 const DEFAULT_EDGE_LABEL = "晓晓 · edge-tts";
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: "待处理", processing: "处理中", done: "已完成", failed: "异常",
+  configuring: "配置中", pending: "待处理", processing: "处理中", done: "已完成", failed: "异常",
   needs_review: "待确认", cancelled: "已取消",
 };
 
@@ -97,6 +98,7 @@ function VideoCollectionContent() {
   const [bgmVolume, setBgmVolume] = useState("0.08");
   const [ttsRate, setTtsRate] = useState("-8%");
   const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
+  const [productionTemplateId, setProductionTemplateId] = useState<ProductionTemplateId>("health-v1");
   const [imageAspectRatio] = useState("9:16");
   const [narrationMode, setNarrationMode] = useState<"single" | "dual_dialogue">("single");
   const [secondaryVoiceProfileId, setSecondaryVoiceProfileId] = useState("");
@@ -109,14 +111,10 @@ function VideoCollectionContent() {
     { id: "history_gongbi_cinematic", presetId: "history-gongbi-cinematic", label: "工笔淡彩·民国近代", note: "青砖书房、长幼互动、民国服化道锁定" },
   ];
   useEffect(() => {
-    if (contentCategory === "social_science" && !historyVisualStyles.some(style => style.id === visualStyle)) {
-      setVisualPresetId("history-ink-scroll");
-      setVisualStyle("history_ink_scroll");
-    } else if (contentCategory !== "social_science" && visualStyle !== "guoxue_gongbi_life" && historyVisualStyles.some(style => style.id === visualStyle)) {
-      setVisualPresetId(contentCategory === "education" ? "education-clean-modern" : "health-warm-editorial");
-      setVisualStyle(contentCategory === "education" ? "clean_modern" : "warm_editorial");
-    }
-  }, [contentCategory, visualStyle]);
+    const template = productionTemplate(productionTemplateId);
+    setVisualStyle(template.style); setVisualPresetId(template.preset);
+    setGenerationMode("prompt");
+  }, [productionTemplateId]);
   const defaultEdgeProfile = useMemo(() => voiceProfiles.find(profile => profile.provider === "edge" && profile.voice_id === DEFAULT_EDGE_VOICE_ID), [voiceProfiles]);
   const defaultVoiceProfile = useMemo(() => voiceProfiles.find(profile => profile.is_default) || defaultEdgeProfile, [defaultEdgeProfile, voiceProfiles]);
   const defaultVoiceLabel = defaultVoiceProfile ? `${defaultVoiceProfile.display_name} · ${defaultVoiceProfile.model || defaultVoiceProfile.provider}` : DEFAULT_EDGE_LABEL;
@@ -283,7 +281,7 @@ function VideoCollectionContent() {
       owner: userId,
       source_url,
       source_platform: sourcePlatformForUrl(source_url),
-      status: "pending",
+      status: "configuring",
       tts_voice_profile_id: taskVoice.id,
       tts_provider: taskVoice.provider,
       tts_model: taskVoice.model,
@@ -301,12 +299,14 @@ function VideoCollectionContent() {
       tts_source: ttsSource,
     }))).select("id");
     if (!error && createdTasks?.length) {
-      const { error: imageConfigError } = await supabase.from("stages").update({
-        params: { image_provider: imageProvider, image_model: "gpt-image-2", visual_style: visualStyle, reference_mode: referenceMode, generation_mode: generationMode, visual_preset_id: visualPresetId, image_aspect_ratio: visualStyle === "guoxue_gongbi_life" ? "4:3" : imageAspectRatio, reference_asset_ids: [] },
-      }).in("task_id", createdTasks.map(task => task.id)).eq("kind", "image");
-      if (imageConfigError) {
+      try {
+        await configureProductionTasks(supabase, createdTasks.map(task => task.id), productionTemplateId, {
+          image_provider: imageProvider, image_model: "gpt-image-2", reference_mode: referenceMode,
+          generation_mode: generationMode, reference_asset_ids: [],
+        });
+      } catch (configurationError) {
         setCreating(false);
-        setMessage(`生图通道快照保存失败：${imageConfigError.message}`);
+        setMessage(`模板配置失败，任务未启动：${configurationError instanceof Error ? configurationError.message : "请重试"}`);
         return;
       }
     }
@@ -393,7 +393,8 @@ function VideoCollectionContent() {
       <header className="collection-heading"><div><p className="eyebrow">素材运营台</p><h1>视频采集工作台</h1><p>批量导入来源视频，按采集结果、互动数据和任务进度统一查看。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
       <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
       <section className="collection-import" aria-label="配音来源"><h2>配音来源</h2><label>配音方式 <select value={ttsSource} onChange={event => setTtsSource(event.target.value as 'external' | 'automatic')}><option value="external">确认文案后上传外部配音</option><option value="automatic">自动配音</option></select></label><p>外部配音模式在确认文案后等待上传，字幕核对通过后再生图；下方音色与语速仅用于自动配音。</p></section>
-      <section className="collection-import" aria-label="内容生产设置"><div><h2>内容生产设置</h2><p>设置会随新任务保存；不影响已创建任务。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>内容流程</span><select value={contentCategory} onChange={event => setContentCategory(event.target.value as "health" | "social_science" | "education")} aria-label="内容流程模板"><option value="health">健康类书籍</option><option value="social_science">历史社科</option><option value="education">经管书籍</option></select><small>{contentCategory === "health" ? "健康合规红线与温润生活视觉" : contentCategory === "social_science" ? "史实边界、克制叙事与史料感画面" : "数据边界、非投顾表达与现代商务画面"}</small></div><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色">{narrationMode !== "dual_dialogue" && <option value="system-default">{defaultVoiceLabel}（新任务默认）</option>}{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? `${defaultVoiceLabel}，当前未登记可试听样本。` : "该音色未登记样本，无法试听。"}</small>}</div><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => { const next = event.target.value as "single" | "dual_dialogue"; setNarrationMode(next); if (next === "dual_dialogue") { setSelectedVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_host_male")?.id || ""); setSecondaryVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_guest_female")?.id || ""); } else if (isDualDialogueProfile(voiceProfiles.find(profile => profile.id === selectedVoiceProfileId) || {} as VoiceProfile)) { setSelectedVoiceProfileId("system-default"); setSecondaryVoiceProfileId(""); } }} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue">双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "角色顺序：第一音色＝男主持人，第二音色＝女嘉宾。改写稿按主持人/嘉宾分段。" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{dialogueVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select><small>角色顺序：第一音色为男主持人；此处第二音色为女嘉宾。两套音色分别快照保存。</small></div>}</div></section>
+      <section className="collection-import" aria-label="独立成片模板"><h2>成片模板</h2><select aria-label="成片模板" value={productionTemplateId} onChange={event => setProductionTemplateId(event.target.value as ProductionTemplateId)}>{PRODUCTION_TEMPLATES.map(template => <option key={template.id} value={template.id}>{template.label}</option>)}</select><p>国学模板单独保存，不影响其他类型；下方文案流程沿用既有二创规则。</p></section>
+      <section className="collection-import" aria-label="内容生产设置"><div><h2>内容生产设置</h2><p>设置会随新任务保存；不影响已创建任务。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>内容流程</span><select value={contentCategory} onChange={event => { const category = event.target.value as "health" | "social_science" | "education"; setContentCategory(category); setProductionTemplateId(category === "social_science" ? "history-v1" : category === "education" ? "education-v1" : "health-v1"); }} aria-label="内容流程模板"><option value="health">健康类书籍</option><option value="social_science">历史社科</option><option value="education">经管书籍</option></select><small>{contentCategory === "health" ? "健康合规红线与温润生活视觉" : contentCategory === "social_science" ? "史实边界、克制叙事与史料感画面" : "数据边界、非投顾表达与现代商务画面"}</small></div><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色">{narrationMode !== "dual_dialogue" && <option value="system-default">{defaultVoiceLabel}（新任务默认）</option>}{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? `${defaultVoiceLabel}，当前未登记可试听样本。` : "该音色未登记样本，无法试听。"}</small>}</div><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => { const next = event.target.value as "single" | "dual_dialogue"; setNarrationMode(next); if (next === "dual_dialogue") { setSelectedVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_host_male")?.id || ""); setSecondaryVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_guest_female")?.id || ""); } else if (isDualDialogueProfile(voiceProfiles.find(profile => profile.id === selectedVoiceProfileId) || {} as VoiceProfile)) { setSelectedVoiceProfileId("system-default"); setSecondaryVoiceProfileId(""); } }} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue">双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "角色顺序：第一音色＝男主持人，第二音色＝女嘉宾。改写稿按主持人/嘉宾分段。" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{dialogueVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select><small>角色顺序：第一音色为男主持人；此处第二音色为女嘉宾。两套音色分别快照保存。</small></div>}</div></section>
       <section className="collection-import" aria-label="生图通道设置">
         <div><h2>生图通道</h2><p>默认使用 APIMart；接口异常时可切换 xcode.best，新选择随任务快照保存。</p></div>
         <div className="collection-import-footer">
@@ -410,13 +411,13 @@ function VideoCollectionContent() {
       <section className="collection-import" aria-label="画面生成设置">
         <div><h2>画面生成设置</h2><p>风格、类别预设、生成方式和参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
         <div className="collection-import-footer">
-          <div className="collection-voice-setting"><span>画面风格</span><select value={visualStyle} onChange={event => { const style = event.target.value; setVisualStyle(style); const selected = historyVisualStyles.find(item => item.id === style); if (selected) setVisualPresetId(selected.presetId); }} aria-label="视频画面风格">
-            {contentCategory === "social_science" ? historyVisualStyles.map(style => <option key={style.id} value={style.id}>{style.label}</option>) : <><option value="guoxue_gongbi_life">国学：古典工笔淡墨（4K）</option><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></>}
+          <div className="collection-voice-setting"><span>画面风格</span><select disabled value={visualStyle} onChange={event => { const style = event.target.value; setVisualStyle(style); const selected = historyVisualStyles.find(item => item.id === style); if (selected) setVisualPresetId(selected.presetId); }} aria-label="视频画面风格">
+            {productionTemplateId === "guoxue-v1" ? <option value="guoxue_gongbi_life">国学：古典工笔淡墨（4K）</option> : contentCategory === "social_science" ? historyVisualStyles.filter(style => style.id !== "guoxue_gongbi_life").map(style => <option key={style.id} value={style.id}>{style.label}</option>) : <><option value="warm_editorial">温暖编辑插画</option><option value="documentary">当代纪实摄影</option><option value="clean_modern">清爽现代插画</option><option value="ink_story">现代水墨叙事</option></>}
           </select><small>{contentCategory === "social_science" ? (historyVisualStyles.find(style => style.id === visualStyle)?.note || "历史类三套风格，任务创建后固定") : "统一色彩、光线和构图语汇"}</small></div>
           <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
-      {contentCategory === "social_science" && <section className="collection-import" aria-label="历史视觉风格预览"><div><h2>历史风格预览</h2><p>预览图用于确认整体画面方向，任务创建后随风格快照保存。</p></div><div className="collection-import-footer"><img src={`/history-style-previews/${visualStyle === "guoxue_gongbi_life" ? "guoxue-gongbi-life" : visualStyle === "history_ink_scroll" ? "history-ink-scroll" : visualStyle === "history_gongbi_cinematic" ? "history-gongbi-cinematic" : "history-heroic"}.png`} alt="历史类视觉风格预览" style={{ display: "block", width: "min(100%, 520px)", aspectRatio: visualStyle === "guoxue_gongbi_life" ? "4 / 3" : "3 / 2", objectFit: "cover", borderRadius: 6, border: "1px solid #d7d1c7" }} /></div></section>}
+      {(contentCategory === "social_science" || productionTemplateId === "guoxue-v1") && <section className="collection-import" aria-label="历史视觉风格预览"><div><h2>历史风格预览</h2><p>预览图用于确认整体画面方向，任务创建后随风格快照保存。</p></div><div className="collection-import-footer"><img src={`/history-style-previews/${visualStyle === "guoxue_gongbi_life" ? "guoxue-gongbi-life" : visualStyle === "history_ink_scroll" ? "history-ink-scroll" : visualStyle === "history_gongbi_cinematic" ? "history-gongbi-cinematic" : "history-heroic"}.png`} alt="历史类视觉风格预览" style={{ display: "block", width: "min(100%, 520px)", aspectRatio: visualStyle === "guoxue_gongbi_life" ? "4 / 3" : "3 / 2", objectFit: "cover", borderRadius: 6, border: "1px solid #d7d1c7" }} /></div></section>}
         <div className="collection-import-footer">
-          <div className="collection-voice-setting"><span>类别预设</span><select value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); const selected = historyVisualStyles.find(item => item.presetId === id); setGenerationMode("prompt"); if (selected) setVisualStyle(selected.id); else if (id === "education-clean-modern") setVisualStyle("clean_modern"); else setVisualStyle("warm_editorial"); }} aria-label="视觉类别预设"><option value="guoxue-gongbi-life">国学：古典工笔淡墨（4K）</option><option value="health-warm-editorial">健康：温暖生活叙事</option>{contentCategory === "social_science" && <><option value="history-documentary">历史：正统帝王画卷</option><option value="history-ink-scroll">历史：古代世情工笔淡彩</option><option value="history-gongbi-cinematic">历史：民国近代工笔淡彩</option></>}{contentCategory !== "social_science" && <><option value="education-clean-modern">经管：现代商业阅读</option></>}</select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
+          <div className="collection-voice-setting"><span>类别预设</span><select disabled value={visualPresetId} onChange={event => { const id = event.target.value; setVisualPresetId(id); const selected = historyVisualStyles.find(item => item.presetId === id); setGenerationMode("prompt"); if (selected) setVisualStyle(selected.id); else if (id === "education-clean-modern") setVisualStyle("clean_modern"); else setVisualStyle("warm_editorial"); }} aria-label="视觉类别预设">{productionTemplateId === "guoxue-v1" && <option value="guoxue-gongbi-life">国学：古典工笔淡墨（4K）</option>}<option value="health-warm-editorial">健康：温暖生活叙事</option>{contentCategory === "social_science" && <><option value="history-documentary">历史：正统帝王画卷</option><option value="history-ink-scroll">历史：古代世情工笔淡彩</option><option value="history-gongbi-cinematic">历史：民国近代工笔淡彩</option></>}{contentCategory !== "social_science" && <><option value="education-clean-modern">经管：现代商业阅读</option></>}</select><small>预设只决定默认策略，任务创建后不受后续调整影响。</small></div>
           <div className="collection-voice-setting"><span>生成方式</span><select value={generationMode} onChange={event => setGenerationMode(event.target.value as "prompt" | "reference_image" | "hybrid")} aria-label="视觉生成方式"><option value="prompt">提示词风格</option><option value="reference_image">参考图片</option><option value="hybrid">提示词 + 参考图片</option></select><small>{generationMode === "prompt" ? "仅使用镜头提示词与类别预设。" : "待绑定已授权素材；供应商不支持图片输入时自动降级为提示词。"}</small></div>
         </div>
         </div>

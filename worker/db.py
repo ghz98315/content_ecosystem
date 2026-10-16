@@ -281,6 +281,11 @@ def recover_stale_stages(task_id: str = "", stale_seconds: float = 300) -> list[
             .execute()
         )
         if result.data:
+            try:
+                from stage_timing import close_interrupted
+                close_interrupted(stage)
+            except Exception as exc:
+                print(f'  [timing] interrupted clock unavailable: {type(exc).__name__}', flush=True)
             recovered.append(stage)
             set_task_status(stage["task_id"], "processing")
     return recovered

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks } from "@/lib/productionTemplates";
 import { supabase } from "@/lib/supabase";
 import { useAnonAuth } from "@/lib/useAnonAuth";
 import { STATUS_COLOR, Task } from "@/lib/types";
@@ -18,6 +19,7 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [creating, setCreating] = useState(false);
+  const [templateId, setTemplateId] = useState<ProductionTemplateId>("health-v1");
   const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState<string | null>(null);
@@ -58,7 +60,8 @@ export default function HomePage() {
     const { data: createdTask, error } = await supabase.from("tasks").insert({
       owner: userId,
       source_url: url.trim(),
-      status: "pending",
+      status: "configuring",
+      content_category: productionTemplate(templateId).category,
       tts_source: ttsSource,
       tts_provider: "indextts25",
       tts_model: "index-tts-2.5",
@@ -66,12 +69,11 @@ export default function HomePage() {
       tts_voice_label: "旁白35（IndexTTS 2.5）",
     }).select("id").single();
     if (!error && createdTask?.id) {
-      const { error: imageConfigError } = await supabase.from("stages").update({
-        params: { image_provider: "apimart", image_model: "gpt-image-2" },
-      }).eq("task_id", createdTask.id).eq("kind", "image");
-      if (imageConfigError) {
+      try {
+        await configureProductionTasks(supabase, [createdTask.id], templateId, { image_provider: "apimart", image_model: "gpt-image-2", generation_mode: "prompt", reference_mode: "scene_continuity" });
+      } catch (configurationError) {
         setCreating(false);
-        setMsg({ text: `生图通道快照保存失败：${imageConfigError.message}`, ok: false });
+        setMsg({ text: `模板配置失败，任务未启动：${configurationError instanceof Error ? configurationError.message : "请重试"}`, ok: false });
         return;
       }
     }
@@ -96,7 +98,7 @@ export default function HomePage() {
 
       {showForm && <section className="create-panel create-panel-large anim-fade-in" aria-label="新建项目">
         <div className="section-heading"><div><h2>新建内容项目</h2><p>粘贴抖音分享链接，先完成逐字稿与二创确认，再按所选配音方式制作视频。</p></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="关闭新建项目">×</button></div>
-        <div className="setup-strip"><label>配音方式 <select value={ttsSource} onChange={event => setTtsSource(event.target.value as 'external' | 'automatic')}><option value="external">确认文案后上传配音</option><option value="automatic">自动配音</option></select></label><span className="setup-pill">APIMart 生图</span><span className="setup-note">高级选项请在视频集合页调整</span></div>
+        <div className="setup-strip"><label>成片模板 <select aria-label="成片模板" value={templateId} onChange={event => setTemplateId(event.target.value as ProductionTemplateId)}>{PRODUCTION_TEMPLATES.map(template => <option key={template.id} value={template.id}>{template.label}</option>)}</select></label><label>配音方式 <select value={ttsSource} onChange={event => setTtsSource(event.target.value as 'external' | 'automatic')}><option value="external">确认文案后上传配音</option><option value="automatic">自动配音</option></select></label><span className="setup-pill">APIMart 生图</span><span className="setup-note">高级选项请在视频集合页调整</span></div>
         <div className="create-row"><input ref={inputRef} className="url-input" placeholder="粘贴抖音分享链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && createTask()} /><button className="primary-action" onClick={createTask} disabled={creating || !url.trim()}>{creating ? "创建中…" : "开始处理"}</button><button className="secondary-action" onClick={() => { setShowForm(false); setUrl(""); }}>取消</button></div>
         <p className="form-hint">支持单条分享链接。任务创建后会锁定本次音色与处理设置，避免中途混用。</p>
       </section>}

@@ -17,6 +17,7 @@ import urllib.request
 import httpx
 
 import config
+from production_templates import validate_template
 import db
 import storage
 from narration import clean_tts_text
@@ -980,6 +981,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
 
 def run(stage: dict) -> tuple[str, str | None]:
     """Idempotent image stage: resume completed grids after an interruption."""
+    validate_template(stage.get('params') or {}, 'image')
     task_id = stage["task_id"]
     text = clean_tts_text(_find_chosen_text(task_id, stage) or "")
     if not text:

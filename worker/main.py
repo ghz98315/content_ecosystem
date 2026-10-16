@@ -14,6 +14,7 @@ import config
 import db
 from stages import REAL_HANDLERS
 from stages.image import process_replacement_request
+from stage_timing import StageTiming
 
 
 class StageHeartbeat:
@@ -137,6 +138,8 @@ def tick() -> bool:
 
     heartbeat = StageHeartbeat(stage["id"], config.WORKER_HEARTBEAT_INTERVAL)
     heartbeat.start()
+    timing = StageTiming(stage)
+    timing.start()
 
     try:
         # 任务已被取消 → 跳过并标记
@@ -195,6 +198,7 @@ def tick() -> bool:
             print(f"  [FAIL] {kind} failed: {e}")
     finally:
         heartbeat.stop()
+        timing.finish()
 
     maybe_finish_task(task_id)
     return True

@@ -16,6 +16,7 @@ import imageio_ffmpeg
 import db
 import storage
 import config
+from production_templates import validate_template
 from quality import inspect_render_quality
 
 W, H = 1080, 1920
@@ -268,6 +269,7 @@ def _prepare_title_font(requested: str, fonts_dir: str, *, use_configured: bool 
 
 def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
     params = stage.get('params') or {}
+    is_guoxue = params.get('production_template') == 'guoxue-v1'
     configured = params.get('video_text')
     configured = configured if isinstance(configured, dict) else {}
     main = str(params.get('main_title') or (
@@ -280,8 +282,8 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'title': str(configured.get('title', main)).strip(),
         'subtitle': str(configured.get('subtitle', sub)).strip(),
         'footnote': str(configured.get('footnote', params.get('footnote', '读书分享'))).strip(),
-        'title_font': str(params.get('title_font') or os.environ.get('RENDER_TITLE_FONT', '锐气楷')),
-        'title_color': str(params.get('title_color') or os.environ.get('RENDER_TITLE_COLOR', '#BA413B')),
+        'title_font': str(params.get('title_font') or (os.environ.get('RENDER_TITLE_FONT', 'PlayFont-ChenkunGBT') if is_guoxue else 'KaiTi')),
+        'title_color': str(params.get('title_color') or (os.environ.get('RENDER_TITLE_COLOR', '#BA413B') if is_guoxue else '#FFF4D9')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
     }
 
@@ -464,9 +466,9 @@ def _make_landscape_clip(img_path: str, duration: float, out_mp4: str) -> None:
     ], check=True, capture_output=True)
 
 
-def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: str) -> None:
+def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None) -> None:
     """Hold the first image frame as the short cover instead of a title card."""
-    if _is_landscape_art(img_path):
+    if frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(img_path)):
         return _make_landscape_clip(img_path, duration, out_mp4)
     graph = (
         f"[0:v]scale={W}:{PHOTO_H}:force_original_aspect_ratio=increase:flags=lanczos,"
@@ -482,8 +484,8 @@ def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: 
     ], check=True, capture_output=True)
 
 
-def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: str) -> None:
-    if _is_landscape_art(img_path):
+def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None) -> None:
+    if frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(img_path)):
         return _make_landscape_clip(img_path, duration, out_mp4)
     frames = max(2, round(duration * FPS))
     zoom_denominator = frames - 1
@@ -672,6 +674,7 @@ def _concat_intro(intro: str, content: str, out_mp4: str, tmpdir: str) -> None:
 
 
 def run(stage: dict) -> tuple[str, str | None]:
+    validate_template(stage.get('params') or {}, 'render')
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
     _ACTIVE_DEADLINE = time.monotonic() + max(1.0, float(config.RENDER_TIMEOUT))
@@ -747,8 +750,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         cover_local = storage.download_artifact(cover_path, ".png")
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
         try:
-            landscape_layout = _is_landscape_art(cover_local)
-            _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4)
+            frame_mode = (stage.get('params') or {}).get('frame_mode')
+            landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
+            _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode)
         finally:
             try:
                 os.remove(cover_local)
@@ -775,7 +779,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             image_local = storage.download_artifact(item["path"], ".png")
             clip = os.path.join(tmpdir, f"clip_{i:03d}.mp4")
             try:
-                _make_image_clip(image_local, layout_png, duration, clip)
+                _make_image_clip(image_local, layout_png, duration, clip, frame_mode=frame_mode)
             finally:
                 try:
                     os.remove(image_local)
@@ -819,7 +823,8 @@ def run(stage: dict) -> tuple[str, str | None]:
 
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
         requested_font = text_settings['title_font']
-        text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'))
+        template_id = (stage.get('params') or {}).get('production_template')
+        text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'), use_configured=template_id == 'guoxue-v1')
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
@@ -913,6 +918,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         storage.upload(sp, final, "video/mp4")
         storage.add_artifact(task_id, "render", "final", sp, meta={
             "width": W,
+            "production_template": template_id or 'legacy',
             "height": H,
             "tts_duration": tts_duration,
             "image_count": len(images),

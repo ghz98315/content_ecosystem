@@ -11,6 +11,8 @@ import { AppShell } from "@/components/AppShell";
 import { PipelineBar } from "@/components/PipelineBar";
 import { StageDetail } from "@/components/StageDetail";
 import { PreflightPanel } from "@/components/PreflightPanel";
+import { WorkflowTiming } from "@/components/WorkflowTiming";
+import { TemplateRecovery } from "@/components/TemplateRecovery";
 import { compactTitle, splitSourceDescription } from "@/lib/sourceMetadata";
 
 interface SourceMeta {
@@ -184,6 +186,8 @@ export default function TaskDetail() {
         {sourceTags.length > 0 && <span className="task-source-tags"><b>来源标签</b>{sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ")}</span>}
       </div>
       {notice && <div className={`task-notice ${notice.ok ? "is-ok" : "is-error"}`} role="status">{notice.text}</div>}
+      <WorkflowTiming task={task} stages={stages} />
+      {task.status === 'configuring' && <TemplateRecovery taskId={task.id} stages={stages} onSaved={load} />}
       {loadError && <div className="task-notice is-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading}>重试</button></div>}
       <nav className="workspace-tabs" aria-label="任务工作区视图">
         <button type="button" className={workspaceView === "flow" ? "is-active" : ""} aria-pressed={workspaceView === "flow"} onClick={() => setWorkspaceView("flow")}>处理流程</button>

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 import { supabase } from "@/lib/supabase";
 import { ExternalNarrationPanel } from './ExternalNarrationPanel';
+import { BackgroundMusicSettings } from './BackgroundMusicSettings';
 
 interface TtsData {
   provider?: string;
@@ -126,6 +127,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
   return (
     <DetailShell title="配音" stage={stage} onRerun={onRerun} showChildrenOnPending>
       <ExternalNarrationPanel stage={stage} />
+      <BackgroundMusicSettings taskId={taskId} />
       {loading && <div className="tts-state" role="status" aria-live="polite">正在加载配音产物…</div>}
       {loadError && <div className="tts-state is-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={retry}>重试</button></div>}
       {!external && !loading && !loadError && !stage?.output_ref && <div className="tts-state" role="status">当前阶段尚未生成配音产物。</div>}
