@@ -177,9 +177,13 @@ def _make_ass(
     footnote: str = "", title_font: str = "KaiTi", duration: float = 0,
     subtitle_y: float = 2 / 3,
     landscape_layout: bool = False,
-    subtitle_font: str = "KaiTi", title_color: str = "#E8A09A",
+    subtitle_font: str | None = None, title_color: str = "#BA413B",
+    narration_font: str | None = None, footnote_font: str | None = None,
 ) -> None:
-    for font_name in (title_font, subtitle_font):
+    subtitle_font = subtitle_font or (title_font if landscape_layout else 'KaiTi')
+    narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
+    footnote_font = footnote_font or ('KaiTi' if landscape_layout else 'Microsoft YaHei')
+    for font_name in (title_font, subtitle_font, narration_font, footnote_font):
         if not font_name or len(font_name) > 64 or re.search(r"[,\r\n{}\\/]", font_name):
             raise ValueError("不支持的标题字体")
     if not re.fullmatch(r'#[0-9a-fA-F]{6}', title_color):
@@ -190,17 +194,23 @@ def _make_ass(
     if any(len(value) > limit for value, limit in ((title, 32), (subtitle, 48), (footnote, 60))):
         raise ValueError("标题、副标题或脚注过长")
     title, subtitle, footnote = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle, footnote))
+    heading_outline = '&H00F1F3F5' if landscape_layout else '&H00202020'
+    sub_fill = '&H00151317' if landscape_layout else '&H00F4F4F4'
+    sub_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
+    foot_fill = '&H001A1D20' if landscape_layout else '&H00E9E9E9'
+    foot_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
+    narration_bold = 0 if landscape_layout else -1
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
         "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,"
         "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,"
         "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,"
         "Encoding\n"
-        f"Style: Default,Microsoft YaHei,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,"
-        f"-1,0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
-        f"Style: Heading,{title_font},88,{ass_title_color},&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,2,0,1,3,1,8,80,80,120,1\n"
-        f"Style: Subheading,{subtitle_font},52,&H00F4F4F4,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,1,0,1,2,1,8,90,90,238,1\n"
-        "Style: Footnote,Microsoft YaHei,28,&H00E9E9E9,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,0,0,1,1.5,0,3,70,70,110,1\n\n"
+        f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,"
+        f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
+        f"Style: Heading,{title_font},88,{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
+        f"Style: Subheading,{subtitle_font},52,{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,1,0,1,{4 if landscape_layout else 2},1,8,90,90,238,1\n"
+        f"Style: Footnote,{footnote_font},28,{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{2 if landscape_layout else 1.5},0,3,70,70,110,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
@@ -271,7 +281,7 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'subtitle': str(configured.get('subtitle', sub)).strip(),
         'footnote': str(configured.get('footnote', params.get('footnote', '读书分享'))).strip(),
         'title_font': str(params.get('title_font') or os.environ.get('RENDER_TITLE_FONT', '锐气楷')),
-        'title_color': str(params.get('title_color') or os.environ.get('RENDER_TITLE_COLOR', '#E8A09A')),
+        'title_color': str(params.get('title_color') or os.environ.get('RENDER_TITLE_COLOR', '#BA413B')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
     }
 
@@ -810,7 +820,10 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
         requested_font = text_settings['title_font']
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'))
-        text_settings['subtitle_font'], _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
+        kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
+        text_settings['subtitle_font'] = text_settings['title_font'] if landscape_layout else kai_font
+        text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
+        text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
         _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")

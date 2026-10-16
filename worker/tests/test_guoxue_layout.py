@@ -10,13 +10,15 @@ from stages.render import _make_ass, _prepare_title_font, H, _landscape_composit
 
 
 class GuoxueLayoutTests(unittest.TestCase):
-    def test_main_title_font_and_light_red_do_not_change_subtitle(self):
+    def test_reference_font_colors_and_outlines_are_independent(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'font.ass'
             _make_ass([],str(path),title='主标题',subtitle='副标题',title_font='PlayFont-ChenkunGBT',duration=2,landscape_layout=True)
             content=path.read_text(encoding='utf-8-sig')
-            self.assertIn('Style: Heading,PlayFont-ChenkunGBT,88,&H009AA0E8,',content)
-            self.assertIn('Style: Subheading,KaiTi,52,&H00F4F4F4,',content)
+            self.assertIn('Style: Heading,PlayFont-ChenkunGBT,88,&H003B41BA,&H000000FF,&H00F1F3F5,',content)
+            self.assertIn('Style: Subheading,PlayFont-ChenkunGBT,52,&H00151317,&H000000FF,&H00FFFFFF,',content)
+            self.assertIn('Style: Default,PlayFont-ChenkunGBT,72,&H00FFFFFF,',content)
+            self.assertIn('Style: Footnote,KaiTi,28,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
         with self.assertRaises(ValueError):
             _make_ass([], 'unused.ass', title_color='red,invalid')
 
