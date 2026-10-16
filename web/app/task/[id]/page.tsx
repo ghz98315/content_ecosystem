@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useAnonAuth } from "@/lib/useAnonAuth";
 import { Task, Stage, StageKind, STAGES, STATUS_LABEL } from "@/lib/types";
@@ -187,6 +188,7 @@ export default function TaskDetail() {
       </div>
       {notice && <div className={`task-notice ${notice.ok ? "is-ok" : "is-error"}`} role="status">{notice.text}</div>}
       <WorkflowTiming task={task} stages={stages} />
+      {task.status === "done" && <div style={{ margin: "8px 0 16px" }}><Link className="secondary-action" href={`/performance?task=${task.id}`}>登记成片发布数据 →</Link></div>}
       {task.status === 'configuring' && <TemplateRecovery taskId={task.id} stages={stages} onSaved={load} />}
       {loadError && <div className="task-notice is-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading}>重试</button></div>}
       <nav className="workspace-tabs" aria-label="任务工作区视图">
