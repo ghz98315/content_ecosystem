@@ -21,6 +21,7 @@ import db
 import storage
 from narration import clean_tts_text
 from image_style_profiles import get_profile, historical_era_lock, history_visual_safe
+from guoxue_visuals import STYLE_ID as GUOXUE_STYLE, grid_prompt as guoxue_grid_prompt
 
 # ── 医疗安全关键词 → 生活隐喻 ──────────────────────────────────────────────
 _MEDICAL_MAP = {
@@ -274,6 +275,43 @@ def _history_storyboard(text: str) -> tuple[list[dict], dict]:
         "checks": {"cover_representative": True, "beats_match_copy": True, "no_redundancy": True, "within_three_images_per_minute": True},
     }
 
+
+def _guoxue_storyboard(text: str) -> list[dict]:
+    """Keep every source character; timings are subsequently derived from ASR."""
+    remaining = text or ''
+    total = _char_count(remaining)
+    if not total:
+        return []
+    count = math.ceil(total / 100)
+    shots = []
+    start = 0
+    for index in range(count):
+        left = count - index
+        positions = [i + 1 for i, char in enumerate(remaining) if not char.isspace()]
+        if left == 1:
+            cut = len(remaining)
+        else:
+            low = max(75, len(positions) - 100 * (left - 1))
+            high = min(100, len(positions) - 75 * (left - 1))
+            if low > high:  # Some short source lengths cannot form 75-100 char shots.
+                low, high = min(75, len(positions)), min(100, len(positions))
+            target = min(high, max(low, round(len(positions) / left)))
+            candidates = [n for n in range(low, high + 1) if remaining[positions[n-1]-1] in _MAJOR_BREAKS | _MINOR_BREAKS]
+            size = min(candidates, key=lambda n: abs(n-target)) if candidates else target
+            cut = positions[size-1]
+            while cut < len(remaining) and remaining[cut].isspace():
+                cut += 1
+        part, remaining = remaining[:cut], remaining[cut:]
+        length = _char_count(part)
+        shots.append({'index': index, 'text': part, 'char_count': length,
+                      'char_start': start, 'char_end': start + length,
+                      'estimated_duration': round(length / 3.5, 2),
+                      'motion': 'zoom_in', 'transition': 'dissolve',
+                      'transition_duration': 0.2, 'short_source_exception': length < 75})
+        start += length
+    assert ''.join(s['text'] for s in shots) == text
+    return shots
+
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
 _GRID = max(1, int(os.environ.get("IMAGE_GRID_CELLS", "3")))
 _CELL_RATIO = 9 / 16
@@ -361,6 +399,8 @@ def _build_grid_prompt(
     reference_mode: str = "none",
 ) -> str:
     """构建9宫格提示词：1张图包含3×3=9个独立场景，从左到右从上到下编号。"""
+    if visual_style == GUOXUE_STYLE:
+        return guoxue_grid_prompt([_visual_scene(s) for s in scenes])
     safe_scenes = [history_visual_safe(scene) for scene in scenes] if category == "social_science" else list(scenes)
     padded = list(safe_scenes[:_GRID * _GRID])
     while len(padded) < _GRID * _GRID:
@@ -552,8 +592,12 @@ def _generate_grid_bytes(
     stage_id: str = "",
     batch_key: str = "",
     size: str | None = None,
+    resolution: str | None = None,
 ) -> bytes:
     request_size = size or _GRID_SIZE
+    request_resolution = resolution or config.APIMART_IMAGE_RESOLUTION
+    if request_resolution not in {'1k', '2k', '4k'}:
+        raise ValueError('无效生图分辨率')
     # SDK versions may use httpx2.URL rather than the worker's httpx.URL.
     # Recognize the URL by its value so async APIMart responses are persisted.
     client_base_url = str(getattr(client, "base_url", ""))
@@ -578,14 +622,14 @@ def _generate_grid_bytes(
             and job.get("size") == request_size
             # Older APIMart jobs predate the explicit field and therefore
             # used the provider's documented 1k default.
-            and job.get("resolution", "1k") == config.APIMART_IMAGE_RESOLUTION
+            and job.get("resolution", "1k") == request_resolution
             and job.get("status") not in {"failed", "safety_blocked"}
         )
         if reusable:
             provider_task_id = str(job["provider_task_id"])
         else:
             idempotency_key = hashlib.sha256(
-                f"{stage_id}:{batch_key}:{prompt_sha256}".encode("utf-8")
+                f"{stage_id}:{batch_key}:{prompt_sha256}:{image_model}:{request_size}:{request_resolution}".encode("utf-8")
             ).hexdigest()
             raw_response = client.with_options(
                 timeout=config.IMAGE_REQUEST_TIMEOUT
@@ -594,7 +638,7 @@ def _generate_grid_bytes(
                 prompt=prompt,
                 n=1,
                 size=request_size,
-                extra_body={"resolution": config.APIMART_IMAGE_RESOLUTION},
+                extra_body={"resolution": request_resolution},
                 extra_headers={"Idempotency-Key": idempotency_key},
             )
             initial = json.loads(raw_response.text)
@@ -609,7 +653,7 @@ def _generate_grid_bytes(
                 "idempotency_key": idempotency_key,
                 "model": image_model,
                 "size": request_size,
-                "resolution": config.APIMART_IMAGE_RESOLUTION,
+                "resolution": request_resolution,
                 "status": "submitted",
             }
             _save_image_provider_job(stage_id, batch_key, job)
@@ -801,7 +845,8 @@ def process_replacement_request(request: dict) -> str:
     client, image_model = config.image_client(provider)
     prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
     prompt = _build_grid_prompt([prompt_scene], visual_style=visual_style, reference_mode=reference_mode)
-    raw = _generate_grid_bytes(client, image_model, prompt, stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}")
+    raw = _generate_grid_bytes(client, image_model, prompt, stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}",
+                               resolution='4k' if visual_style == GUOXUE_STYLE else None)
     piece = _split_grid(raw, 1)[0]
     path = _replacement_path(task_id, image_index)
     storage.upload_bytes(path, piece, "image/png")
@@ -822,7 +867,9 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
     client, image_model = config.image_client(provider)
     is_history = content_category == "social_science"
     history_analysis = None
-    if is_history:
+    if visual_style == GUOXUE_STYLE:
+        storyboard = _guoxue_storyboard(text)
+    elif is_history:
         storyboard, history_analysis = _history_storyboard(text)
         if history_analysis:
             analysis_path = f"{task_id}/history_director_analysis.json"
@@ -869,6 +916,8 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
         _validate_grid_source(*grid_size)
+        if visual_style == GUOXUE_STYLE and max(grid_size) < 3500:
+            raise ValueError(f'国学4K源图实际尺寸不足：{grid_size}，已保留原成片，请核对生图服务分辨率')
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
             "grid": "3x3",
@@ -878,6 +927,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
             "text_policy": "no_visible_text",
             "validated": True,
+            "requested_resolution": '4k' if visual_style == GUOXUE_STYLE else config.APIMART_IMAGE_RESOLUTION,
             "prompt": prompt,
             "prompt_scenes": batch,
             "image_model": image_model,
@@ -953,7 +1003,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     if str(task_context.get("narration_mode") or "single") == "dual_dialogue":
         return _run_dialogue_visual(stage, text, content_category, client, image_model)
     history_analysis = None
-    if is_history:
+    if visual_style == GUOXUE_STYLE:
+        storyboard = _guoxue_storyboard(text)
+    elif is_history:
         storyboard, history_analysis = _history_storyboard(text)
         if history_analysis:
             analysis_path = f"{task_id}/history_director_analysis.json"
@@ -975,6 +1027,8 @@ def run(stage: dict) -> tuple[str, str | None]:
     asset_root = (f"{task_id}/external-visuals/{hashlib.sha256(text.encode()).hexdigest()[:16]}"
                   if visual_text else task_id)
     generation_id = (stage.get('params') or {}).get('generation_id')
+    if visual_style == GUOXUE_STYLE:
+        asset_root += '/styles/guoxue_gongbi_life_v1_4k'
     if generation_id:
         asset_root += f"/generations/{generation_id}"
     existing_artifacts = _existing_image_artifacts(task_id)
@@ -984,11 +1038,16 @@ def run(stage: dict) -> tuple[str, str | None]:
     # Historical scenes use the same 3x3 source-grid contract as every other
     # category.  Only their output cell ratio is vertical.
     batch_size = _GRID * _GRID
-    for batch_start in range(0, len(storyboard), batch_size):
-        batch = storyboard[batch_start: batch_start + batch_size]
-        grid_path = f"{asset_root}/grid_{batch_start // batch_size:03d}.png"
+    # Reserve the first grid cell for a separate cover; narration ranges stay intact.
+    batch_starts = ([0] + list(range(batch_size - 1, len(storyboard), batch_size))
+                    if visual_style == GUOXUE_STYLE else list(range(0, len(storyboard), batch_size)))
+    cover_path = f'{asset_root}/cover.png'
+    for batch_number, batch_start in enumerate(batch_starts):
+        with_cover = visual_style == GUOXUE_STYLE and batch_number == 0
+        batch = storyboard[batch_start: batch_start + batch_size - int(with_cover)]
+        grid_path = f"{asset_root}/grid_{batch_number:03d}.png"
         expected_paths = [f"{asset_root}/img_{batch_start + i:03d}.png" for i in range(len(batch))]
-        if all(
+        if (not with_cover or cover_path in existing_paths) and all(
             path in existing_paths
             and int(existing_artifacts[path].get("split_version") or 0) >= _IMAGE_SPLIT_VERSION
             for path in expected_paths
@@ -996,7 +1055,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             for shot, path in zip(batch, expected_paths):
                 image_paths.append(path)
                 artifact_meta = existing_artifacts[path]
-                meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model")})
+                meta_list.append({**shot, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model")})
             continue
 
         raw: bytes | None = None
@@ -1011,13 +1070,18 @@ def run(stage: dict) -> tuple[str, str | None]:
                 except OSError:
                     pass
         else:
-            grid_prompt = _build_grid_prompt([shot["text"] for shot in batch], content_category, visual_style, reference_mode)
-            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_start // batch_size:03d}" if visual_text or generation_id
-                         else f"grid_{batch_start // batch_size:03d}")
+            scenes = [shot['text'] for shot in batch]
+            if with_cover:
+                scenes = [text] + scenes
+            grid_prompt = (guoxue_grid_prompt([_visual_scene(s) for s in scenes], cover=with_cover)
+                           if visual_style == GUOXUE_STYLE else _build_grid_prompt(scenes, content_category, visual_style, reference_mode))
+            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}" if visual_text or generation_id or visual_style == GUOXUE_STYLE
+                         else f"grid_{batch_number:03d}")
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
-                    size=_GRID_SIZE,
+                    size='2:3' if visual_style == GUOXUE_STYLE else _GRID_SIZE,
+                    resolution='4k' if visual_style == GUOXUE_STYLE else None,
                 )
             except Exception as exc:
                 if not _is_safety_block(exc):
@@ -1027,7 +1091,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                 )
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
-                    size=_GRID_SIZE,
+                    size='2:3' if visual_style == GUOXUE_STYLE else _GRID_SIZE,
+                    resolution='4k' if visual_style == GUOXUE_STYLE else None,
                 )
             storage.upload_bytes(grid_path, raw, "image/png")
             storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
@@ -1043,6 +1108,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
         _validate_grid_source(*grid_size)
+        if visual_style == GUOXUE_STYLE and max(grid_size) < 3500:
+            raise ValueError(f'国学4K源图实际尺寸不足：{grid_size}，请核对服务分辨率')
         source_meta = existing_artifacts.get(grid_path) or {}
         actual_prompt = grid_prompt or source_meta.get("prompt")
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
@@ -1054,13 +1121,20 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
             "text_policy": "no_visible_text",
             "validated": True,
+            "requested_resolution": "4k" if visual_style == GUOXUE_STYLE else config.APIMART_IMAGE_RESOLUTION,
             "prompt": actual_prompt,
             "prompt_scenes": [shot["text"] for shot in batch],
             "image_model": image_model,
             "history_director_analysis": is_history,
         })
         source_cells = _GRID
-        pieces = _split_grid(raw, len(batch), source_cells, _CELL_RATIO)
+        pieces = _split_grid(raw, len(batch) + int(with_cover), source_cells, _CELL_RATIO)
+        if with_cover:
+            storage.upload_bytes(cover_path, pieces.pop(0), 'image/png')
+            storage.add_artifact(task_id, 'image', 'cover_image', cover_path, meta={
+                'source_grid': grid_path, 'visual_style': visual_style, 'resolution': '4k',
+                'role': 'independent_cover', 'split_version': _IMAGE_SPLIT_VERSION,
+            })
         for i, piece_bytes in enumerate(pieces):
             idx = batch_start + i
             path = expected_paths[i]
@@ -1068,7 +1142,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             shot = batch[i]
             storage.add_artifact(task_id, "image", "image", path, meta={
                 "sentence": shot["text"], "index": idx,
-                "batch": batch_start // batch_size,
+                "batch": batch_number,
                 "char_count": shot["char_count"], "char_start": shot["char_start"],
                 "char_end": shot["char_end"], "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"], "source_grid": grid_path,
@@ -1083,7 +1157,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
             })
             image_paths.append(path)
-            meta_list.append({**shot, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model})
+            meta_list.append({**shot, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")

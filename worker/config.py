@@ -135,6 +135,7 @@ IMAGE_TASK_TIMEOUT = float(os.environ.get("IMAGE_TASK_TIMEOUT", "300"))
 # Long-form narration can produce 8-12 minute timelines. Keep a bounded
 # deadline while allowing one ffmpeg encode step to finish on CPU machines.
 RENDER_TIMEOUT = float(os.environ.get("RENDER_TIMEOUT", "1800"))
+RENDER_CRF = min(28, max(16, int(os.environ.get("RENDER_CRF", "18"))))
 RENDER_SUBPROCESS_TIMEOUT = float(os.environ.get("RENDER_SUBPROCESS_TIMEOUT", "600"))
 # Balanced dissolve launches one ffmpeg process per merge. Long timelines use
 # deterministic hard cuts to avoid spending the whole render budget on merges.

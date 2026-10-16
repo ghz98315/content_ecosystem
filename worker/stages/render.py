@@ -33,7 +33,7 @@ AUTHOR_FONT_SIZE = 52
 SUBTITLE_FONT_SIZE = 72
 DISCLAIMER_FONT_SIZE = 30
 DISCLAIMER_OPACITY = 0.5
-SUBTITLE_MARGIN_V = H - (PHOTO_Y + PHOTO_H - 42)
+SUBTITLE_MARGIN_V = round(H / 3)
 AUTHOR_TO_PHOTO_GAP = 58
 TITLE_AUTHOR_GAP = 52
 
@@ -171,7 +171,18 @@ def _escape_ass(text: str) -> str:
     return text.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}").replace("\n", r"\N")
 
 
-def _make_ass(segments: list[dict], out_path: str) -> None:
+def _make_ass(
+    segments: list[dict], out_path: str, *, title: str = "", subtitle: str = "",
+    footnote: str = "", title_font: str = "KaiTi", duration: float = 0,
+    subtitle_y: float = 2 / 3,
+) -> None:
+    if not title_font or len(title_font) > 64 or re.search(r"[,\r\n{}\\/]", title_font):
+        raise ValueError("不支持的标题字体")
+    if not 0.55 <= float(subtitle_y) <= 0.82:
+        raise ValueError("字幕位置须在画面高度的55%至82%之间")
+    if any(len(value) > limit for value, limit in ((title, 32), (subtitle, 48), (footnote, 60))):
+        raise ValueError("标题、副标题或脚注过长")
+    title, subtitle, footnote = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle, footnote))
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
         "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,"
@@ -179,17 +190,63 @@ def _make_ass(segments: list[dict], out_path: str) -> None:
         "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,"
         "Encoding\n"
         f"Style: Default,Microsoft YaHei,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,"
-        f"-1,0,0,0,100,100,0,0,1,5,0,2,70,70,{SUBTITLE_MARGIN_V},1\n\n"
+        f"-1,0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
+        f"Style: Heading,{title_font},88,&H00D9F4FF,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,2,0,1,3,1,8,80,80,120,1\n"
+        f"Style: Subheading,{title_font},52,&H00F4F4F4,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,1,0,1,2,1,8,90,90,238,1\n"
+        "Style: Footnote,Microsoft YaHei,28,&H00E9E9E9,&H000000FF,&H00202020,&H80000000,0,0,0,0,100,100,0,0,1,1.5,0,3,70,70,110,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
+    overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
+    for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
+        if value:
+            lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{_escape_ass(value)}\n")
     for seg in segments:
         start = _fmt_ass_time(float(seg.get("start", 0)))
         end = _fmt_ass_time(float(seg.get("end", 0)))
         text = _escape_ass(str(seg.get("text", "")))
         if text:
-            lines.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n")
+            pos = r"{\an5\pos(540," + str(round(H * subtitle_y)) + ")}"
+            lines.append(f"Dialogue: 2,{start},{end},Default,,0,0,0,,{pos}{text}\n")
     Path(out_path).write_text("".join(lines), encoding="utf-8-sig")
+
+
+def _prepare_title_font(requested: str, fonts_dir: str) -> tuple[str, bool]:
+    """Load only installed fonts or the operator-configured title font file."""
+    from PIL import ImageFont
+    configured = os.environ.get('RENDER_TITLE_FONT_FILE', '').strip()
+    aliases = {
+        'KaiTi': r'C:\Windows\Fonts\simkai.ttf',
+        'Microsoft YaHei': r'C:\Windows\Fonts\msyhbd.ttc',
+        'SimSun': r'C:\Windows\Fonts\simsun.ttc',
+        'SimHei': r'C:\Windows\Fonts\simhei.ttf',
+    }
+    source = configured or aliases.get(requested, '')
+    fallback = not source or not Path(source).is_file()
+    if fallback:
+        source = _find_cjk_font(calligraphy=True)
+    if Path(source).suffix.lower() not in {'.ttf', '.otf', '.ttc'}:
+        raise ValueError('标题字体文件须为 TTF、OTF 或 TTC')
+    family = ImageFont.truetype(source, 32).getname()[0]
+    Path(fonts_dir).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, Path(fonts_dir) / Path(source).name)
+    return family, fallback
+
+
+def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
+    params = stage.get('params') or {}
+    main = str(params.get('main_title') or (
+        rewrite.get('cover_title') if rewrite.get('cover_confirmed') else ''
+    ) or book.get('publish_title') or book.get('title_short') or book.get('book_name') or '').strip()
+    sub = str(params.get('subtitle') or (
+        rewrite.get('cover_subtitle') if rewrite.get('cover_confirmed') else ''
+    ) or '').strip()
+    return {
+        'title': main, 'subtitle': sub,
+        'footnote': str(params.get('footnote', '读书分享')).strip(),
+        'title_font': str(params.get('title_font') or os.environ.get('RENDER_TITLE_FONT', '锐气楷')),
+        'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
+    }
 
 
 def _find_cjk_font(bold: bool = False, calligraphy: bool = False) -> str:
@@ -615,7 +672,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             cover_layout_png = os.path.join(tmpdir, "history_cover_layout.png")
             confirmed = rewrite_data.get("cover_confirmed") is True
             _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title if confirmed else "", cover_subtitle=cover_subtitle if confirmed else "")
-        cover_local = storage.download_artifact(images[0]["path"], ".png")
+        cover_path = images[0].get('cover_path') or images[0]['path']
+        cover_local = storage.download_artifact(cover_path, ".png")
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
         try:
             _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4)
@@ -687,7 +745,10 @@ def run(stage: dict) -> tuple[str, str | None]:
         video_only = os.path.join(tmpdir, "video_only.mp4")
         _concat_intro(cover_mp4, content_mp4, video_only, tmpdir)
 
-        _make_ass(segments, os.path.join(tmpdir, "subs.ass"))
+        text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
+        requested_font = text_settings['title_font']
+        text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'))
+        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
         render_args = [
@@ -702,9 +763,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         audio_label = "[audio]" if bgm_local else "[narration]"
         render_args.extend([
             "-filter_complex", mix_filter,
-            "-vf", "ass=subs.ass",
-            "-c:v", "libx264", "-b:v", "600k", "-maxrate", "750k",
-            "-bufsize", "1500k", "-pix_fmt", "yuv420p",
+            "-vf", "ass=subs.ass:fontsdir=fonts",
+            "-c:v", "libx264", "-crf", str(config.RENDER_CRF), "-preset", "medium",
+            "-pix_fmt", "yuv420p",
             "-map", "0:v:0", "-map", audio_label,
             "-c:a", "aac", "-b:a", "64k", "-shortest", final,
         ])
@@ -780,7 +841,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "tts_duration": tts_duration,
             "image_count": len(images),
             "intro_duration": INTRO_DUR,
-            "cover": "first_image_frame",
+            "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
             "cover_frames": COVER_FRAMES,
             "motion": "zoom_in",
             "zoom_amount": ZOOM_AMOUNT,
@@ -789,6 +850,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "transition_duration": TRANSITION_DUR,
             "timeline_version": 3 if is_timeline_v3 else 2,
             "layout": "book_header_photo_subtitles_disclaimer",
+            "text_layout": {**text_settings, 'requested_font': requested_font, 'font_fallback': font_fallback},
+            "encoding_crf": config.RENDER_CRF,
             "disclaimer_font_size": DISCLAIMER_FONT_SIZE,
             "disclaimer_opacity": DISCLAIMER_OPACITY,
             "quality_status": quality_report["status"],
