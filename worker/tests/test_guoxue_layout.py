@@ -16,7 +16,7 @@ class GuoxueLayoutTests(unittest.TestCase):
             _make_ass([],str(path),title='主标题',subtitle='副标题',title_font='PlayFont-ChenkunGBT',duration=2,landscape_layout=True)
             content=path.read_text(encoding='utf-8-sig')
             self.assertIn('Style: Heading,PlayFont-ChenkunGBT,88,&H003B41BA,&H000000FF,&H00F1F3F5,',content)
-            self.assertIn('Style: Subheading,PlayFont-ChenkunGBT,52,&H00151317,&H000000FF,&H00FFFFFF,',content)
+            self.assertIn('Style: Subheading,KaiTi,28,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
             self.assertIn('Style: Default,PlayFont-ChenkunGBT,72,&H00FFFFFF,',content)
             self.assertIn('Style: Footnote,KaiTi,28,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
         with self.assertRaises(ValueError):

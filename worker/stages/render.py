@@ -180,7 +180,7 @@ def _make_ass(
     subtitle_font: str | None = None, title_color: str = "#BA413B",
     narration_font: str | None = None, footnote_font: str | None = None,
 ) -> None:
-    subtitle_font = subtitle_font or (title_font if landscape_layout else 'KaiTi')
+    subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
     footnote_font = footnote_font or ('KaiTi' if landscape_layout else 'Microsoft YaHei')
     for font_name in (title_font, subtitle_font, narration_font, footnote_font):
@@ -195,7 +195,7 @@ def _make_ass(
         raise ValueError("标题、副标题或脚注过长")
     title, subtitle, footnote = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle, footnote))
     heading_outline = '&H00F1F3F5' if landscape_layout else '&H00202020'
-    sub_fill = '&H00151317' if landscape_layout else '&H00F4F4F4'
+    sub_fill = '&H001A1D20' if landscape_layout else '&H00F4F4F4'
     sub_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
     foot_fill = '&H001A1D20' if landscape_layout else '&H00E9E9E9'
     foot_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
@@ -209,7 +209,7 @@ def _make_ass(
         f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,"
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},88,{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
-        f"Style: Subheading,{subtitle_font},52,{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,1,0,1,{4 if landscape_layout else 2},1,8,90,90,238,1\n"
+        f"Style: Subheading,{subtitle_font},{28 if landscape_layout else 52},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
         f"Style: Footnote,{footnote_font},28,{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{2 if landscape_layout else 1.5},0,3,70,70,110,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
@@ -228,9 +228,9 @@ def _make_ass(
             placement = ''
             if landscape_layout:
                 alignment, x, y = positions[style]
-                base_size = {'Heading': 88, 'Subheading': 52, 'Footnote': 28}[style]
+                base_size = {'Heading': 88, 'Subheading': 28, 'Footnote': 28}[style]
                 units = sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in value)
-                spacing = 2 if style == 'Heading' else 1 if style == 'Subheading' else 0
+                spacing = 2 if style == 'Heading' else 0
                 size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
                 placement = rf'{{\an{alignment}\pos({x},{y})\fs{size}\q2}}'
             lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{placement}{_escape_ass(value)}\n")
@@ -821,7 +821,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         requested_font = text_settings['title_font']
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'))
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
-        text_settings['subtitle_font'] = text_settings['title_font'] if landscape_layout else kai_font
+        text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
         text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
         _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, **text_settings)
