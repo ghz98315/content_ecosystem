@@ -6,10 +6,20 @@ from pathlib import Path
 
 from guoxue_visuals import grid_prompt
 from stages.image import _guoxue_storyboard, _char_count
-from stages.render import _make_ass, _prepare_title_font, H, _landscape_composition_graph, _is_landscape_art, _render_text_settings
+from stages.render import _make_ass, _prepare_title_font, H, _landscape_composition_graph, _is_landscape_art, _render_text_settings, _encoder_args, _storage_safe_video_bitrate
 
 
 class GuoxueLayoutTests(unittest.TestCase):
+    def test_long_video_bitrate_stays_within_storage_budget(self):
+        five_minutes = _storage_safe_video_bitrate(300)
+        twelve_minutes = _storage_safe_video_bitrate(720)
+        self.assertLess(twelve_minutes, five_minutes)
+        self.assertGreaterEqual(twelve_minutes, 180)
+        with patch('stages.render._nvenc_available', return_value=True):
+            args = _encoder_args(target_kbps=twelve_minutes)
+        self.assertIn('h264_nvenc', args)
+        self.assertIn(f'{twelve_minutes}k', args)
+
     def test_reference_font_colors_and_outlines_are_independent(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'font.ass'
@@ -89,7 +99,7 @@ class GuoxueLayoutTests(unittest.TestCase):
         text = ('家人一起商量日常安排，理解彼此的心意。\n' * 60)
         shots = _guoxue_storyboard(text)
         self.assertEqual(text, ''.join(s['text'] for s in shots))
-        self.assertTrue(all(75 <= s['char_count'] <= 100 for s in shots))
+        self.assertTrue(all(100 <= s['char_count'] <= 130 for s in shots))
         self.assertEqual(_char_count(text), shots[-1]['char_end'])
         self.assertTrue(all(a['char_end'] == b['char_start'] for a,b in zip(shots,shots[1:])))
 
@@ -104,6 +114,9 @@ class GuoxueLayoutTests(unittest.TestCase):
         for required in ['工笔', '淡墨', 'Nike', '堂屋', '集市', '田野', '独立封面', '4:3', '3行3列']:
             self.assertIn(required, prompt)
         self.assertIn('不要分隔线', prompt)
+        four = grid_prompt(['在集市买菜', '到田地里劳作'], grid_cells=2)
+        self.assertIn('2行2列四宫格', four)
+        self.assertIn('参考图只决定笔触', four)
 
     def test_titles_and_footnote_are_final_overlay_events(self):
         with tempfile.TemporaryDirectory() as temp:

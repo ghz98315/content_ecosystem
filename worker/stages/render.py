@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import time
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 import imageio_ffmpeg
@@ -71,6 +72,45 @@ def _run_ffmpeg(args: list[str], **kwargs):
 
 def ff() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+@lru_cache(maxsize=1)
+def _nvenc_available() -> bool:
+    if config.RENDER_ENCODER == 'cpu':
+        return False
+    try:
+        result = subprocess.run([
+            ff(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+            '-i', 'color=c=black:s=320x320:r=1:d=1', '-frames:v', '1',
+            '-c:v', 'h264_nvenc', '-f', 'null', '-',
+        ], capture_output=True, timeout=10)
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _encoder_args(*, intermediate: bool = False, target_kbps: int | None = None) -> list[str]:
+    if _nvenc_available():
+        args = ['-c:v', 'h264_nvenc', '-preset', 'p4']
+        if target_kbps:
+            args += ['-rc', 'vbr', '-b:v', f'{target_kbps}k', '-maxrate', f'{target_kbps}k',
+                     '-bufsize', f'{target_kbps * 2}k']
+        else:
+            args += ['-cq', '16' if intermediate else '17', '-b:v', '0']
+        return args + ['-pix_fmt', 'yuv420p']
+    args = ['-c:v', 'libx264', '-preset', config.RENDER_ENCODER_PRESET]
+    if target_kbps:
+        args += ['-b:v', f'{target_kbps}k', '-maxrate', f'{target_kbps}k',
+                 '-bufsize', f'{target_kbps * 2}k']
+    else:
+        args += ['-crf', str(config.RENDER_CRF)]
+    return args + ['-pix_fmt', 'yuv420p']
+
+
+def _storage_safe_video_bitrate(duration: float, target_megabytes: float = 42) -> int:
+    """Leave room for 64-kbps AAC and MP4 overhead below Supabase's 50-MB cap."""
+    available_bits = target_megabytes * 1024 * 1024 * 8
+    return max(180, min(2500, int((available_bits / max(duration, 1) - 96_000) / 1000)))
 
 
 def _load_json_artifact(task_id: str, artifact_type: str) -> dict | list | None:
@@ -140,7 +180,8 @@ def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
     ).data or {}
     bgm_path = str(task.get("bgm_path") or "").strip()
     approved = bool(task.get("bgm_authorization_confirmed"))
-    if bgm_path and approved and (not bgm_path.startswith(f'{task_id}/background-music/')
+    from music_presets import PRESET_PATHS
+    if bgm_path and approved and (bgm_path not in PRESET_PATHS and not bgm_path.startswith(f'{task_id}/background-music/')
                                  or '\\' in bgm_path or '%' in bgm_path
                                  or any(part in ('', '.', '..') for part in bgm_path.split('/'))):
         raise ValueError('背景音乐路径不属于当前任务')
@@ -461,13 +502,31 @@ def _landscape_composition_graph() -> str:
 
 
 def _make_landscape_clip(img_path: str, duration: float, out_mp4: str) -> None:
-    _run_ffmpeg([
-        ff(), '-y', '-loop', '1', '-framerate', str(FPS), '-i', img_path,
-        '-filter_complex', _landscape_composition_graph(), '-map', '[v]',
-        '-frames:v', str(max(1, round(duration * FPS))),
-        '-c:v', 'libx264', '-crf', str(config.RENDER_CRF), '-pix_fmt', 'yuv420p',
-        '-r', str(FPS), '-an', out_mp4,
-    ], check=True, capture_output=True)
+    # The landscape layout is static. Compose/blur it once instead of running
+    # the expensive Gaussian blur on every frame of a long narration shot.
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
+    foreground_h = round(W * 3 / 4)
+    foreground_y = (H - foreground_h) // 2
+    still_path = str(Path(out_mp4).with_suffix('.png'))
+    with Image.open(img_path) as source:
+        source = source.convert('RGB')
+        background = ImageOps.fit(source, (W, H), method=Image.Resampling.LANCZOS)
+        background = background.filter(ImageFilter.GaussianBlur(36))
+        background = ImageEnhance.Brightness(background).enhance(0.92)
+        foreground = ImageOps.contain(source, (W, foreground_h), method=Image.Resampling.LANCZOS)
+        panel = Image.new('RGB', (W, foreground_h), '#e4dfd3')
+        panel.paste(foreground, ((W - foreground.width) // 2, (foreground_h - foreground.height) // 2))
+        background.paste(panel, (0, foreground_y))
+        background.save(still_path, format='PNG')
+    try:
+        _run_ffmpeg([
+            ff(), '-y', '-loop', '1', '-framerate', str(FPS), '-i', still_path,
+            '-frames:v', str(max(1, round(duration * FPS))),
+            *_encoder_args(intermediate=True), '-r', str(FPS), '-an', out_mp4,
+        ], check=True, capture_output=True)
+    finally:
+        Path(still_path).unlink(missing_ok=True)
 
 
 def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None) -> None:
@@ -484,7 +543,7 @@ def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: 
         "-loop", "1", "-framerate", str(FPS), "-t", str(duration), "-i", img_path,
         "-loop", "1", "-framerate", str(FPS), "-t", str(duration), "-i", layout_path,
         "-filter_complex", graph, "-map", "[v]", "-frames:v", str(COVER_FRAMES),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), "-an", out_mp4,
+        *_encoder_args(intermediate=True), "-r", str(FPS), "-an", out_mp4,
     ], check=True, capture_output=True)
 
 
@@ -511,7 +570,7 @@ def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: 
         "-i", img_path,
         "-loop", "1", "-framerate", str(FPS), "-t", str(duration), "-i", layout_path,
         "-filter_complex", graph, "-map", "[v]",
-        "-frames:v", str(frames), "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-frames:v", str(frames), *_encoder_args(intermediate=True),
         "-r", str(FPS), "-an", out_mp4,
     ], check=True, capture_output=True)
 
@@ -629,7 +688,7 @@ def _concat_clips_exact(clips: list[str], expected_duration: float, out_mp4: str
     )
     _run_ffmpeg([
         ff(), "-y", "-f", "concat", "-safe", "0", "-i", str(manifest),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), out_mp4,
+        "-c:v", "copy", out_mp4,
     ], check=True, capture_output=True)
     actual_duration = _video_duration(out_mp4)
     if abs(actual_duration - expected_duration) > 0.2:
@@ -661,7 +720,7 @@ def _compose_with_dissolve(clips: list[str], durations: list[float], out_mp4: st
                 "-filter_complex",
                 f"[0:v][1:v]xfade=transition=fade:duration={transition:.3f}:offset={left_duration - transition:.3f}[v]",
                 "-map", "[v]", "-t", f"{expected:.3f}",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), "-an", output,
+                *_encoder_args(intermediate=True), "-r", str(FPS), "-an", output,
             ], check=True, capture_output=True)
             merged.append((output, expected))
         nodes = merged
@@ -673,7 +732,7 @@ def _concat_intro(intro: str, content: str, out_mp4: str, tmpdir: str) -> None:
     _run_ffmpeg([
         ff(), "-y", "-i", intro, "-i", content,
         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
-        "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), out_mp4,
+        "-map", "[v]", *_encoder_args(intermediate=True), "-r", str(FPS), out_mp4,
     ], check=True, capture_output=True)
 
 
@@ -681,7 +740,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     validate_template(stage.get('params') or {}, 'render')
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
+    render_started = time.monotonic()
     _ACTIVE_DEADLINE = time.monotonic() + max(1.0, float(config.RENDER_TIMEOUT))
+    print(f"  [render] 编码器：{'NVIDIA NVENC' if _nvenc_available() else 'CPU x264'}", flush=True)
     print("  [render] 读取图片索引", flush=True)
     images_data = _load_json_artifact(task_id, "image_index")
     print("  [render] 读取字幕时间轴", flush=True)
@@ -822,6 +883,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                 ]
                 _concat_clips_exact(clip_paths, sum(cut_durations), content_mp4, tmpdir)
 
+        print(f"  [render] 镜头合成累计 {time.monotonic() - render_started:.1f}s", flush=True)
+
         video_only = os.path.join(tmpdir, "video_only.mp4")
         _concat_intro(cover_mp4, content_mp4, video_only, tmpdir)
 
@@ -848,15 +911,27 @@ def run(stage: dict) -> tuple[str, str | None]:
             bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
         )
         audio_label = "[audio]" if bgm_local else "[narration]"
+        target_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR)
         render_args.extend([
             "-filter_complex", mix_filter,
             "-vf", "ass=subs.ass:fontsdir=fonts",
-            "-c:v", "libx264", "-crf", str(config.RENDER_CRF), "-preset", "medium",
-            "-pix_fmt", "yuv420p",
+            *_encoder_args(target_kbps=target_kbps),
             "-map", "0:v:0", "-map", audio_label,
             "-c:a", "aac", "-b:a", "64k", "-shortest", final,
         ])
         _run_ffmpeg(render_args, check=True, capture_output=True, cwd=tmpdir)
+        print(f"  [render] 字幕音乐合成累计 {time.monotonic() - render_started:.1f}s，文件 {os.path.getsize(final) / 1048576:.1f} MiB", flush=True)
+        if os.path.getsize(final) > 47 * 1024 * 1024:
+            smaller = os.path.join(tmpdir, 'final_compact.mp4')
+            compact_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, 36)
+            _run_ffmpeg([
+                ff(), '-y', '-i', final, '-map', '0:v:0', '-map', '0:a:0',
+                *_encoder_args(target_kbps=compact_kbps), '-c:a', 'copy', smaller,
+            ], check=True, capture_output=True)
+            os.replace(smaller, final)
+            print(f"  [render] 存储限额压缩后 {os.path.getsize(final) / 1048576:.1f} MiB", flush=True)
+        if os.path.getsize(final) > 47 * 1024 * 1024:
+            raise ValueError('成片超过当前 Supabase 单文件限额，请缩短视频或提高存储限额')
 
         stage_rows = db.retry(
             lambda: db.get_client().table("stages")
@@ -941,6 +1016,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "text_layout": {**text_settings, 'requested_font': requested_font, 'font_fallback': font_fallback,
                             'landscape_layout': landscape_layout, 'picture_text_gap': {'above': 52, 'below': 28} if landscape_layout else None},
             "encoding_crf": config.RENDER_CRF,
+            "encoding_video_bitrate_kbps": target_kbps,
+            "file_size_bytes": os.path.getsize(final),
             "disclaimer_font_size": DISCLAIMER_FONT_SIZE,
             "disclaimer_opacity": DISCLAIMER_OPACITY,
             "quality_status": quality_report["status"],

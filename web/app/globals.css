@@ -417,6 +417,8 @@ textarea:focus-visible, select:focus-visible {
 .bgm-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .bgm-actions audio { height: 32px; max-width: 100%; }
 .bgm-error { margin: 10px 0 0; color: var(--status-failed); font-size: 12px; }
+.bgm-preset-credit { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); }
+.bgm-preset-credit small { flex-basis: 100%; overflow-wrap: anywhere; color: var(--text-disabled); }
 @media (max-width: 680px) { .bgm-controls { grid-template-columns: 1fr; } }
 .tts-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
 .tts-metric { padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }

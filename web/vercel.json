@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/maintenance/media-retention", "schedule": "0 3 * * *" }
+  ]
+}

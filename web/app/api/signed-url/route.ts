@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { MUSIC_PRESET_PATHS } from "@/lib/musicPresets";
 
 const BUCKET = "artifacts";
 
@@ -21,7 +22,9 @@ export async function GET(req: NextRequest) {
     if (path.includes('\\') || path.split('/').some(part => !part || part === '..' || part === '.'))
       return NextResponse.json({ error: '无效的素材路径' }, { status: 400 });
     const prefix = path.split('/')[0];
-    if (prefix === 'voice-samples') {
+    if (MUSIC_PRESET_PATHS.has(path)) {
+      // The six licensed library tracks are shared, read-only preset assets.
+    } else if (prefix === 'voice-samples') {
       const { data: profile } = await sb.from('voice_profiles').select('id').eq('owner',auth.user.id).eq('sample_path',path).limit(1);
       if (path.split('/')[1] !== auth.user.id && !profile?.length)
         return NextResponse.json({error:'无权读取该音色样本'},{status:403});

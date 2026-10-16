@@ -10,6 +10,8 @@ worker/output/
 worker/runtime-logs/
 worker/tmp/
 worker/local-assets/fonts/
+worker/local-assets/music/
+worker/local-assets/visual/
 worker/f2out.json
 
 # ---- Node (web) ----

@@ -52,21 +52,35 @@ def scene_direction(text: str, index: int) -> str:
     )
 
 
-def grid_prompt(scenes: list[str], cover: bool = False) -> str:
+def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 3) -> str:
+    if grid_cells not in (2, 3):
+        raise ValueError('国学宫格仅支持2x2或3x3')
+    cell_count = grid_cells * grid_cells
     directions = [scene_direction(text, i) for i, text in enumerate(scenes)]
     if cover and directions:
         directions[0] = ('独立封面视觉：凝聚全文哲理共鸣，古代文士或长者通过自然动作与克制神态表现主题，'
                          '前景笔砚卷轴、中景人物、后景松竹月色或古朴庭院，疏朗横向构图；不是正文第一个镜头的重复。'
                          + directions[0])
-    while len(directions) < 9:
+    while len(directions) < cell_count:
         directions.append('传统庭院与远山生活空镜，清朗自然天光，无文字、无现代物件。')
+    grid_label = '四宫格' if grid_cells == 2 else '九宫格'
     return (
-        '生成一张4:3横版源图，严格3行3列九宫格，9个等大格子按行从左至右对应下列镜头。'
+        f'生成一张4:3横版源图，严格{grid_cells}行{grid_cells}列{grid_label}，{cell_count}个等大格子按行从左至右对应下列镜头。'
         '每格都是完整的4:3横版构图，人物、手部、卷轴完整保留，不生成竖图，不在图内添加模糊填充。'
         '不要分隔线、边框、间隙、编号；细节优先用于人物线条、衣料、手工布鞋和景深，不用模糊掩盖细节。'
         + BASE + '负面约束：' + NEGATIVE
         + '所有文字由后期合成：书皮、木招牌、中堂条幅一律不写字，避免乱码。'
         + '\n镜头布局（这些标签不可出现在图中）：\n'
-        + '\n'.join(f'{i+1}. {value}' for i, value in enumerate(directions[:9]))
-        + '\n超高细节，古典工笔淡墨，细腻宣纸墨韵，低饱和淡彩，松竹山水与文人生活气韵，4:3横向构图。'
+        + '\n'.join(f'{i+1}. {value}' for i, value in enumerate(directions[:cell_count]))
+        + '\n参考图只决定笔触、宣纸肌理、设色和光影：灰米纸底、浓淡墨线、松树苍劲枝干、肤色温和、灰蓝远山。'
+        '每格根据分镜重新构图；不要复制参考图的人物姿态、月亮位置、书中文字或单幅构图。'
+        '超高细节，古典工笔淡墨，细腻宣纸墨韵，低饱和淡彩，松竹山水与文人生活气韵，4:3横向构图。'
+    )
+
+
+def single_prompt(scene: str) -> str:
+    return (
+        '生成一张完整的4:3横版独立画面，不要宫格、分隔线、边框或文字。'
+        + BASE + '负面约束：' + NEGATIVE + scene_direction(scene, 0)
+        + '参考图只决定笔触、宣纸肌理、设色和光影；依照本镜剧情重新构图，不复制参考图文字。'
     )

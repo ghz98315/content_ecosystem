@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import urllib.request
+from datetime import datetime, timezone
 
 import certifi
 import httpx
@@ -179,6 +180,9 @@ def add_artifact(task_id: str, stage_kind: str, type_: str,
             sb.table("artifacts").update({
                 "stage_kind": stage_kind,
                 "meta": meta or {},
+                # Fixed paths (for example final.mp4) are overwritten on a
+                # rerun. Retention must use the newest object's timestamp.
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", existing.data[0]["id"]).execute()
             return
         sb.table("artifacts").insert({
