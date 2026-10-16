@@ -78,7 +78,6 @@ if result['status']=='needs_review':
     assert response.data
     tick('rewrite')
 passed('real rewrite and explicit reuse of approved manuscript')
-assert image._find_chosen_text(tid,stage('image')).strip()==approved_text.strip()
 tts=stage('tts')
 if not state.get('external_id'):
     raw=sb.storage.from_('artifacts').download(approved['original_path'])
@@ -103,6 +102,7 @@ if version['state']!='approved':
     assert version['review'].get('alignment_ready'),version['review'].get('error')
     api('PATCH','/api/narration',{'stageId':tts['id'],'action':'approve','data':{'id':version['id'],'subtitle_path':version['subtitle_path']}})
 passed('real ASR alignment and owner approval')
+assert image._find_chosen_text(tid,stage('image')).strip()==approved_text.strip()
 if not state.get('bgm_saved'):
     # Self-generated test sound, not a commercial music selection.
     music=out/'test-background.mp3'

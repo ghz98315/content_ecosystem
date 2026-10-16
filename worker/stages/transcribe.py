@@ -88,6 +88,7 @@ def _find_audio(task_id: str) -> str | None:
         .select("storage_path")
         .eq("task_id", task_id)
         .eq("type", "audio")
+        .eq("stage_kind", "ingest")
         .order("created_at", desc=True)
         .limit(1)
         .execute()

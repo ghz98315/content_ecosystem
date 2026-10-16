@@ -1,5 +1,6 @@
 "use client";
 import { BackgroundMusicSettings } from "./BackgroundMusicSettings";
+import { PRODUCTION_TEMPLATES } from "@/lib/productionTemplates";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -36,9 +37,6 @@ interface BookArtifact {
   publish_title?: string;
   title_short?: string;
 }
-
-const BGM_MAX_BYTES = 25 * 1024 * 1024;
-const BGM_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a"]);
 
 const QUALITY_LABEL = { passed: "通过", warning: "需复核", failed: "未通过" } as const;
 const QUALITY_COLOR = { passed: "#15803d", warning: "#b45309", failed: "#b91c1c" } as const;
@@ -247,6 +245,8 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
 
   const canCreateRepost = stage?.status === "done" && task.rewrite_mode !== "repost_dedup";
   const canApprove = stage?.status === "needs_review";
+  const productionTemplate = PRODUCTION_TEMPLATES.find(item => item.id === stage?.params.production_template);
+  const isGuoxue = productionTemplate?.id === 'guoxue-v1';
 
   return (
     <DetailShell
@@ -296,18 +296,18 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
             <video controls src={videoUrl} />
           </div>
           <aside className="render-preset-panel" aria-label="当前成片方案">
-            <div><p className="eyebrow">当前成片方案</p><h3>中老年生活叙事</h3><p>以下为当前 worker 实际使用的固定输出参数，不会在本任务中途改变。</p></div>
+            <div><p className="eyebrow">当前成片方案</p><h3>{productionTemplate?.label || '历史任务方案'}</h3><p>模板随本任务固定保存，文字与背景音乐可在成片前设置。</p></div>
             <dl>
               <div><dt>画幅</dt><dd>竖版 9:16</dd></div>
-              <div><dt>画面</dt><dd>生活化 · 轻微油画感</dd></div>
-              <div><dt>动效</dt><dd>缓慢 Zoom In · 短叠化</dd></div>
+              <div><dt>画面</dt><dd>{isGuoxue ? '工笔淡墨 · 4:3主体 · 模糊填充' : '独立类别画面'}</dd></div>
+              <div><dt>动效</dt><dd>{isGuoxue ? '完整保留主体 · 按配音切换分镜' : '缓慢 Zoom In · 短叠化'}</dd></div>
               <div><dt>声音</dt><dd>配音与字幕时间轴对齐</dd></div>
               <div><dt>背景音乐</dt><dd>{task.bgm_path ? "已配置任务级混音" : "未配置"}</dd></div>
             </dl>
             <p className="render-preset-note">背景音乐已支持任务级配置，不会修改已经生成的历史成片。</p>
             <div className="render-future-list" aria-label="后续能力">
               <strong>后续能力</strong>
-              <span>多风格版本：待接入 render 配置</span>
+              <span>国学、健康、历史社科、经管模板分别保存</span>
               <span>背景音乐：上传后可调节音量并重新生成成片</span>
               <span>失败后保留视频：当前已支持人工检查</span>
             </div>

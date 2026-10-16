@@ -138,7 +138,7 @@ def claim_next_stage(task_id: str = "", allowed_kinds: tuple[str, ...] = ()) -> 
                 continue
         task = (
             sb.table("tasks")
-            .select("status,content_category")
+            .select("status,content_category,source_task_id")
             .eq("id", stage_task_id)
             .single()
             .execute()
@@ -176,7 +176,15 @@ def claim_next_stage(task_id: str = "", allowed_kinds: tuple[str, ...] = ()) -> 
                 .execute()
             )
         if upd.data:
-            return upd.data[0]
+            claimed = upd.data[0]
+            if claimed.get('kind') in ('image', 'render') and task.data.get('source_task_id') and not (claimed.get('params') or {}).get('production_template'):
+                from production_templates import inherit_template
+                source = sb.table('stages').select('params').eq('task_id',task.data['source_task_id']).eq('kind',claimed['kind']).single().execute().data or {}
+                params = inherit_template(claimed.get('params') or {}, source.get('params') or {}, claimed['kind'])
+                if params != (claimed.get('params') or {}):
+                    sb.table('stages').update({'params':params}).eq('id',claimed['id']).eq('status','processing').execute()
+                    claimed['params'] = params
+            return claimed
 
     return None
 

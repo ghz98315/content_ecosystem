@@ -7,6 +7,18 @@ TEMPLATES = {
 }
 
 
+def inherit_template(current: dict, source: dict, kind: str) -> dict:
+    """Copy only the template contract, never old jobs, pictures or titles."""
+    if current.get('production_template') or not source.get('production_template'):
+        return current
+    keys = {'production_template', 'template_version'}
+    keys |= ({'visual_style','visual_preset_id','image_aspect_ratio','image_provider','image_model'}
+             if kind == 'image' else {'frame_mode','title_font','title_color'})
+    result = {**current, **{key: source[key] for key in keys if key in source}}
+    validate_template(result, kind)
+    return result
+
+
 def validate_template(params: dict, kind: str) -> None:
     template = params.get('production_template')
     if not template:  # Existing tasks retain their original snapshot.
