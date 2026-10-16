@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 
 import Link from "next/link";
 import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks } from "@/lib/productionTemplates";
@@ -194,7 +196,7 @@ function VideoCollectionContent() {
     let active = true;
     setVoiceSampleUrl(null);
     setVoiceSampleState("loading");
-    fetch(`/api/signed-url?path=${encodeURIComponent(profile.sample_path)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(profile.sample_path)}`)
       .then(async response => {
         if (!response.ok) throw new Error("sample unavailable");
         return response.json() as Promise<{ signedUrl?: string }>;

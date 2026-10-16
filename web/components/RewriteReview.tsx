@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Stage } from "@/lib/types";
@@ -17,7 +19,7 @@ export function RewriteReview({ taskId, stage }: { taskId: string; stage: Stage 
   useEffect(() => {
     if (!stage.output_ref) return;
     (async () => {
-      const res = await fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref!)}`);
+      const res = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref!)}`);
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         setErr("获取候选内容失败：" + (e.error ?? res.status));

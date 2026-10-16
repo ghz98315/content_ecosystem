@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 import { supabase } from "@/lib/supabase";
@@ -78,12 +80,12 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
     setAudioUrl(null);
     // 加载字幕/元数据 JSON
     const subsPath = String(stage.params.subtitle_path || `${taskId}/tts_subtitles.json`);
-    fetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
       .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json()).then(async (payload: TtsData) => {
         const batches = await Promise.all((payload.batches ?? []).map(async batch => {
           try {
-            const response = await fetch(`/api/signed-url?path=${encodeURIComponent(batch.path)}`);
+            const response = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(batch.path)}`);
             const { signedUrl } = await response.json();
             return { ...batch, audioUrl: signedUrl as string };
           } catch {
@@ -94,7 +96,7 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
       }).catch(() => { setLoadError("字幕与分段数据暂时无法加载"); });
 
     // 加载音频
-    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(r => r.json()).then(({ signedUrl }) => {
         if (!signedUrl) throw new Error("missing audio url");
         setAudioUrl(signedUrl);
@@ -110,11 +112,11 @@ export function TtsDetail({ stage, taskId, onRerun, onApprove }: DetailCommon) {
     setLoadError(null);
     setLoading(true);
     const subsPath = String(stage.params.subtitle_path || `${taskId}/tts_subtitles.json`);
-    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(r => r.json()).then(({ signedUrl }) => { if (!signedUrl) throw new Error(); setAudioUrl(signedUrl); })
       .catch(() => setLoadError("生产音频暂时无法加载"))
       .finally(() => setLoading(false));
-    fetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(subsPath)}`)
       .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl)).then(r => r.json()).then((payload: TtsData) => setData(payload))
       .catch(() => setLoadError(current => current || "字幕与分段数据暂时无法加载"));
   };

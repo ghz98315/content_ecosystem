@@ -140,6 +140,8 @@ def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
     ).data or {}
     bgm_path = str(task.get("bgm_path") or "").strip()
     approved = bool(task.get("bgm_authorization_confirmed"))
+    if bgm_path and approved and not bgm_path.startswith(f'{task_id}/background-music/'):
+        raise ValueError('背景音乐路径不属于当前任务')
     bgm_volume = min(0.30, max(0.02, float(task.get("bgm_volume") or 0.08)))
     narration_volume = min(1.50, max(0.50, float(task.get("narration_volume") or 1.0)))
     return (bgm_path if bgm_path and approved else None, bgm_volume, narration_volume)

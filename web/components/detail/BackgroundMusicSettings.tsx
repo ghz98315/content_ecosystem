@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect,useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
@@ -23,7 +25,7 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
   },[taskId]);
   useEffect(() => {
     let active=true;setUrl('');
-    if (path) fetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(r=>r.json()).then(data=>{if(active)setUrl(data.signedUrl || '');}).catch(()=>{if(active)setError('音乐试听地址读取失败');});
+    if (path) authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(r=>r.json()).then(data=>{if(active)setUrl(data.signedUrl || '');}).catch(()=>{if(active)setError('音乐试听地址读取失败');});
     return () => {active=false;};
   },[path]);
   async function upload(file: File | undefined) {
@@ -32,8 +34,11 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
     if (!['mp3','wav','m4a'].includes(extension || '') || file.size<=0 || file.size>25*1024*1024) {setError('请选择25MB以内的MP3、WAV或M4A音乐');return;}
     setBusy(true);setError('');setMessage('');
     try {
-      const next=`${taskId}/background-music/${crypto.randomUUID()}.${extension}`;
-      const {error}=await supabase.storage.from('artifacts').upload(next,file,{contentType:file.type || 'audio/mpeg',upsert:false});
+      const response=await authenticatedFetch('/api/background-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId,name:file.name,size:file.size})});
+      const prepared=await response.json();
+      if(!response.ok)throw new Error(prepared.error || '准备音乐上传失败');
+      const next=prepared.path;
+      const {error}=await supabase.storage.from('artifacts').uploadToSignedUrl(next,prepared.token,file,{contentType:file.type || 'audio/mpeg'});
       if(error)throw error;
       setPath(next);setAuthorized(false);setMessage('音乐已上传，请试听并保存设置后再确认配音。');
     } catch(err) {setError(err instanceof Error?err.message:'音乐上传失败');}

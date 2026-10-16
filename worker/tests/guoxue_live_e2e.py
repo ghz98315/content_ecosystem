@@ -103,14 +103,24 @@ if version['state']!='approved':
     api('PATCH','/api/narration',{'stageId':tts['id'],'action':'approve','data':{'id':version['id'],'subtitle_path':version['subtitle_path']}})
 passed('real ASR alignment and owner approval')
 assert image._find_chosen_text(tid,stage('image')).strip()==approved_text.strip()
+own_path=tid+'/transcript.json'
+assert api('GET','/api/signed-url?path='+own_path).get('signedUrl')
+assert httpx.get('https://content-ecosystem.socra.cn/api/signed-url',params={'path':own_path},timeout=30).status_code==401
+assert http.get('https://content-ecosystem.socra.cn/api/signed-url',params={'path':source_id+'/audio.mp3'}).status_code==403
+assert http.post('https://content-ecosystem.socra.cn/api/background-music',json={'taskId':source_id,'name':'test.mp3','size':100}).status_code==403
+passed('deployed private media and cross-owner access checks')
 if not state.get('bgm_saved'):
     # Self-generated test sound, not a commercial music selection.
     music=out/'test-background.mp3'
     subprocess.run([ff(),'-v','error','-y','-f','lavfi','-i','aevalsrc=0.08*sin(2*PI*220*t)+0.05*sin(2*PI*330*t):s=44100:d=12','-c:a','libmp3lame',str(music)],check=True,capture_output=True)
-    path=f'{tid}/background-music/test-background.mp3'
-    user.storage.from_('artifacts').upload(path,music.read_bytes(),{'content-type':'audio/mpeg','upsert':'true'})
+    prepared=api('POST','/api/background-music',{'taskId':tid,'name':music.name,'size':music.stat().st_size})
+    path=prepared['path']
+    user.storage.from_('artifacts').upload_to_signed_url(path,prepared['token'],music.read_bytes(),{'content-type':'audio/mpeg'})
     user.table('tasks').update({'bgm_path':path,'bgm_volume':0.08,'narration_volume':1.0,'bgm_authorization_confirmed':True}).eq('id',tid).execute()
     state['bgm_saved']=True;save();passed('owner-scoped test music upload and volume settings')
+    signed=api('GET','/api/signed-url?path='+path)
+    assert httpx.get(signed['signedUrl'],timeout=30).is_success
+    passed('private music playback URL is usable')
 tick('image');passed('real APIMart 4K landscape nine-grid generation')
 tick('book');passed('book compatibility node')
 render=tick('render');assert render['output_ref']

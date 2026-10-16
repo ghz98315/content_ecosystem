@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -68,7 +70,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
 
   useEffect(() => {
     if (!stage?.output_ref) return;
-    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json())
       .then((d: RewriteData) => {

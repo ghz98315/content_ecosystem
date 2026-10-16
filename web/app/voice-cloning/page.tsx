@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 
 import { DragEvent, FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
@@ -53,7 +55,7 @@ export default function VoiceCloningPage() {
     setBusy(true);
     try {
       const form = new FormData(); form.set("audio", file);
-      const response = await fetch("/api/voice-sample", { method: "POST", body: form });
+      const response = await authenticatedFetch("/api/voice-sample", { method: "POST", body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "上传失败");
       const { data: userData } = await supabase.auth.getUser();

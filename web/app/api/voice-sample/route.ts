@@ -9,6 +9,11 @@ export async function POST(request: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return NextResponse.json({ error: "server misconfigured" }, { status: 500 });
+  const token=request.headers.get('authorization')?.replace(/^Bearer\s+/i,'');
+  if(!token)return NextResponse.json({error:'请先登录'},{status:401});
+  const sb = createClient(url, key);
+  const {data:auth}=await sb.auth.getUser(token);
+  if(!auth.user)return NextResponse.json({error:'登录会话已失效'},{status:401});
 
   const form = await request.formData();
   const file = form.get("audio");
@@ -19,8 +24,7 @@ export async function POST(request: Request) {
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "音频文件不能超过 10 MB" }, { status: 400 });
 
   const ext = file.name.split(".").pop()?.toLowerCase() || "mp3";
-  const path = `voice-samples/${crypto.randomUUID()}.${ext}`;
-  const sb = createClient(url, key);
+  const path = `voice-samples/${auth.user.id}/${crypto.randomUUID()}.${ext}`;
   const upload = await sb.storage.from(BUCKET).upload(path, Buffer.from(await file.arrayBuffer()), {
     contentType: file.type || "audio/mpeg",
     upsert: false,

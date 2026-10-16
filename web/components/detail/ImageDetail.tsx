@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 import { supabase } from "@/lib/supabase";
@@ -63,7 +65,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   // 1. 下载索引 JSON
   useEffect(() => {
     if (!stage?.output_ref) return;
-    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(r => r.json())
       .then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json())
@@ -76,7 +78,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
     if (!entries.length) return;
     entries.forEach(e => {
       const preferredPath = replacements[e.index]?.replacement_path || e.path;
-      fetch(`/api/signed-url?path=${encodeURIComponent(preferredPath)}`)
+      authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(preferredPath)}`)
         .then(r => r.json())
         .then(({ signedUrl }) => setUrls(prev => ({ ...prev, [e.index]: signedUrl })))
         .catch(() => {});

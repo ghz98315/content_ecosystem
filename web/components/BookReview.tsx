@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Stage } from "@/lib/types";
@@ -22,7 +24,7 @@ export function BookReview({ stage }: { stage: Stage }) {
   useEffect(() => {
     if (!stage.output_ref) return;
     (async () => {
-      const res = await fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref!)}`);
+      const res = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref!)}`);
       if (!res.ok) { setErr("获取书籍信息失败"); return; }
       const { signedUrl } = await res.json();
       const resp = await fetch(signedUrl);

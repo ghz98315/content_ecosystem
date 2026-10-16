@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 
@@ -22,7 +24,7 @@ export function CleanDetail({ stage, taskId, onRerun, onApprove }: DetailCommon)
 
   useEffect(() => {
     if (!stage?.output_ref) return;
-    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json()).then(setData).catch(() => {});
   }, [stage?.output_ref]);

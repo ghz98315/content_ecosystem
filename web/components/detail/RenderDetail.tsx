@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { BackgroundMusicSettings } from "./BackgroundMusicSettings";
 import { PRODUCTION_TEMPLATES } from "@/lib/productionTemplates";
 import { useEffect, useState } from "react";
@@ -81,7 +83,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         previous = Boolean(path);
       }
       if (!path) return;
-      const response = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`);
+      const response = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`);
       const { signedUrl } = await response.json();
       if (active && signedUrl) {
         setVideoUrl(signedUrl);
@@ -106,7 +108,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
           .limit(1);
         const path = data?.[0]?.storage_path;
         if (!path) return;
-        const signed = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(response => response.json());
+        const signed = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(response => response.json());
         if (!signed.signedUrl) return;
         const book = await fetch(signed.signedUrl).then(response => response.json()) as BookArtifact;
         if (active) {
@@ -144,7 +146,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         if (active) setQualityUnavailable(true);
         return;
       }
-      const signedResponse = await fetch(
+      const signedResponse = await authenticatedFetch(
         `/api/signed-url?path=${encodeURIComponent(data[0].storage_path)}`
       );
       const { signedUrl } = await signedResponse.json();
@@ -174,7 +176,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       try {
         const result = await supabase.from("artifacts").select("storage_path").eq("task_id", taskId).eq("stage_kind", "render").eq("type", "timeline").order("created_at", { ascending: false }).limit(1);
         const path = result.data?.[0]?.storage_path; if (!path) return;
-        const signed = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(response => response.json());
+        const signed = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(response => response.json());
         if (!signed.signedUrl) return;
         const data = await fetch(signed.signedUrl).then(response => response.json());
         if (active && Array.isArray(data)) setTimeline(data as TimelineEntry[]);

@@ -10,6 +10,9 @@ const cases = [
   ['/api/image-regeneration', 'POST', 400],
   ['/api/signed-url', 'GET', 400],
   ['/api/signed-url?path=test-task/external/test-version/narration.wav', 'GET', 401],
+  ['/api/signed-url?path=test-task/background-music/music.mp3', 'GET', 401],
+  ['/api/background-music', 'POST', 401],
+  ['/api/voice-sample', 'POST', 401],
 ];
 for (const [path, method, expected] of cases) {
   const response = await fetch(new URL(path, base), {

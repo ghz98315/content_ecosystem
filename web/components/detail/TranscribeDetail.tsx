@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 
@@ -7,7 +9,7 @@ export function TranscribeDetail({ stage, taskId, onRerun, onApprove }: DetailCo
 
   useEffect(() => {
     if (!stage?.output_ref) return;
-    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(r => r.json())
       .then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json())

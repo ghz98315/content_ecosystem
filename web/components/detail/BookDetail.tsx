@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -26,7 +28,7 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
 
   useEffect(() => {
     if (!stage?.output_ref) return;
-    fetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
       .then(response => response.json())
       .then(({ signedUrl }) => fetch(signedUrl))
       .then(response => response.json())
@@ -38,7 +40,7 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
     const path = String((stage?.params || {}).manual_book_cover_path || "");
     setCoverPath(path);
     if (!path) { setCoverUrl(null); return; }
-    fetch(`/api/signed-url?path=${encodeURIComponent(path)}`)
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`)
       .then(response => response.json())
       .then(({ signedUrl }) => setCoverUrl(signedUrl || null))
       .catch(() => setCoverUrl(null));

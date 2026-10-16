@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 
 import { useEffect, useMemo, useState } from "react";
 import { Stage, STATUS_LABEL } from "@/lib/types";
@@ -31,7 +33,7 @@ interface TranscriptPayload extends Record<string, unknown> {
 }
 
 async function loadJson(path: string) {
-  const signedResponse = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`);
+  const signedResponse = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`);
   if (!signedResponse.ok) throw new Error("产物地址获取失败");
   const { signedUrl } = await signedResponse.json();
   if (!signedUrl) throw new Error("产物地址无效");

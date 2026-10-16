@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useEffect, useState } from "react";
 import { StageKind } from "@/lib/types";
 import { supabase } from '@/lib/supabase';
@@ -12,7 +14,7 @@ type Artifact =
 
 async function getSignedUrl(path: string): Promise<string> {
   const { data } = await supabase.auth.getSession();
-  const res = await fetch(`/api/signed-url?path=${encodeURIComponent(path)}`, {
+  const res = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`, {
     headers: data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {},
   });
   if (!res.ok) throw new Error("获取链接失败");

@@ -1,4 +1,6 @@
 "use client";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
+
 import { useState } from "react";
 
 /** 成片下载按钮：通过 API route（service_role）生成签名链接触发下载。 */
@@ -16,7 +18,7 @@ export function DownloadButton({
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetch(`/api/signed-url?path=${encodeURIComponent(storagePath)}`);
+      const res = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(storagePath)}`);
       if (!res.ok) throw new Error("获取下载链接失败");
       const { signedUrl } = await res.json();
       const a = document.createElement("a");

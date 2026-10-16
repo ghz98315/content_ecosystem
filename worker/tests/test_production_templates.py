@@ -6,6 +6,13 @@ from stages.render import _render_text_settings
 
 
 class ProductionContractTests(unittest.TestCase):
+    def test_background_music_cannot_read_another_tasks_file(self):
+        from stages.render import _load_bgm_config
+        client=MagicMock()
+        client.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data={'bgm_path':'another/background-music/x.mp3','bgm_authorization_confirmed':True}
+        with patch('db.get_client',return_value=client):
+            with self.assertRaises(ValueError):
+                _load_bgm_config('task')
     def test_transcription_rerun_never_uses_narration_audio(self):
         from stages.transcribe import _find_audio
         client=MagicMock()
