@@ -5,6 +5,7 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { DragEvent, FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/lib/supabase";
+import { useAnonAuth } from "@/lib/useAnonAuth";
 import { Task } from "@/lib/types";
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -13,6 +14,7 @@ type VoiceProvider = "edge" | "cosyvoice2" | "indextts25";
 type VoiceProfile = { id: string; display_name: string; provider: VoiceProvider; model?: string | null; voice_id: string; enabled: boolean; is_default: boolean; authorization_confirmed: boolean; sample_path?: string | null; updated_at?: string };
 
 export default function VoiceCloningPage() {
+  const { userId, error: authError } = useAnonAuth();
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [url, setUrl] = useState("");
@@ -31,9 +33,10 @@ export default function VoiceCloningPage() {
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
   useEffect(() => {
+    if (!userId) return;
     supabase.from("tasks").select("*").order("created_at", { ascending: false }).limit(20).then(({ data }) => data && setTasks(data as Task[]));
     supabase.from("voice_profiles").select("*").order("updated_at", { ascending: false }).then(({ data }) => data && setProfiles(data as VoiceProfile[]));
-  }, []);
+  }, [userId]);
 
   function chooseFile(next: File | null) {
     setError(""); setUrl(""); setCopied(false);
@@ -48,6 +51,7 @@ export default function VoiceCloningPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(""); setUrl("");
+    if (!userId) return setError(authError || "正在连接工作区，请稍后重试");
     if (!file) return setError("请选择音频文件");
     if (!name.trim()) return setError("请填写音色名称");
     if (!voiceId.trim()) return setError("请填写 Voice ID");

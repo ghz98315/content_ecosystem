@@ -140,7 +140,9 @@ def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
     ).data or {}
     bgm_path = str(task.get("bgm_path") or "").strip()
     approved = bool(task.get("bgm_authorization_confirmed"))
-    if bgm_path and approved and not bgm_path.startswith(f'{task_id}/background-music/'):
+    if bgm_path and approved and (not bgm_path.startswith(f'{task_id}/background-music/')
+                                 or '\\' in bgm_path or '%' in bgm_path
+                                 or any(part in ('', '.', '..') for part in bgm_path.split('/'))):
         raise ValueError('背景音乐路径不属于当前任务')
     bgm_volume = min(0.30, max(0.02, float(task.get("bgm_volume") or 0.08)))
     narration_volume = min(1.50, max(0.50, float(task.get("narration_volume") or 1.0)))
@@ -827,6 +829,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         requested_font = text_settings['title_font']
         template_id = (stage.get('params') or {}).get('production_template')
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'), use_configured=template_id == 'guoxue-v1')
+        if template_id == 'guoxue-v1' and (font_fallback or text_settings['title_font'] != requested_font):
+            raise ValueError('国学模板缺少已确认的标题字体，请检查 RENDER_TITLE_FONT_FILE')
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'

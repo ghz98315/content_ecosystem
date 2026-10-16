@@ -6,13 +6,20 @@ from stages.render import _render_text_settings
 
 
 class ProductionContractTests(unittest.TestCase):
+    def test_actual_4k_landscape_pixel_budget_is_accepted(self):
+        from stages.image import _validate_guoxue_resolution
+        _validate_guoxue_resolution(3312,2480)
+        _validate_guoxue_resolution(4096,3072)
+        with self.assertRaises(ValueError):
+            _validate_guoxue_resolution(2048,1536)
     def test_background_music_cannot_read_another_tasks_file(self):
         from stages.render import _load_bgm_config
         client=MagicMock()
-        client.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data={'bgm_path':'another/background-music/x.mp3','bgm_authorization_confirmed':True}
-        with patch('db.get_client',return_value=client):
-            with self.assertRaises(ValueError):
-                _load_bgm_config('task')
+        for path in ['another/background-music/x.mp3','task/background-music/../../another/x.mp3','task/background-music/%2e%2e/x.mp3']:
+            client.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data={'bgm_path':path,'bgm_authorization_confirmed':True}
+            with patch('db.get_client',return_value=client):
+                with self.assertRaises(ValueError):
+                    _load_bgm_config('task')
     def test_transcription_rerun_never_uses_narration_audio(self):
         from stages.transcribe import _find_audio
         client=MagicMock()

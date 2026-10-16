@@ -28,7 +28,7 @@ export function WorkflowTiming({ task, stages }: { task: Task; stages: Stage[] }
   return <section className="book-info-panel" aria-label="全流程耗时" style={{ margin: '12px 0',padding: 16 }}>
     <strong>全流程耗时</strong> {Boolean(template) && <span> · {PRODUCTION_TEMPLATES.find(item => item.id === template)?.label || '历史模板'}</span>}
     <p>{timing.finished ? '创建至成片' : '自创建累计'}：{elapsedLabel(timing.total)}　已记录处理：{elapsedLabel(timing.processing)}　等待确认与排队：{timing.waiting == null ? '记录不完整，暂不估算' : elapsedLabel(timing.waiting)}</p>
-    <details><summary>各节点处理耗时</summary>{timing.byStage.map(stage => <p key={stage.kind}>{STAGES.find(item => item.kind === stage.kind)?.label}：{stage.attempts ? `${elapsedLabel(stage.milliseconds)}（${stage.attempts}次执行）` : '暂无计时记录'}</p>)}</details>
+    <details><summary>各节点处理耗时</summary>{timing.byStage.map(stage => <p key={stage.kind}>{STAGES.find(item => item.kind === stage.kind)?.label}：{stage.attempts ? `${elapsedLabel(stage.milliseconds)}（${stage.attempts}次执行）` : stage.skipped ? '自动复用已有信息，无额外处理' : '暂无计时记录'}</p>)}</details>
     {!timing.complete && <small>历史任务或中断节点可能缺少计时，已有成片的总耗时仍按实际创建和产出时间计算。</small>}
     {error && <p role="alert">{error}</p>}
   </section>;

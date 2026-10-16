@@ -479,6 +479,14 @@ def _crop_to_cell_ratio(piece, ratio: float = _CELL_RATIO):
     return piece.crop((0, top, width, top + target_height))
 
 
+def _validate_guoxue_resolution(width: int, height: int) -> None:
+    # APIMart's 4k tier is approximately 8 MP across aspect ratios. A 4:3
+    # response is 3312x2480, while the portrait response is 2336x3520.
+    # Validate pixel budget and usable landscape cell size, not a long edge.
+    if width * height < 7_000_000 or width / 3 * 0.96 < 1000 or height / 3 * 0.96 < 750:
+        raise ValueError(f'国学4K源图实际像素不足：{(width, height)}，请核对服务分辨率')
+
+
 def _trim_cell_edges(piece, inset_ratio: float = _CELL_EDGE_INSET_RATIO):
     """Remove a small inner border where providers may draw grid separators."""
     width, height = piece.size
@@ -1115,8 +1123,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
         _validate_grid_source(*grid_size, expected_ratio=4/3 if visual_style == GUOXUE_STYLE else None)
-        if visual_style == GUOXUE_STYLE and max(grid_size) < 3500:
-            raise ValueError(f'国学4K源图实际尺寸不足：{grid_size}，请核对服务分辨率')
+        if visual_style == GUOXUE_STYLE:
+            _validate_guoxue_resolution(*grid_size)
         source_meta = existing_artifacts.get(grid_path) or {}
         actual_prompt = grid_prompt or source_meta.get("prompt")
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={

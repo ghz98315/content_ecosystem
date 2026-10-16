@@ -25,7 +25,7 @@ export function workflowTiming(createdAt: string, status: string, records: Timin
   const processing = Math.min(total,unionMilliseconds(ranges()));
   return { total, processing, waiting: covered && attempts.length > 0 && !incomplete ? Math.max(0,total-processing) : null,
     complete: covered && !incomplete && attempts.length > 0, finished: end !== now,
-    byStage: stages.map(stage => ({ kind: stage.kind, milliseconds: unionMilliseconds(ranges(stage.kind)), attempts: attempts.filter(row => row.meta.stage_id === stage.id).length })) };
+    byStage: stages.map(stage => ({ kind: stage.kind, skipped: Boolean(stage.params.skipped), milliseconds: unionMilliseconds(ranges(stage.kind)), attempts: attempts.filter(row => row.meta.stage_id === stage.id).length })) };
 }
 export function elapsedLabel(ms: number) {
   const seconds = Math.max(0, Math.floor(ms/1000));
