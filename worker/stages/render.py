@@ -397,8 +397,40 @@ def _make_layout_frame(
     image.save(out_png, "PNG")
 
 
+def _is_landscape_art(img_path: str) -> bool:
+    from PIL import Image
+    with Image.open(img_path) as source:
+        return abs(source.width / source.height - 4 / 3) < 0.02
+
+
+def _landscape_composition_graph() -> str:
+    """Keep the complete landscape artwork; only the backdrop is cropped/blurred."""
+    foreground_h = round(W * 3 / 4)
+    foreground_y = (H - foreground_h) // 2
+    return (
+        '[0:v]split=2[bgsource][fgsource];'
+        f'[bgsource]scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,'
+        f'crop={W}:{H},gblur=sigma=36:steps=2,eq=brightness=-0.08[blurred];'
+        f'[fgsource]scale={W}:{foreground_h}:force_original_aspect_ratio=decrease:flags=lanczos,'
+        f'pad={W}:{foreground_h}:(ow-iw)/2:(oh-ih)/2:color=0xe4dfd3[foreground];'
+        f'[blurred][foreground]overlay=0:{foreground_y}:shortest=1,setsar=1,format=yuv420p[v]'
+    )
+
+
+def _make_landscape_clip(img_path: str, duration: float, out_mp4: str) -> None:
+    _run_ffmpeg([
+        ff(), '-y', '-loop', '1', '-framerate', str(FPS), '-i', img_path,
+        '-filter_complex', _landscape_composition_graph(), '-map', '[v]',
+        '-frames:v', str(max(1, round(duration * FPS))),
+        '-c:v', 'libx264', '-crf', str(config.RENDER_CRF), '-pix_fmt', 'yuv420p',
+        '-r', str(FPS), '-an', out_mp4,
+    ], check=True, capture_output=True)
+
+
 def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: str) -> None:
     """Hold the first image frame as the short cover instead of a title card."""
+    if _is_landscape_art(img_path):
+        return _make_landscape_clip(img_path, duration, out_mp4)
     graph = (
         f"[0:v]scale={W}:{PHOTO_H}:force_original_aspect_ratio=increase:flags=lanczos,"
         f"crop={W}:{PHOTO_H}[photo];"
@@ -414,6 +446,8 @@ def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: 
 
 
 def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: str) -> None:
+    if _is_landscape_art(img_path):
+        return _make_landscape_clip(img_path, duration, out_mp4)
     frames = max(2, round(duration * FPS))
     zoom_denominator = frames - 1
     zoom_easing = (

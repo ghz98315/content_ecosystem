@@ -6,16 +6,37 @@ from pathlib import Path
 
 from guoxue_visuals import grid_prompt
 from stages.image import _guoxue_storyboard, _char_count
-from stages.render import _make_ass, _prepare_title_font, H
+from stages.render import _make_ass, _prepare_title_font, H, _landscape_composition_graph, _is_landscape_art
 
 
 class GuoxueLayoutTests(unittest.TestCase):
+    def test_landscape_composition_keeps_full_foreground(self):
+        from PIL import Image
+        from stages.image import _split_grid, _validate_grid_source
+        import io
+        graph = _landscape_composition_graph()
+        self.assertIn('scale=1080:810:force_original_aspect_ratio=decrease', graph)
+        self.assertIn('overlay=0:555', graph)
+        self.assertIn('gblur=sigma=36', graph)
+        self.assertNotIn('zoompan', graph)
+        _validate_grid_source(4096,3072,expected_ratio=4/3)
+        with self.assertRaises(ValueError):
+            _validate_grid_source(3072,4096,expected_ratio=4/3)
+        source = io.BytesIO()
+        Image.new('RGB',(1200,900)).save(source,format='PNG')
+        pieces = _split_grid(source.getvalue(),9,3,4/3)
+        self.assertEqual(9,len(pieces))
+        with tempfile.TemporaryDirectory() as temp:
+            file=Path(temp)/'cell.png'
+            file.write_bytes(pieces[0])
+            self.assertTrue(_is_landscape_art(str(file)))
+
     def test_independent_cover_does_not_consume_narration_range(self):
         import stages.image as module
         text = '家人一起商量生活' * 120
         expected = _guoxue_storyboard(text)
         opened = MagicMock()
-        opened.__enter__.return_value.size = (2336,3520)
+        opened.__enter__.return_value.size = (4096,3072)
         with patch.object(module, '_find_chosen_text',return_value=text), \
              patch.object(module, '_existing_image_artifacts',return_value={}), \
              patch.object(module.config, 'image_client',return_value=(MagicMock(),'gpt-image-2')), \
@@ -33,6 +54,8 @@ class GuoxueLayoutTests(unittest.TestCase):
         self.assertTrue(all(x['cover_path'].endswith('/cover.png') for x in index))
         self.assertEqual(1,sum(c.args[2]=='cover_image' for c in artifact.call_args_list))
         self.assertTrue(all(c.kwargs['resolution']=='4k' for c in generate.call_args_list))
+        self.assertTrue(all(c.kwargs['size']=='4:3' for c in generate.call_args_list))
+        self.assertTrue(all(x['cell_ratio']=='4:3' for x in index))
 
     def test_storyboard_preserves_every_character_and_normal_lengths(self):
         text = ('家人一起商量日常安排，理解彼此的心意。\n' * 60)
@@ -50,7 +73,7 @@ class GuoxueLayoutTests(unittest.TestCase):
 
     def test_grid_uses_traditional_clothes_and_varied_spaces(self):
         prompt = grid_prompt(['在集市买菜', '到田地里劳作', '与家人吃晚饭'], cover=True)
-        for required in ['工笔', '千层底', 'Nike', '堂屋', '集市', '田野', '独立封面', '9:16', '3行3列']:
+        for required in ['工笔', '淡墨', 'Nike', '堂屋', '集市', '田野', '独立封面', '4:3', '3行3列']:
             self.assertIn(required, prompt)
         self.assertIn('不要分隔线', prompt)
 
