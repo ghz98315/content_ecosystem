@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 
 import imageio_ffmpeg
@@ -175,6 +176,7 @@ def _make_ass(
     segments: list[dict], out_path: str, *, title: str = "", subtitle: str = "",
     footnote: str = "", title_font: str = "KaiTi", duration: float = 0,
     subtitle_y: float = 2 / 3,
+    landscape_layout: bool = False,
 ) -> None:
     if not title_font or len(title_font) > 64 or re.search(r"[,\r\n{}\\/]", title_font):
         raise ValueError("不支持的标题字体")
@@ -197,10 +199,26 @@ def _make_ass(
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
+    # Anchor text to the actual 4:3 picture edges, rather than the video edges.
+    picture_top = (H - round(W * 3 / 4)) // 2
+    picture_bottom = H - picture_top
+    positions = {
+        'Heading': (2, W // 2, picture_top - 52 - 52 - 24),
+        'Subheading': (2, W // 2, picture_top - 52),
+        'Footnote': (9, W - 70, picture_bottom + 28),
+    }
     overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
         if value:
-            lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{_escape_ass(value)}\n")
+            placement = ''
+            if landscape_layout:
+                alignment, x, y = positions[style]
+                base_size = {'Heading': 88, 'Subheading': 52, 'Footnote': 28}[style]
+                units = sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in value)
+                spacing = 2 if style == 'Heading' else 1 if style == 'Subheading' else 0
+                size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
+                placement = rf'{{\an{alignment}\pos({x},{y})\fs{size}\q2}}'
+            lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{placement}{_escape_ass(value)}\n")
     for seg in segments:
         start = _fmt_ass_time(float(seg.get("start", 0)))
         end = _fmt_ass_time(float(seg.get("end", 0)))
@@ -235,6 +253,8 @@ def _prepare_title_font(requested: str, fonts_dir: str) -> tuple[str, bool]:
 
 def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
     params = stage.get('params') or {}
+    configured = params.get('video_text')
+    configured = configured if isinstance(configured, dict) else {}
     main = str(params.get('main_title') or (
         rewrite.get('cover_title') if rewrite.get('cover_confirmed') else ''
     ) or book.get('publish_title') or book.get('title_short') or book.get('book_name') or '').strip()
@@ -242,8 +262,9 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         rewrite.get('cover_subtitle') if rewrite.get('cover_confirmed') else ''
     ) or '').strip()
     return {
-        'title': main, 'subtitle': sub,
-        'footnote': str(params.get('footnote', '读书分享')).strip(),
+        'title': str(configured.get('title', main)).strip(),
+        'subtitle': str(configured.get('subtitle', sub)).strip(),
+        'footnote': str(configured.get('footnote', params.get('footnote', '读书分享'))).strip(),
         'title_font': str(params.get('title_font') or os.environ.get('RENDER_TITLE_FONT', '锐气楷')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
     }
@@ -710,6 +731,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         cover_local = storage.download_artifact(cover_path, ".png")
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
         try:
+            landscape_layout = _is_landscape_art(cover_local)
             _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4)
         finally:
             try:
@@ -782,7 +804,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
         requested_font = text_settings['title_font']
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'))
-        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, **text_settings)
+        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
         render_args = [
@@ -884,7 +906,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "transition_duration": TRANSITION_DUR,
             "timeline_version": 3 if is_timeline_v3 else 2,
             "layout": "book_header_photo_subtitles_disclaimer",
-            "text_layout": {**text_settings, 'requested_font': requested_font, 'font_fallback': font_fallback},
+            "text_layout": {**text_settings, 'requested_font': requested_font, 'font_fallback': font_fallback,
+                            'landscape_layout': landscape_layout, 'picture_text_gap': {'above': 52, 'below': 28} if landscape_layout else None},
             "encoding_crf": config.RENDER_CRF,
             "disclaimer_font_size": DISCLAIMER_FONT_SIZE,
             "disclaimer_opacity": DISCLAIMER_OPACITY,

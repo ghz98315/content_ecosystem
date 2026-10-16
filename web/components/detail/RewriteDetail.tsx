@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { DetailShell, TextBtn, DetailCommon } from "./_shell";
+import { VideoTextSettings } from "./VideoTextSettings";
 
 interface RewriteData {
   candidates: string[];
@@ -54,7 +55,7 @@ function textLength(text: string) {
   return text.replace(/\s/g, "").length;
 }
 
-export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
+export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   const [data, setData] = useState<RewriteData | null>(null);
   const [drafts, setDrafts] = useState<string[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -149,6 +150,7 @@ export function RewriteDetail({ stage, task, onRerun }: DetailCommon) {
 
   return (
     <DetailShell title="改写" stage={stage} onRerun={onRerun} actions={actions}>
+      <VideoTextSettings taskId={taskId} />
       {(isReview || isDone) && data && (
         <>
           <section className="rewrite-summary-grid" aria-label="改写稿摘要">

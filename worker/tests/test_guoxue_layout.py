@@ -6,10 +6,26 @@ from pathlib import Path
 
 from guoxue_visuals import grid_prompt
 from stages.image import _guoxue_storyboard, _char_count
-from stages.render import _make_ass, _prepare_title_font, H, _landscape_composition_graph, _is_landscape_art
+from stages.render import _make_ass, _prepare_title_font, H, _landscape_composition_graph, _is_landscape_art, _render_text_settings
 
 
 class GuoxueLayoutTests(unittest.TestCase):
+    def test_saved_text_overrides_fallback_and_can_hide_fields(self):
+        settings = _render_text_settings({'params': {'video_text': {'title': '自定义标题', 'subtitle': '', 'footnote': '第一期'}}}, {'book_name': '旧书名'}, {'cover_title': '旧标题', 'cover_confirmed': True})
+        self.assertEqual('自定义标题', settings['title'])
+        self.assertEqual('', settings['subtitle'])
+        self.assertEqual('第一期', settings['footnote'])
+
+    def test_landscape_text_tracks_picture_edges_and_long_titles_fit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'sample.ass'
+            _make_ass([], str(path), title='长'*32, subtitle='副'*48, footnote='脚注', duration=2, landscape_layout=True)
+            content = path.read_text(encoding='utf-8-sig')
+            self.assertIn(r'\an2\pos(540,427)', content)
+            self.assertIn(r'\an2\pos(540,503)', content)
+            self.assertIn(r'\an9\pos(1010,1393)', content)
+            self.assertIn(r'\fs26\q2', content)
+
     def test_landscape_composition_keeps_full_foreground(self):
         from PIL import Image
         from stages.image import _split_grid, _validate_grid_source

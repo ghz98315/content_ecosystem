@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { DetailShell, DetailCommon, TextBtn } from "./_shell";
+import { VideoTextSettings } from "./VideoTextSettings";
 
 interface BookData {
   book_name?: string;
@@ -130,6 +131,7 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
 
   return (
     <DetailShell title="书籍信息" stage={stage} onRerun={onRerun} actions={actions}>
+      <VideoTextSettings taskId={taskId} />
       {(isReview || isDone) && data && (
         <>
           <section className="media-workbench-heading book-workbench-heading">
