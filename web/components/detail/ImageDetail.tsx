@@ -23,6 +23,7 @@ interface ReplacementRequest { image_index: number; status: "pending" | "process
 export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [entries, setEntries] = useState<IndexEntry[]>([]);
   const [urls,    setUrls]    = useState<Record<number, string>>({});
+  const [missingMedia, setMissingMedia] = useState<Record<number, boolean>>({});
   const [selectedEntry, setSelectedEntry] = useState<IndexEntry | null>(null);
   const [filter, setFilter] = useState<"all" | "ready" | "missing">("all");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -33,13 +34,20 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [regenerating, setRegenerating] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const providerParams = (stage?.params || {}) as Record<string, unknown>;
+  const isGuoxue = providerParams.production_template === "guoxue-v1" || providerParams.visual_style === "guoxue_gongbi_life";
+  const gridCells = isGuoxue ? 2 : 3;
+  const gridLabel = isGuoxue ? "四宫格" : "九宫格";
+  const gridCount = new Set(entries.map(entry => entry.source_grid).filter(Boolean)).size
+    || Math.ceil((entries.length + (isGuoxue ? 1 : 0)) / (gridCells * gridCells));
   const [selectedProvider, setSelectedProvider] = useState<"apimart" | "xcode">(
     String(providerParams.image_provider || "apimart") === "xcode" ? "xcode" : "apimart"
   );
   const [providerBusy, setProviderBusy] = useState(false);
   const providerName = String(providerParams.image_provider || providerParams.provider || "主生图通道");
   const imageModel = String(providerParams.image_model || providerParams.model || "任务配置模型");
-  const visibleEntries = entries.filter(entry => filter === "all" || (filter === "ready" ? Boolean(urls[entry.index]) : !urls[entry.index]));
+  const visibleEntries = entries.filter(entry => filter === "all" || (filter === "ready"
+    ? Boolean(urls[entry.index]) && !missingMedia[entry.index]
+    : !urls[entry.index] || Boolean(missingMedia[entry.index])));
 
   useEffect(() => {
     setSelectedProvider(String(providerParams.image_provider || "apimart") === "xcode" ? "xcode" : "apimart");
@@ -65,9 +73,13 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   // 1. 下载索引 JSON
   useEffect(() => {
     if (!stage?.output_ref) return;
+    setEntries([]);
+    setUrls({});
+    setMissingMedia({});
     authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
-      .then(r => r.json())
-      .then(({ signedUrl }) => fetch(signedUrl))
+      .then(async r => { if (!r.ok) throw new Error("索引地址不可用"); return r.json(); })
+      .then(({ signedUrl }) => { if (!signedUrl) throw new Error("索引地址不可用"); return fetch(signedUrl); })
+      .then(r => { if (!r.ok) throw new Error("索引已清理"); return r; })
       .then(r => r.json())
       .then((d: IndexEntry[]) => Array.isArray(d) && setEntries(d))
       .catch(() => setLoadError("图片索引加载失败，请刷新后重试"));
@@ -79,9 +91,12 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
     entries.forEach(e => {
       const preferredPath = replacements[e.index]?.replacement_path || e.path;
       authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(preferredPath)}`)
-        .then(r => r.json())
-        .then(({ signedUrl }) => setUrls(prev => ({ ...prev, [e.index]: signedUrl })))
-        .catch(() => {});
+        .then(async r => { if (!r.ok) throw new Error("图片不可用"); return r.json(); })
+        .then(({ signedUrl }) => {
+          if (!signedUrl) throw new Error("图片不可用");
+          setUrls(prev => ({ ...prev, [e.index]: signedUrl }));
+        })
+        .catch(() => setMissingMedia(prev => ({ ...prev, [e.index]: true })));
     });
   }, [entries, replacements]);
 
@@ -172,25 +187,25 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
       {entries.length > 0 ? (
         <>
           <section className="media-workbench-heading">
-            <div><p className="eyebrow">IMAGE GENERATION</p><h2>AI 场景图生成</h2><p>九宫格批量生成后切分为分镜图片，按最终文案时间轴排列。</p></div>
+            <div><p className="eyebrow">IMAGE GENERATION</p><h2>AI 场景图生成</h2><p>{gridLabel}批量生成后切分为分镜图片，按最终文案时间轴排列。</p></div>
             <div className="media-workbench-actions"><span className="status-badge status-done">{stage?.status === "done" ? "图片已就绪" : "处理中"}</span>{stage?.status === "done" && <button type="button" className="secondary-action" disabled={regenerating} onClick={regenerateAll}>{regenerating ? "正在重新排队" : "按当前风格全量重新生成"}</button>}{stage && stage.status === "failed" && <button className="secondary-action" onClick={() => onRerun(stage.id)}>重跑失败批次</button>}</div>
           </section>
           <section className="image-workbench-summary" aria-label="图片生成摘要">
             <div><span>分镜图片</span><strong>{entries.length}</strong><small>按文案时间轴排列</small></div>
-            <div><span>九宫格批次</span><strong>{new Set(entries.map(entry => entry.source_grid).filter(Boolean)).size || Math.ceil(entries.length / 9)}</strong><small>每批最多 9 个镜头</small></div>
+            <div><span>{gridLabel}批次</span><strong>{gridCount}</strong><small>每批最多 {gridCells * gridCells} 格{isGuoxue ? "，首批含封面" : ""}</small></div>
             <div><span>预计画面时长</span><strong>{Math.round(entries.reduce((sum, entry) => sum + (entry.estimated_duration || 0), 0))}s</strong><small>跟随配音时间轴</small></div>
-            <div><span>画面动效</span><strong>Zoom In</strong><small>缓慢放大与叠化</small></div>
+            <div><span>画面动效</span><strong>{isGuoxue ? "静帧" : "Zoom In"}</strong><small>{isGuoxue ? "静帧与叠化" : "缓慢放大与叠化"}</small></div>
           </section>
           <section className="image-config-strip" aria-label="当前生图配置">
-            <div><span>生成模式</span><strong>3×3 九宫格切分</strong><small>每批最多 9 个分镜</small></div>
-            <div><span>单图比例</span><strong>9:16</strong><small>与成片画面一致</small></div>
+            <div><span>生成模式</span><strong>{gridCells}×{gridCells} {gridLabel}切分</strong><small>每批最多 {gridCells * gridCells} 格</small></div>
+            <div><span>单图比例</span><strong>{isGuoxue ? "4:3" : "9:16"}</strong><small>{isGuoxue ? "竖版成片使用同图模糊背景填充" : "与成片画面一致"}</small></div>
             <div><span>Provider</span><strong>{providerName}</strong><small>{imageModel}</small></div>
             <div><span>安全规则</span><strong>无可见文字</strong><small>违规语义转生活化类比</small></div>
           </section>
           <div className="image-workbench-toolbar">
             <div><strong>镜头与文案对应</strong><span>点击图片放大检查，卡片下方显示该镜头实际对应的字幕内容。</span></div>
             <div className="image-review-filters" role="tablist" aria-label="图片状态筛选">
-              {([["all", "全部"], ["ready", "已加载"], ["missing", "待加载"]] as const).map(([id, label]) => <button key={id} type="button" className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)} role="tab" aria-selected={filter === id}>{label} {id === "all" ? entries.length : id === "ready" ? Object.keys(urls).length : entries.length - Object.keys(urls).length}</button>)}
+              {([["all", "全部"], ["ready", "已加载"], ["missing", "未加载/已清理"]] as const).map(([id, label]) => <button key={id} type="button" className={filter === id ? "is-active" : ""} onClick={() => setFilter(id)} role="tab" aria-selected={filter === id}>{label} {id === "all" ? entries.length : id === "ready" ? entries.filter(entry => urls[entry.index] && !missingMedia[entry.index]).length : entries.filter(entry => !urls[entry.index] || missingMedia[entry.index]).length}</button>)}
             </div>
           </div>
           <div className="image-review-grid" style={{ marginBottom: 10 }}>
@@ -200,23 +215,25 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
                 <button
                   type="button"
                   key={e.index}
-                  onClick={() => url && setSelectedEntry(e)}
-                  disabled={!url}
+                  onClick={() => url && !missingMedia[e.index] && setSelectedEntry(e)}
+                  disabled={!url || Boolean(missingMedia[e.index])}
                   title={e.sentence}
                   className="image-review-card"
                 >
-                  <div style={{ aspectRatio: "9 / 16", overflow: "hidden" }}>
-                    {url
+                  <div style={{ aspectRatio: isGuoxue ? "4 / 3" : "9 / 16", overflow: "hidden" }}>
+                    {url && !missingMedia[e.index]
                       ? <img src={url} alt={`图片${e.index + 1}`}
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      : <div className="skeleton" style={{ width: "100%", height: "100%", borderRadius: 0 }} aria-label="图片加载中" />
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setMissingMedia(prev => ({ ...prev, [e.index]: true }))} />
+                      : missingMedia[e.index]
+                        ? <div style={{ padding: 16, color: "var(--text-disabled)", fontSize: 12 }}>图片已清理或暂不可用，文案记录仍保留</div>
+                        : <div className="skeleton" style={{ width: "100%", height: "100%", borderRadius: 0 }} aria-label="图片加载中" />
                     }
                   </div>
                   <div className="image-caption">
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3 }}>
                       分镜 {String(e.index + 1).padStart(2, "0")} · {e.char_count ?? "—"} 字 · 约 {e.estimated_duration?.toFixed(1) ?? "—"} 秒
                     </div>
-                    <div style={{ fontSize: 10, color: "var(--text-disabled)" }}>{e.motion === "zoom_in" || !e.motion ? "缓慢放大" : e.motion} · 叠化</div>
+                    <div style={{ fontSize: 10, color: "var(--text-disabled)" }}>{isGuoxue ? "静帧" : e.motion === "zoom_in" || !e.motion ? "缓慢放大" : e.motion} · 叠化</div>
                     <div className="image-sentence">{e.sentence}</div>
                     {e.prompt && <div className="image-prompt-preview">生成提示词：{e.prompt}</div>}
                   </div>
@@ -225,7 +242,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
             })}
           </div>
           {visibleEntries.length === 0 && <p className="state-panel compact">当前筛选没有对应图片。</p>}
-          <p className="capability-note">共 {entries.length} 张 · 当前版本按完整九宫格批次生成并切分。<span>后续能力：镜头级提示词编辑、单图重生成和违规替换记录，需要 Worker 镜头级任务接口后开放。</span></p>
+          <p className="capability-note">共 {entries.length} 张 · 按完整{gridLabel}批次生成并切分。可逐张检查画面并提交替换请求；到期清理媒体后，分镜文案记录仍保留。</p>
         </>
       ) : (
         stage?.status === "done" && (
