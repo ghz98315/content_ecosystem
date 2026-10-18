@@ -49,7 +49,7 @@ export function ManualUpload({
 
   return (
     <div style={S.box}>
-      <div style={{ fontSize: 13, color: "#92400e", marginBottom: 6 }}>
+      <div style={{ fontSize: 13, color: "var(--status-review)", marginBottom: 6 }}>
         自动采集失败，可手动上传视频/音频兜底：
       </div>
       <input
@@ -75,7 +75,7 @@ export function ManualUpload({
       <button style={S.btn} onClick={submit} disabled={busy}>
         {busy ? "上传中…" : "上传并继续"}
       </button>
-      {err && <div style={{ color: "#dc2626", fontSize: 12, marginTop: 4 }}>{err}</div>}
+      {err && <div style={{ color: "var(--status-failed)", fontSize: 12, marginTop: 4 }}>{err}</div>}
     </div>
   );
 }
@@ -86,7 +86,7 @@ async function readResponse(response: Response): Promise<{ error?: string; path?
 }
 
 const S: Record<string, React.CSSProperties> = {
-  box: { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: 12, marginTop: 8 },
+  box: { background: "var(--warning-soft)", border: "1px solid #fde68a", borderRadius: 8, padding: 12, marginTop: 8 },
   input: { flex: 1, padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 13 },
   btn: { marginTop: 6, padding: "6px 14px", background: "#d97706", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 13 },
 };

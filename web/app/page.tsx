@@ -27,6 +27,8 @@ export default function HomePage() {
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => { if (new URLSearchParams(window.location.search).get('new') === '1') setShowForm(true); }, []);
+
   const load = async () => {
     setTasksLoading(true);
     setTasksError(null);
@@ -88,12 +90,12 @@ export default function HomePage() {
   return <AppShell tasks={tasks} onCreateTask={openForm}>
     <div className="dashboard-page anim-fade-in">
       <section className="dashboard-heading">
-        <div><p className="eyebrow">内容项目库</p><h1>把每一本书，变成可发布的内容</h1><p className="dashboard-lede">集中管理采集、改写、配音和成片，随时回到上次停下的位置。</p></div>
+        <div><p className="eyebrow">创作工作台 / OVERVIEW</p><h1>让好内容，持续发生。</h1><p className="dashboard-lede">从一个选题到一条成片，掌握每一步进度。</p></div>
         <button className="primary-action dashboard-create" onClick={openForm}><span aria-hidden="true">＋</span> 新建项目</button>
       </section>
 
       <section className="metric-grid" aria-label="项目概览">
-        {[{ label: "全部项目", value: stats.total, hint: "累计创建" }, { label: "正在处理", value: stats.active, hint: "worker 处理中" }, { label: "待确认", value: stats.review, hint: "需要你的判断" }, { label: "已产出成片", value: stats.done, hint: "可下载发布" }].map((item, i) => <div className={`metric-card metric-${i}`} key={item.label}><span>{item.label}</span><strong>{item.value}</strong><small>{item.hint}</small></div>)}
+        {[{ label: "全部项目", value: stats.total, hint: "累计创建" }, { label: "正在处理", value: stats.active, hint: "后台处理中" }, { label: "待确认", value: stats.review, hint: "需要你的判断" }, { label: "已产出成片", value: stats.done, hint: "可下载发布" }].map((item, i) => <div className={`metric-card metric-${i}`} key={item.label}><span>{item.label}</span><strong>{item.value}</strong><small>{item.hint}</small></div>)}
       </section>
 
       {showForm && <section className="create-panel create-panel-large anim-fade-in" aria-label="新建项目">

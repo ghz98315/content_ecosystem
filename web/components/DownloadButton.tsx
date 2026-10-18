@@ -39,7 +39,7 @@ export function DownloadButton({
       <button style={S.btn} onClick={download} disabled={busy}>
         {busy ? "生成链接中…" : `⬇ ${label}`}
       </button>
-      {err && <p style={{ color: "#dc2626", fontSize: 12, marginTop: 4 }}>{err}</p>}
+      {err && <p style={{ color: "var(--status-failed)", fontSize: 12, marginTop: 4 }}>{err}</p>}
     </div>
   );
 }

@@ -2,12 +2,12 @@
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 
 import { BackgroundMusicSettings } from "./BackgroundMusicSettings";
+import { PublicationPanel } from "./PublicationPanel";
 import { PRODUCTION_TEMPLATES } from "@/lib/productionTemplates";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { DetailShell, TextBtn, DetailCommon } from "./_shell";
-import { splitSourceDescription } from "@/lib/sourceMetadata";
 
 interface QualityCheck {
   id: string;
@@ -41,7 +41,7 @@ interface BookArtifact {
 }
 
 const QUALITY_LABEL = { passed: "通过", warning: "需复核", failed: "未通过" } as const;
-const QUALITY_COLOR = { passed: "#15803d", warning: "#b45309", failed: "#b91c1c" } as const;
+const QUALITY_COLOR = { passed: "var(--status-done)", warning: "var(--status-review)", failed: "var(--status-failed)" } as const;
 
 export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: DetailCommon) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -49,8 +49,6 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [bookName, setBookName] = useState("");
-  const [publication, setPublication] = useState<BookArtifact | null>(null);
-  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
   const [creatingRepost, setCreatingRepost] = useState(false);
   const [repostError, setRepostError] = useState<string | null>(null);
@@ -113,10 +111,9 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         const book = await fetch(signed.signedUrl).then(response => response.json()) as BookArtifact;
         if (active) {
           setBookName(book.book_name?.trim() || "");
-          setPublication(book);
         }
       } catch {
-        if (active) { setBookName(""); setPublication(null); }
+        if (active) setBookName("");
       }
     })();
     return () => { active = false; };
@@ -222,29 +219,6 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
     router.push(`/task/${data}`);
   };
 
-  const copyPublication = async (label: string, value: string) => {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopyNotice(`已复制${label}`);
-      window.setTimeout(() => setCopyNotice(null), 1_500);
-    } catch {
-      setCopyNotice("复制失败，请检查剪贴板权限");
-    }
-  };
-
-  const legacySource = splitSourceDescription(task.title);
-  const sourceTitle = publication?.source_title?.trim() || legacySource.title;
-  const sourceTags = Array.isArray(publication?.source_tags) && publication.source_tags.length
-    ? publication.source_tags.filter(Boolean)
-    : (task.source_tags?.length ? task.source_tags : legacySource.tags);
-  const publishTitle = publication?.publish_title?.trim() || publication?.title_short?.trim() || "";
-  const publicationText = [
-    `原标题：${sourceTitle}`,
-    `标签：${sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ")}`,
-    `建议发布标题：${publishTitle}`,
-  ].join("\n");
-
   const canCreateRepost = stage?.status === "done" && task.rewrite_mode !== "repost_dedup";
   const canApprove = stage?.status === "needs_review";
   const productionTemplate = PRODUCTION_TEMPLATES.find(item => item.id === stage?.params.production_template);
@@ -277,7 +251,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       {repostError && (
         <div style={{
           marginBottom: 16, padding: "8px 12px", borderRadius: "var(--radius-md)",
-          background: "#fff5f5", border: "1px solid #fecaca",
+          background: "var(--error-soft)", border: "1px solid #fecaca",
           color: "var(--status-failed)", fontSize: 12,
         }}>
           {repostError}
@@ -317,17 +291,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         </section>
       )}
 
-      {(sourceTitle || sourceTags.length > 0 || publishTitle) && (
-        <section className="publication-panel" aria-labelledby="publication-title">
-          <div className="render-panel-heading"><div><strong id="publication-title">发布内容表</strong><span>成片完成后可直接复制使用；标签保持来源数据，建议标题不超过16字且不含标点。</span></div><TextBtn onClick={() => void copyPublication("发布内容表", publicationText)}>复制整表</TextBtn></div>
-          <dl>
-            <div><dt>原标题</dt><dd>{sourceTitle || "—"}</dd><button type="button" onClick={() => void copyPublication("原标题", sourceTitle)}>复制</button></div>
-            <div><dt>来源标签</dt><dd>{sourceTags.length ? sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ") : "—"}</dd><button type="button" disabled={!sourceTags.length} onClick={() => void copyPublication("标签", sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" "))}>复制</button></div>
-            <div><dt>建议发布标题</dt><dd>{publishTitle || "等待书籍阶段生成"}</dd><button type="button" disabled={!publishTitle} onClick={() => void copyPublication("建议发布标题", publishTitle)}>复制</button></div>
-          </dl>
-          {copyNotice && <p className="publication-copy-notice" role="status">{copyNotice}</p>}
-        </section>
-      )}
+      <PublicationPanel taskId={taskId} />
 
       {(qualityLoading || quality || qualityUnavailable) && (
         <section className="quality-panel" style={{ marginBottom: 24 }}>

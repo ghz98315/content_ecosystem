@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./workbench.css";
 
 export const metadata = {
   title: "内容创作台",

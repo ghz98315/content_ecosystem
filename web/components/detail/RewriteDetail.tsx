@@ -287,7 +287,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
                       boxSizing: "border-box",
                       border: "1px solid var(--border-focus)", borderRadius: "var(--radius-md)",
                       font: "inherit", fontSize: 13, lineHeight: 1.8,
-                      color: "var(--text-primary)", background: "#fff",
+                      color: "var(--text-primary)", background: "var(--bg-surface)",
                     }}
                   />
                   </>

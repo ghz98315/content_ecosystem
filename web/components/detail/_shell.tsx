@@ -44,9 +44,9 @@ export function DetailShell({
   const isReview     = status === "needs_review";
   const isCancelled  = status === "cancelled";
   const canRerun     = stage && !isPending && !isProcessing && !isCancelled;
-  const diagnosticBackground = errorTone === "warning" ? "#fffbeb" : "#fff5f5";
-  const diagnosticBorder = errorTone === "warning" ? "#fde68a" : "#fecaca";
-  const diagnosticColor = errorTone === "warning" ? "#a16207" : "var(--status-failed)";
+  const diagnosticBackground = errorTone === "warning" ? "var(--warning-soft)" : "var(--error-soft)";
+  const diagnosticBorder = errorTone === "warning" ? "var(--warning-border)" : "var(--error-border)";
+  const diagnosticColor = errorTone === "warning" ? "var(--status-review)" : "var(--status-failed)";
   const stageIndex = stage ? STAGES.findIndex(item => item.kind === stage.kind) : -1;
   const externalAudio = stage?.kind === 'tts' && stage.params.audio_source === 'external';
   const downstreamCount = externalAudio ? 1 : stageIndex >= 0 ? STAGES.length - stageIndex - 1 : 0;
@@ -101,7 +101,7 @@ export function DetailShell({
 
       {isProcessing && (
         <p className="stage-pending" aria-live="polite">
-          该阶段正在处理中，worker 心跳正常时会自动继续。
+          该阶段正在处理中，结果就绪后会自动更新。
         </p>
       )}
 
@@ -131,8 +131,8 @@ export function TextBtn({
   variant?: "default" | "primary" | "danger";
   ariaLabel?: string;
 }) {
-  const bg = variant === "primary" ? "#111827" : variant === "danger" ? "#fee2e2" : "var(--bg-hover)";
-  const fg = variant === "primary" ? "#fff" : variant === "danger" ? "var(--status-failed)" : "var(--text-secondary)";
+  const bg = variant === "primary" ? "var(--accent)" : variant === "danger" ? "var(--error-soft)" : "var(--bg-hover)";
+  const fg = variant === "primary" ? "var(--on-accent)" : variant === "danger" ? "var(--status-failed)" : "var(--text-secondary)";
   return (
     <button
       type="button"

@@ -52,9 +52,9 @@ export function BookReview({ stage }: { stage: Stage }) {
   };
 
   if (!data && !err)
-    return <div style={{ fontSize: 13, color: "#6b7280", marginTop: 8 }}>加载书籍信息中…</div>;
+    return <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8 }}>加载书籍信息中…</div>;
   if (err)
-    return <div style={{ fontSize: 13, color: "#dc2626", marginTop: 8 }}>{err}</div>;
+    return <div style={{ fontSize: 13, color: "var(--status-failed)", marginTop: 8 }}>{err}</div>;
 
   const rows: [string, string][] = [
     ["作者", data!.author],
@@ -67,7 +67,7 @@ export function BookReview({ stage }: { stage: Stage }) {
   return (
     <div style={{ marginTop: 10 }}>
       <div style={{ marginBottom: 8 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>书名（可修改）</label>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>书名（可修改）</label>
         <input
           value={bookName}
           onChange={e => setBookName(e.target.value)}
@@ -78,7 +78,7 @@ export function BookReview({ stage }: { stage: Stage }) {
           }}
         />
       </div>
-      <table style={{ fontSize: 12, color: "#6b7280", borderCollapse: "collapse", width: "100%", marginBottom: 10 }}>
+      <table style={{ fontSize: 12, color: "var(--text-secondary)", borderCollapse: "collapse", width: "100%", marginBottom: 10 }}>
         <tbody>
           {rows.map(([label, val]) => (
             <tr key={label}>
@@ -95,7 +95,7 @@ export function BookReview({ stage }: { stage: Stage }) {
       >
         {busy ? "提交中…" : "确认继续"}
       </button>
-      {err && <div style={{ color: "#dc2626", fontSize: 12, marginTop: 4 }}>{err}</div>}
+      {err && <div style={{ color: "var(--status-failed)", fontSize: 12, marginTop: 4 }}>{err}</div>}
     </div>
   );
 }

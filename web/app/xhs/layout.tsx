@@ -20,5 +20,5 @@ export default function XhsLayout({ children }: { children: React.ReactNode }) {
     load()
   }, [])
 
-  return <AppShell tasks={tasks}>{children}</AppShell>
+  return <AppShell tasks={tasks}><div className="studio-knowledge">{children}</div></AppShell>
 }

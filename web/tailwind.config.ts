@@ -9,13 +9,13 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        'xhs-primary':  '#29392F',
-        'xhs-accent':   '#5B7D68',
-        'xhs-card':     '#F7F7F2',
-        'xhs-cta':      '#EDF4EE',
-        'xhs-border':   '#E2E6DF',
-        'xhs-text':     '#344054',
-        'xhs-muted':    '#667085',
+        'xhs-primary':  'var(--text-primary)',
+        'xhs-accent':   'rgb(var(--accent-rgb) / <alpha-value>)',
+        'xhs-card':     'var(--bg-surface)',
+        'xhs-cta':      'var(--accent-soft)',
+        'xhs-border':   'var(--border)',
+        'xhs-text':     'var(--text-primary)',
+        'xhs-muted':    'var(--text-secondary)',
       },
       fontFamily: {
         sans: ['PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'sans-serif'],

@@ -1,35 +1,18 @@
 "use client";
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import { Stage, Task, STAGES } from '@/lib/types';
-import { elapsedLabel, TimingRecord, workflowTiming } from '@/lib/workflowTiming';
-import { PRODUCTION_TEMPLATES } from '@/lib/productionTemplates';
+import { clockLabel, elapsedLabel } from '@/lib/workflowTiming';
+import { WorkflowClock } from '@/lib/useWorkflowClock';
+import { Icon } from './Icon';
 
-export function WorkflowTiming({ task, stages }: { task: Task; stages: Stage[] }) {
-  const [records,setRecords] = useState<TimingRecord[]>([]);
-  const [now,setNow] = useState(Date.now());
-  const [error,setError] = useState('');
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      const { data,error } = await supabase.from('artifacts').select('type,stage_kind,created_at,meta').eq('task_id',task.id).in('type',['stage_timing','final']).order('created_at');
-      if (!active) return;
-      setNow(Date.now());
-      if (error) setError('计时记录暂时读取失败');
-      else { setRecords((data || []) as TimingRecord[]); setError(''); }
-    }
-    void load();
-    const interval=setInterval(() => { void load(); },10000);
-    return () => { active=false; clearInterval(interval); };
-  },[task.id,task.updated_at]);
-  const stopped = ['cancelled','failed'].includes(task.status) ? Date.parse(task.updated_at) : now;
-  const timing=workflowTiming(task.created_at,task.status,records,stages,stopped);
-  const template=stages.find(stage => stage.kind === 'render')?.params.production_template;
-  return <section className="book-info-panel" aria-label="全流程耗时" style={{ margin: '12px 0',padding: 16 }}>
-    <strong>全流程耗时</strong> {Boolean(template) && <span> · {PRODUCTION_TEMPLATES.find(item => item.id === template)?.label || '历史模板'}</span>}
-    <p>{timing.finished ? '创建至成片' : '自创建累计'}：{elapsedLabel(timing.total)}　已记录处理：{elapsedLabel(timing.processing)}　等待确认与排队：{timing.waiting == null ? '记录不完整，暂不估算' : elapsedLabel(timing.waiting)}</p>
-    <details><summary>各节点处理耗时</summary>{timing.byStage.map(stage => <p key={stage.kind}>{STAGES.find(item => item.kind === stage.kind)?.label}：{stage.attempts ? `${elapsedLabel(stage.milliseconds)}（${stage.attempts}次执行）` : stage.skipped ? '自动复用已有信息，无额外处理' : '暂无计时记录'}</p>)}</details>
-    {!timing.complete && <small>历史任务或中断节点可能缺少计时，已有成片的总耗时仍按实际创建和产出时间计算。</small>}
-    {error && <p role="alert">{error}</p>}
+export function WorkflowTiming({ task, stages, clock }: { task: Task; stages: Stage[]; clock: WorkflowClock }) {
+  const timing = clock.summary;
+  if (!timing) return null;
+  const running = stages.filter(stage => stage.status === 'processing').length;
+  return <section className="workflow-telemetry" aria-label="全流程耗时">
+    <div className="timing-primary"><span><Icon name="clock" size={14}/>{timing.finished ? '创建至成片' : '总历时'}</span><strong>{clockLabel(timing.total)}</strong><small>{running ? `${running} 个节点运行中` : task.status === 'needs_review' ? '等待人工确认' : '按实际执行记录统计'}</small></div>
+    <div className="timing-secondary"><span>自动处理</span><strong>{clockLabel(timing.processing)}</strong><small>并行时间已去重</small></div>
+    <div className="timing-secondary"><span>等待与排队</span><strong>{timing.waiting == null ? '—' : clockLabel(timing.waiting)}</strong><small>{timing.waiting == null ? '历史记录不完整' : '含人工确认时间'}</small></div>
+    <details className="timing-records"><summary>执行记录<Icon name="chevron" size={13}/></summary><div className="timing-record-list">{timing.byStage.map(item => <p key={item.kind}><span>{STAGES.find(stage => stage.kind === item.kind)?.label}</span><b>{item.attempts ? elapsedLabel(item.milliseconds) : item.skipped ? '已复用' : '暂无记录'}</b><small>{item.attempts ? `${item.attempts}次执行` : ''}</small></p>)}{!timing.complete && <small>部分历史节点缺少计时记录，等待时长不作推算。</small>}</div></details>
+    {clock.error && <span className="timing-error" role="status">{clock.error}</span>}
   </section>;
 }

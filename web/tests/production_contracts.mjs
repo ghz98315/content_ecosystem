@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 function load(file,requireImpl) { const module={exports:{}};new Function('module','exports','require',ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(module,module.exports,requireImpl);return module.exports; }
 const {productionTemplate,configureProductionTasks}=load('lib/productionTemplates.ts');
-const {workflowTiming,unionMilliseconds}=load('lib/workflowTiming.ts');
+const {workflowTiming,unionMilliseconds,nodeClock,clockLabel}=load('lib/workflowTiming.ts');
 assert.equal(productionTemplate('guoxue-v1').aspect,'4:3');
 assert.equal(productionTemplate('health-v1').aspect,'9:16');
 assert.throws(()=>productionTemplate('unknown'));
@@ -17,6 +17,13 @@ const records=[{type:'stage_timing',stage_kind:'render',meta:{stage_id:'s',start
 const timing=workflowTiming('2026-10-16T00:00:00Z','done',records,stages,Date.parse('2026-10-16T01:00:00Z'));
 assert.equal(timing.total,60000);assert.equal(timing.processing,30000);assert.equal(timing.waiting,30000);
 assert.equal(workflowTiming('2026-10-16T00:00:00Z','done',[records[1]],stages).waiting,null);
+assert.equal(clockLabel(3_661_000),'1:01:01');
+const activeStage={id:'clock',status:'processing',updated_at:'2026-10-16T00:01:00Z',params:{}};
+const clockRecords=[{type:'stage_timing',stage_kind:'image',meta:{stage_id:'clock',started_at:'2026-10-16T00:00:00Z',state:'running'}}];
+assert.equal(nodeClock(activeStage,clockRecords,Date.parse('2026-10-16T00:01:15Z')).label,'01:15');
+assert.equal(nodeClock(activeStage,[{...clockRecords[0],meta:{...clockRecords[0].meta,state:'finished',ended_at:'2026-10-16T00:00:30Z'}}],Date.now()).label,'计时同步中');
+assert.equal(nodeClock({...activeStage,status:'needs_review'},clockRecords,Date.parse('2026-10-16T00:02:00Z')).label,'待确认 01:00');
+assert.equal(nodeClock({...activeStage,status:'done',params:{skipped:true}},[],Date.now()).label,'已复用');
 const {authenticatedFetch}=load('lib/authenticatedFetch.ts',()=>({supabase:{auth:{getSession:async()=>({data:{session:{access_token:'unit-test-token'}}})}}}));
 const originalFetch=globalThis.fetch;let captured;
 try {

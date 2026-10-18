@@ -27,7 +27,7 @@ function ImageThumb({ path, sentence }: { path: string; sentence: string }) {
   useEffect(() => {
     getSignedUrl(path).then(setUrl).catch(() => {});
   }, [path]);
-  if (!url) return <div style={{ width: 80, height: 80, background: "#f3f4f6", borderRadius: 4 }} />;
+  if (!url) return <div style={{ width: 80, height: 80, background: "var(--bg-surface)", borderRadius: 4 }} />;
   return (
     <img
       src={url}
@@ -98,8 +98,8 @@ export function StageArtifact({ kind, outputRef }: { kind: StageKind; outputRef:
   }, [outputRef, kind]);
 
   if (!outputRef || outputRef.startsWith("m0-fake")) return null;
-  if (err) return <div style={{ fontSize: 12, color: "#dc2626", marginTop: 4 }}>{err}</div>;
-  if (!artifact) return <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>加载产物…</div>;
+  if (err) return <div style={{ fontSize: 12, color: "var(--status-failed)", marginTop: 4 }}>{err}</div>;
+  if (!artifact) return <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>加载产物…</div>;
 
   if (artifact.type === "audio") {
     return (
@@ -124,11 +124,11 @@ export function StageArtifact({ kind, outputRef }: { kind: StageKind; outputRef:
   if (artifact.type === "text") {
     return (
       <div style={{ marginTop: 6 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 3 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 3 }}>
           {artifact.label}
         </div>
         <pre style={{
-          fontSize: 12, color: "#374151", background: "#f9fafb",
+          fontSize: 12, color: "var(--text-primary)", background: "var(--bg-surface)",
           padding: "8px 10px", borderRadius: 5, margin: 0,
           whiteSpace: "pre-wrap", lineHeight: 1.5,
           maxHeight: 180, overflow: "auto",
@@ -142,7 +142,7 @@ export function StageArtifact({ kind, outputRef }: { kind: StageKind; outputRef:
 
   if (artifact.type === "book") {
     return (
-      <table style={{ fontSize: 12, color: "#6b7280", borderCollapse: "collapse", marginTop: 6, width: "100%" }}>
+      <table style={{ fontSize: 12, color: "var(--text-secondary)", borderCollapse: "collapse", marginTop: 6, width: "100%" }}>
         <tbody>
           {artifact.fields.map(([label, val]) => (
             <tr key={label}>

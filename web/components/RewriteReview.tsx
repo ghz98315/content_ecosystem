@@ -51,10 +51,10 @@ export function RewriteReview({ taskId, stage }: { taskId: string; stage: Stage 
   };
 
   if (!data && !err)
-    return <div style={{ fontSize: 13, color: "#6b7280", marginTop: 8 }}>加载候选中…</div>;
+    return <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8 }}>加载候选中…</div>;
 
   if (err)
-    return <div style={{ fontSize: 13, color: "#dc2626", marginTop: 8 }}>{err}</div>;
+    return <div style={{ fontSize: 13, color: "var(--status-failed)", marginTop: 8 }}>{err}</div>;
 
   return (
     <div style={{ marginTop: 10 }}>
@@ -69,7 +69,7 @@ export function RewriteReview({ taskId, stage }: { taskId: string; stage: Stage 
           }}
           onClick={() => setSelected(i)}
         >
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", marginBottom: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>
             候选 {["A", "B", "C"][i] ?? i + 1}
           </div>
           <pre style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.6, fontFamily: "inherit", userSelect: "none", pointerEvents: "none" }}>
@@ -84,7 +84,7 @@ export function RewriteReview({ taskId, stage }: { taskId: string; stage: Stage 
       >
         {busy ? "提交中…" : "确认继续"}
       </button>
-      {err && <div style={{ color: "#dc2626", fontSize: 12, marginTop: 4 }}>{err}</div>}
+      {err && <div style={{ color: "var(--status-failed)", fontSize: 12, marginTop: 4 }}>{err}</div>}
     </div>
   );
 }

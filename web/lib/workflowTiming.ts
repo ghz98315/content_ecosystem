@@ -31,3 +31,27 @@ export function elapsedLabel(ms: number) {
   const seconds = Math.max(0, Math.floor(ms/1000));
   return `${Math.floor(seconds/3600)}小时${Math.floor(seconds%3600/60)}分${seconds%60}秒`;
 }
+
+export function clockLabel(milliseconds: number) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes >= 60 ? `${Math.floor(minutes / 60)}:` : ''}${String(minutes % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+export function nodeClock(stage: { id: string; status: string; updated_at: string; params: Record<string, unknown> } | undefined, records: TimingRecord[], now: number) {
+  if (!stage) return { label: '等待上游', running: false, attempts: 0 };
+  const attempts = records.filter(row => row.type === 'stage_timing' && row.meta.stage_id === stage.id).sort((a, b) => String(a.meta.started_at).localeCompare(String(b.meta.started_at)));
+  const last = attempts[attempts.length - 1];
+  if (stage.params.skipped && stage.status === 'done') return { label: '已复用', running: false, attempts: attempts.length };
+  if (stage.status === 'processing') {
+    const start = Date.parse(last?.meta.started_at || '');
+    // A finished clock belongs to a previous attempt while the next start record is in flight.
+    return { label: last?.meta.state === 'running' && Number.isFinite(start) ? clockLabel(now - start) : '计时同步中', running: true, attempts: attempts.length };
+  }
+  const duration = last ? Date.parse(last.meta.ended_at || stage.updated_at) - Date.parse(last.meta.started_at) : NaN;
+  const label = stage.status === 'needs_review' ? `待确认 ${clockLabel(now - Date.parse(stage.updated_at))}`
+    : stage.status === 'pending' ? '等待上游 / 排队'
+    : stage.status === 'cancelled' ? '已取消'
+    : Number.isFinite(duration) ? clockLabel(duration) : '暂无计时';
+  return { label, running: false, attempts: attempts.length };
+}
