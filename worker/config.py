@@ -18,7 +18,7 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 DEEPSEEK_TIMEOUT = float(os.environ.get("DEEPSEEK_TIMEOUT", "110"))
 DEEPSEEK_RETRIES = max(0, int(os.environ.get("DEEPSEEK_RETRIES", "1")))
-REWRITE_PROVIDER = os.environ.get("REWRITE_PROVIDER", "deepseek").strip().lower()
+REWRITE_PROVIDER = os.environ.get("REWRITE_PROVIDER", "openai").strip().lower()
 REWRITE_TIMEOUT = float(os.environ.get("REWRITE_TIMEOUT", "150"))
 REWRITE_RETRIES = max(0, int(os.environ.get("REWRITE_RETRIES", "2")))
 REWRITE_MAX_TOKENS = max(1024, int(os.environ.get("REWRITE_MAX_TOKENS", "8192")))
@@ -105,7 +105,7 @@ def clean_client():
 
 
 def rewrite_client():
-    """Keep long-form rewriting off a third-party proxy by default."""
+    """Route long-form rewriting through the configured provider and base URL."""
     if REWRITE_PROVIDER == "deepseek":
         if not DEEPSEEK_API_KEY:
             raise RuntimeError("改写阶段缺少 DEEPSEEK_API_KEY，请在 worker/.env 中配置")
