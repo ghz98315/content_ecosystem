@@ -6,6 +6,19 @@ from stages.render import _render_text_settings
 
 
 class ProductionContractTests(unittest.TestCase):
+    def test_landscape_shots_alternate_only_two_motion_types(self):
+        from stages.render import _make_image_clip
+        with patch('stages.render._make_landscape_clip') as make:
+            for index in range(4):
+                _make_image_clip('image.png', 'layout.png', 20, 'clip.mp4', frame_mode='landscape_blur', shot_index=index)
+        self.assertEqual(['zoom_in', 'zoom_out', 'zoom_in', 'zoom_out'], [call.kwargs['motion'] for call in make.call_args_list])
+
+    def test_landscape_cover_remains_static(self):
+        from stages.render import _make_cover_clip
+        with patch('stages.render._make_landscape_clip') as make:
+            _make_cover_clip('image.png', 'layout.png', 0.5, 'cover.mp4', frame_mode='landscape_blur')
+        make.assert_called_once_with('image.png', 0.5, 'cover.mp4')
+
     def test_actual_4k_landscape_pixel_budget_is_accepted(self):
         from stages.image import _validate_guoxue_resolution
         self.assertIsNone(_validate_guoxue_resolution(3312,2480))

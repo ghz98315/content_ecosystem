@@ -30,6 +30,7 @@ INTRO_DUR = COVER_FRAMES / FPS
 TRANSITION_DUR = 0.2
 ZOOM_OVERSAMPLE = 4
 ZOOM_AMOUNT = 0.10
+LANDSCAPE_ZOOM_AMOUNT = 0.06
 DISCLAIMER_GAP_LINES = 4
 TITLE_FONT_SIZE = 84
 AUTHOR_FONT_SIZE = 52
@@ -501,9 +502,8 @@ def _landscape_composition_graph() -> str:
     )
 
 
-def _make_landscape_clip(img_path: str, duration: float, out_mp4: str) -> None:
-    # The landscape layout is static. Compose/blur it once instead of running
-    # the expensive Gaussian blur on every frame of a long narration shot.
+def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion: str | None = None) -> None:
+    # Bake the blurred backdrop once; animate only the 4:3 foreground viewport.
     from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
     foreground_h = round(W * 3 / 4)
@@ -517,9 +517,31 @@ def _make_landscape_clip(img_path: str, duration: float, out_mp4: str) -> None:
         foreground = ImageOps.contain(source, (W, foreground_h), method=Image.Resampling.LANCZOS)
         panel = Image.new('RGB', (W, foreground_h), '#e4dfd3')
         panel.paste(foreground, ((W - foreground.width) // 2, (foreground_h - foreground.height) // 2))
-        background.paste(panel, (0, foreground_y))
+        if motion is None:
+            background.paste(panel, (0, foreground_y))
         background.save(still_path, format='PNG')
     try:
+        if motion is not None:
+            if motion not in ('zoom_in', 'zoom_out'):
+                raise ValueError(f'Unsupported landscape motion: {motion}')
+            frames = max(2, round(duration * FPS))
+            easing = f'(3*pow(on/{frames - 1},2)-2*pow(on/{frames - 1},3))'
+            progress = easing if motion == 'zoom_in' else f'(1-{easing})'
+            graph = (
+                f'[1:v]scale={W * 2}:{foreground_h * 2}:force_original_aspect_ratio=increase:flags=lanczos,'
+                f'crop={W * 2}:{foreground_h * 2},'
+                f"zoompan=z='1+{LANDSCAPE_ZOOM_AMOUNT}*{progress}':"
+                "x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
+                f'd={frames}:s={W}x{foreground_h}:fps={FPS}[photo];'
+                f'[0:v][photo]overlay=0:{foreground_y}:shortest=1,setsar=1,format=yuv420p[v]'
+            )
+            _run_ffmpeg([
+                ff(), '-y', '-loop', '1', '-framerate', str(FPS), '-i', still_path,
+                '-i', img_path, '-filter_complex', graph, '-map', '[v]',
+                '-frames:v', str(frames), *_encoder_args(intermediate=True),
+                '-r', str(FPS), '-an', out_mp4,
+            ], check=True, capture_output=True)
+            return
         _run_ffmpeg([
             ff(), '-y', '-loop', '1', '-framerate', str(FPS), '-i', still_path,
             '-frames:v', str(max(1, round(duration * FPS))),
@@ -547,9 +569,9 @@ def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: 
     ], check=True, capture_output=True)
 
 
-def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None) -> None:
+def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None, shot_index: int = 0) -> None:
     if frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(img_path)):
-        return _make_landscape_clip(img_path, duration, out_mp4)
+        return _make_landscape_clip(img_path, duration, out_mp4, motion='zoom_in' if shot_index % 2 == 0 else 'zoom_out')
     frames = max(2, round(duration * FPS))
     zoom_denominator = frames - 1
     zoom_easing = (
@@ -844,7 +866,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             image_local = storage.download_artifact(item["path"], ".png")
             clip = os.path.join(tmpdir, f"clip_{i:03d}.mp4")
             try:
-                _make_image_clip(image_local, layout_png, duration, clip, frame_mode=frame_mode)
+                _make_image_clip(image_local, layout_png, duration, clip, frame_mode=frame_mode, shot_index=i)
             finally:
                 try:
                     os.remove(image_local)
@@ -1006,9 +1028,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             "intro_duration": INTRO_DUR,
             "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
             "cover_frames": COVER_FRAMES,
-            "motion": "static_landscape" if landscape_layout else "zoom_in",
-            "zoom_amount": 0 if landscape_layout else ZOOM_AMOUNT,
-            "zoom_oversample": ZOOM_OVERSAMPLE,
+            "motion": "alternating_zoom_in_out" if landscape_layout else "zoom_in",
+            "zoom_amount": LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT,
+            "zoom_oversample": 2 if landscape_layout else ZOOM_OVERSAMPLE,
             "transition": transition_mode,
             "transition_duration": TRANSITION_DUR,
             "timeline_version": 3 if is_timeline_v3 else 2,
