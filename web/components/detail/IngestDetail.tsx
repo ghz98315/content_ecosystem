@@ -6,6 +6,8 @@ import { DetailShell, DetailCommon } from "./_shell";
 import { ManualUpload } from "@/components/ManualUpload";
 
 interface Meta {
+  resolver?: string;
+  stats_display?: {likes?:string;comments?:string;shares?:string;saves?:string};
   digg_count?: number;
   comment_count?: number;
   share_count?: number;
@@ -66,7 +68,8 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
 
   return (
     <DetailShell title="采集" stage={stage} onRerun={onRerun}>
-      {isWechatChannels && stage?.status === "needs_review" && <section style={{ marginBottom: 24 }}><Label>视频号授权上传</Label><p style={{ margin: "0 0 10px", color: "var(--text-secondary)", fontSize: 13 }}>该链接不会自动下载。确认拥有内容使用授权后，上传视频或音频，系统将继续后续生产流程。</p><ManualUpload taskId={taskId} stage={stage} /></section>}
+      {isWechatChannels && <p style={{fontSize:13,color:'var(--text-secondary)',marginBottom:18}}>视频号支持自动解析与采集。登录态失效或内容不可读取时，请按节点提示更新元宝登录态并重跑采集，也可上传视频或音频继续。<br />{meta?.resolver==='wechat_channels_yuanbao'?'本次已通过元宝登录态自动采集；互动数保留平台展示口径，暂无热门评论数据。':''}</p>}
+      {isWechatChannels && stage?.status === "needs_review" && <section style={{ marginBottom: 24 }}><Label>视频号上传兜底</Label><p style={{ margin: "0 0 10px", color: "var(--text-secondary)", fontSize: 13 }}>自动采集未完成。确认拥有内容使用授权后，也可上传视频或音频继续。</p><ManualUpload taskId={taskId} stage={stage} /></section>}
       {/* 视频信息 */}
       <section style={{ marginBottom: 24 }}>
         <Label>视频信息</Label>
@@ -84,10 +87,10 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       <section style={{ marginBottom: 24 }}>
         <Label>数据指标</Label>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <StatCard label="点赞数" value={fmt(meta?.digg_count ?? task.play_count ?? undefined)} />
-          <StatCard label="评论数" value={fmt(meta?.comment_count)} />
-          <StatCard label="分享数" value={fmt(meta?.share_count)} />
-          <StatCard label="收藏数" value={fmt(meta?.collect_count)} />
+          <StatCard label="点赞数" value={meta?.stats_display?.likes ?? fmt(meta?.digg_count ?? task.play_count ?? undefined)} />
+          <StatCard label="评论数" value={meta?.stats_display?.comments ?? fmt(meta?.comment_count)} />
+          <StatCard label="分享数" value={meta?.stats_display?.shares ?? fmt(meta?.share_count)} />
+          <StatCard label="收藏数" value={meta?.stats_display?.saves ?? fmt(meta?.collect_count)} />
         </div>
       </section>
 

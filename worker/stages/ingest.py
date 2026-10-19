@@ -10,10 +10,11 @@ from __future__ import annotations
 import os
 import re
 import json
+import subprocess
 
 import db
 import storage
-from resolvers import self_resolver
+from resolvers import self_resolver, wechat_channels
 from source_metadata import split_source_description
 
 
@@ -38,12 +39,46 @@ def _write_task_meta(task_id: str, res) -> None:
             db.get_client().table("tasks").update(dict(patch)).eq("id", task_id).execute()
 
 
-def _requires_manual_upload(source_platform: str) -> bool:
+def _is_wechat_platform(source_platform: str) -> bool:
     return source_platform == "wechat_channels"
 
 
 def _is_wechat_channels_url(source_url: str) -> bool:
     return bool(re.search(r"(?:channels\.weixin\.qq\.com|weixin\.qq\.com/(?:channels|sph)/)", source_url or "", re.IGNORECASE))
+
+
+def _ingest_wechat(stage, source_url):
+    local = audio = None
+    try:
+        result = wechat_channels.resolve(source_url)
+        local = wechat_channels.download(result.video_url)
+        try:
+            probe = subprocess.run([storage._ffmpeg(), '-i', local], capture_output=True, timeout=30)
+            match = re.search(rb'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', probe.stderr)
+            if match:
+                hours,minutes,seconds = map(float, match.groups())
+                result.duration = hours*3600 + minutes*60 + seconds
+            audio = storage.extract_audio(local)
+        except (subprocess.SubprocessError, OSError):
+            raise wechat_channels.ChannelsError('视频号文件无法读取音轨，请重试或上传原视频/音频。') from None
+        _write_task_meta(stage['task_id'], result)
+        title,tags = split_source_description(result.title)
+        storage.ensure_bucket()
+        path = f"{stage['task_id']}/audio.mp3"
+        storage.upload(path, audio, 'audio/mpeg')
+        storage.add_artifact(stage['task_id'], 'ingest', 'audio', path, meta={
+            **result.raw, 'duration':result.duration, 'source_title':title, 'source_tags':tags,
+            'raw_description':result.title, 'hot_comments':[], 'purchase_intent_comments':[],
+        })
+        return 'done', path
+    except wechat_channels.ChannelsError as exc:
+        db.set_stage(stage['id'], 'needs_review', error=str(exc))
+        return 'needs_review', None
+    finally:
+        for path in (local,audio):
+            if path:
+                try:os.remove(path)
+                except OSError:pass
 
 
 def run(stage: dict) -> tuple[str, str | None]:
@@ -103,9 +138,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                     pass
         return "done", sp
 
-    if _requires_manual_upload(source_platform) or _is_wechat_channels_url(source_url):
-        db.set_stage(stage["id"], "needs_review", error="视频号链接暂不支持自动下载。请确认内容授权后，使用手动上传视频或音频；上传后将复用逐字稿、清洗、改写、配音、生图和成片链路。")
-        return "needs_review", None
+    if _is_wechat_platform(source_platform) or _is_wechat_channels_url(source_url):
+        return _ingest_wechat(stage, source_url)
 
     # --- 一级：自研解析 ---
     res = self_resolver.resolve(source_url)

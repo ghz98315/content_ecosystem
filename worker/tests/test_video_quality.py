@@ -41,7 +41,7 @@ from stages.image import (
     _safe_fallback_scenes,
     _dialogue_visual_scene,
 )
-from stages.ingest import _is_wechat_channels_url, _requires_manual_upload
+from stages.ingest import _is_wechat_channels_url, _is_wechat_platform
 from stages.image import _apimart_result_url
 from quality import EXPECTED_STAGES, evaluate_render_quality
 from stages.render import (
@@ -424,9 +424,9 @@ class StoryboardTests(unittest.TestCase):
         self.assertTrue(analysis["checks"]["within_three_images_per_minute"])
         self.assertEqual(len(shots), analysis["selected_count"])
 
-    def test_wechat_channels_uses_authorized_manual_upload_path(self):
-        self.assertTrue(_requires_manual_upload("wechat_channels"))
-        self.assertFalse(_requires_manual_upload("douyin"))
+    def test_wechat_channels_routes_to_dedicated_acquisition(self):
+        self.assertTrue(_is_wechat_platform("wechat_channels"))
+        self.assertFalse(_is_wechat_platform("douyin"))
         self.assertTrue(_is_wechat_channels_url("https://weixin.qq.com/sph/AAhaArJeEf"))
         self.assertTrue(_is_wechat_channels_url("https://channels.weixin.qq.com/foo"))
 
