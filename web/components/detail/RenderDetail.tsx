@@ -2,6 +2,7 @@
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 
 import { BackgroundMusicSettings } from "./BackgroundMusicSettings";
+import { VideoTextSettings } from "./VideoTextSettings";
 import { PublicationPanel } from "./PublicationPanel";
 import { PRODUCTION_TEMPLATES } from "@/lib/productionTemplates";
 import { useEffect, useState } from "react";
@@ -291,6 +292,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         </section>
       )}
 
+      <VideoTextSettings taskId={taskId} showRerender renderStatus={stage?.status} />
       <PublicationPanel taskId={taskId} />
 
       {(qualityLoading || quality || qualityUnavailable) && (

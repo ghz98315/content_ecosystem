@@ -10,7 +10,7 @@ const fields = [
   { key: "footnote", label: "右下脚注", max: 60, hint: "显示在图片下方右侧，留一行间距" },
 ] as const;
 
-export function VideoTextSettings({ taskId }: { taskId: string }) {
+export function VideoTextSettings({ taskId, showRerender = false, renderStatus }: { taskId: string; showRerender?: boolean; renderStatus?: string }) {
   const [value, setValue] = useState<VideoText>({ title: "", subtitle: "", footnote: "读书分享" });
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,7 +38,7 @@ export function VideoTextSettings({ taskId }: { taskId: string }) {
     return () => { active = false; };
   }, [taskId]);
 
-  async function save() {
+  async function save(rerender = false) {
     setBusy(true); setError(""); setMessage("");
     try {
       const text = Object.fromEntries(fields.map(field => [field.key, value[field.key].trim()])) as VideoText;
@@ -50,20 +50,30 @@ export function VideoTextSettings({ taskId }: { taskId: string }) {
       if (saveError) throw new Error(saveError.message);
       if (!updated?.length) throw new Error("任务状态刚刚发生变化，请重新保存");
       setValue(text);
-      setMessage(current.status === "done" ? "已保存；重新执行成片节点后应用到视频。" : "已保存，将用于后续成片。" );
+      if (rerender) {
+        const { error: rerunError } = await supabase.rpc('rerun_stage', { p_stage_id: current.id });
+        if (rerunError) throw new Error(`文字已保存，但重新成片未启动：${rerunError.message}。可稍后再次点击。`);
+        setMessage('文字已保存，已排队重新成片；复用现有图片、配音与字幕，不重新生图。');
+      } else {
+        setMessage(current.status === "done" ? "文字已保存，但当前视频尚未更新；重新成片后生效。" : "已保存，将用于后续成片。" );
+      }
     } catch (err) { setError(err instanceof Error ? err.message : "保存失败，请重试"); }
     finally { setBusy(false); }
   }
 
   return <section className="book-info-panel" aria-label="成片画面文字" style={{ margin: "16px 0", padding: 16 }}>
     <h3>成片画面文字</h3>
-    <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>先保存这些文字，再继续流程。改写与书籍信息两个入口共用同一份设置；留空并保存可隐藏对应文字。</p>
+    <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>成片后仍可修改。改写、书籍信息与成片页共用同一份设置；留空并保存可隐藏对应文字。保存设置不会直接改变已有视频，重新成片后生效。</p>
     {fields.map(field => <label key={field.key} style={{ display: "block", margin: "12px 0", fontSize: 13 }}>
       {field.label}
-      <input aria-label={field.label} disabled={!ready || busy} value={value[field.key]} maxLength={field.max} onChange={event => { setValue(previous => ({ ...previous, [field.key]: event.target.value })); setMessage("有未保存修改，请点击“保存画面文字”。"); }} placeholder={field.hint} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px", marginTop: 6 }} />
+      <input aria-label={field.label} disabled={!ready || busy || renderStatus === 'processing'} value={value[field.key]} maxLength={field.max} onChange={event => { setValue(previous => ({ ...previous, [field.key]: event.target.value })); setMessage("有未保存修改，请保存后重新成片。"); }} placeholder={field.hint} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px", marginTop: 6 }} />
       <small style={{ color: "var(--text-secondary)" }}>{field.hint}</small>
     </label>)}
-    <button type="button" disabled={!ready || busy} onClick={save}>{busy ? "保存中…" : "保存画面文字"}</button>
+    <div className="external-actions">
+      <button type="button" className="secondary-action" disabled={!ready || busy || renderStatus === 'processing'} onClick={() => void save(false)}>{busy ? "提交中…" : "仅保存文字"}</button>
+      {showRerender && <button type="button" className="primary-action" disabled={!ready || busy || renderStatus === 'processing'} onClick={() => void save(true)}>{busy ? '提交中…' : '保存并重新成片'}</button>}
+    </div>
+    {showRerender && <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{renderStatus === 'processing' ? '本次成片正在处理，请完成后再修改文字。' : '只重跑成片节点，复用图片、配音、字幕及背景音乐；字体、颜色和布局沿用当前模板。'}</p>}
     {message && <p role="status">{message}</p>}
     {error && <p role="alert" style={{ color: "var(--status-failed)" }}>{error}</p>}
   </section>;
