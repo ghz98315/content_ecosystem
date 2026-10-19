@@ -707,6 +707,11 @@ def _exact_timeline_durations(timeline: list[dict]) -> list[float]:
     return [round(float(item["duration"]), 3) for item in timeline]
 
 
+def _use_dissolve(image_count: int, duration: float) -> bool:
+    """Bound cumulative re-encoding by both clip count and actual video length."""
+    return image_count <= config.RENDER_DISSOLVE_MAX_CLIPS and duration <= config.RENDER_DISSOLVE_MAX_DURATION
+
+
 def _video_duration(path: str) -> float:
     result = _run_ffmpeg([ff(), "-i", path], capture_output=True, text=True)
     match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", result.stderr)
@@ -892,6 +897,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     'fps':FPS, 'dimensions':[W,H], 'zoom':LANDSCAPE_ZOOM_AMOUNT,
                     'motion_scales':[LANDSCAPE_WORK_SCALE,LANDSCAPE_RENDER_SCALE],
                     'dissolve_limit':config.RENDER_DISSOLVE_MAX_CLIPS,
+                    'dissolve_max_duration':config.RENDER_DISSOLVE_MAX_DURATION,
                 })
         except Exception:
             pass  # Optional cache must never block rendering.
@@ -902,7 +908,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             except Exception:
                 cache_hit = False
         if cache_hit:
-            transition_mode = 'dissolve' if len(images) <= config.RENDER_DISSOLVE_MAX_CLIPS else 'hard_cut_long_timeline'
+            transition_mode = 'dissolve' if _use_dissolve(len(images), tts_duration) else 'hard_cut_long_timeline'
             phase_seconds.update(image_clips_seconds=0, transitions_seconds=0, intro_join_seconds=0)
             print('  [render] 复用已校验的画面轨，只重新合成文字与配乐', flush=True)
         else:
@@ -928,7 +934,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             content_mp4 = os.path.join(tmpdir, "content.mp4")
             transition_mode = "dissolve"
             if is_timeline_v3:
-                if len(clip_paths) <= config.RENDER_DISSOLVE_MAX_CLIPS:
+                if _use_dissolve(len(clip_paths), tts_duration):
                     # Merge transitions in a balanced tree. This keeps the measured
                     # timeline exact without the truncation seen in one large xfade chain.
                     _compose_with_dissolve(clip_paths, durations, content_mp4)
@@ -944,7 +950,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     )
                 print("  [render] 镜头短叠化合成完成", flush=True)
             else:
-                if len(clip_paths) <= config.RENDER_DISSOLVE_MAX_CLIPS:
+                if _use_dissolve(len(clip_paths), tts_duration):
                     _compose_with_dissolve(clip_paths, durations, content_mp4)
                 else:
                     transition_mode = "hard_cut_long_timeline"

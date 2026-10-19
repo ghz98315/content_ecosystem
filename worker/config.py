@@ -146,6 +146,7 @@ if RENDER_ENCODER not in {"auto", "cpu", "nvenc"}:
 # Balanced dissolve launches one ffmpeg process per merge. Long timelines use
 # deterministic hard cuts to avoid spending the whole render budget on merges.
 RENDER_DISSOLVE_MAX_CLIPS = int(os.environ.get("RENDER_DISSOLVE_MAX_CLIPS", "24"))
+RENDER_DISSOLVE_MAX_DURATION = float(os.environ.get("RENDER_DISSOLVE_MAX_DURATION", "180"))
 
 # TTS
 TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "edge")

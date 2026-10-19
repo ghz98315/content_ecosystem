@@ -118,3 +118,14 @@ class TemplateConsistencyTests(unittest.TestCase):
         self.assertNotIn('setProductionTemplateId(category',source)
         self.assertNotIn('setContentCategory(selected.category)',source)
         self.assertIn('修改下方文案规则不会切换画面模板',source)
+
+
+class RenderTransitionBudgetTests(unittest.TestCase):
+    def test_long_video_does_not_trigger_full_reencoding_at_24_shots(self):
+        from stages.render import _use_dissolve
+        with patch('config.RENDER_DISSOLVE_MAX_CLIPS',24),patch('config.RENDER_DISSOLVE_MAX_DURATION',180):
+            self.assertTrue(_use_dissolve(4,60))
+            self.assertTrue(_use_dissolve(24,180))
+            self.assertFalse(_use_dissolve(24,710))
+            self.assertFalse(_use_dissolve(45,710))
+            self.assertFalse(_use_dissolve(25,60))
