@@ -10,6 +10,13 @@ from stages.render import _make_ass, _prepare_title_font, H, _landscape_composit
 
 
 class GuoxueLayoutTests(unittest.TestCase):
+    def test_history_cover_uses_shared_titles_and_preserves_explicit_blank(self):
+        from stages.render import _history_cover_text
+        old={'cover_confirmed':True,'cover_title':'旧主标题','cover_subtitle':'旧副标题'}
+        self.assertEqual(('新标题',''),_history_cover_text({'params':{'video_text':{'title':'新标题','subtitle':''}}},old))
+        self.assertEqual(('旧主标题','旧副标题'),_history_cover_text({'params':{}},old))
+        self.assertEqual(('',''),_history_cover_text({'params':{'video_text':{'title':'新标题','subtitle':'副标题'}}},{'cover_confirmed':False}))
+
     def test_long_video_bitrate_stays_within_storage_budget(self):
         five_minutes = _storage_safe_video_bitrate(300)
         twelve_minutes = _storage_safe_video_bitrate(720)

@@ -339,6 +339,14 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
     }
 
 
+def _history_cover_text(stage: dict, rewrite: dict) -> tuple[str, str]:
+    """The confirmed cover and body share the same explicitly saved text."""
+    if rewrite.get('cover_confirmed') is not True:
+        return '', ''
+    settings = _render_text_settings(stage, {}, rewrite)
+    return settings['title'], settings['subtitle']
+
+
 def _find_cjk_font(bold: bool = False, calligraphy: bool = False) -> str:
     if calligraphy:
         for path in (r"C:\Windows\Fonts\STKAITI.TTF", r"C:\Windows\Fonts\simkai.ttf"):
@@ -835,11 +843,9 @@ def run(stage: dict) -> tuple[str, str | None]:
                 paragraphs = []
             # History covers use only explicitly confirmed fields. Never infer
             # a title from the first narration sentence or subtitle.
-            cover_title = str(rewrite_data.get("cover_title") or "").strip()
-            cover_subtitle = str(rewrite_data.get("cover_subtitle") or "").strip()
+            cover_title, cover_subtitle = _history_cover_text(stage, rewrite_data)
             cover_layout_png = os.path.join(tmpdir, "history_cover_layout.png")
-            confirmed = rewrite_data.get("cover_confirmed") is True
-            _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title if confirmed else "", cover_subtitle=cover_subtitle if confirmed else "")
+            _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title, cover_subtitle=cover_subtitle)
         cover_path = images[0].get('cover_path') or images[0]['path']
         cover_local = storage.download_artifact(cover_path, ".png")
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")

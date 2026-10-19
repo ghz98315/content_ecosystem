@@ -5,7 +5,7 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { DetailShell, TextBtn, DetailCommon } from "./_shell";
-import { VideoTextSettings } from "./VideoTextSettings";
+import { VideoTextSettings, VideoTextSettingsHandle } from "./VideoTextSettings";
 import { RewriteReviewPanel, RewriteReview } from "./RewriteReviewPanel";
 import { RewriteDomainSettings, RewriteSkillInfo } from './RewriteDomainSettings';
 
@@ -51,9 +51,6 @@ interface ComplianceReport {
   semantic_complete?: boolean;
 }
 
-const COVER_TITLE_MAX_LENGTH = 24;
-const COVER_SUBTITLE_MAX_LENGTH = 36;
-
 const LEGACY_STYLE_NAMES = ["A · 痛点共鸣", "B · 故事叙述", "C · 知识科普"];
 const LEGACY_STYLE_HINTS = [
   "直接切入问题，强化情绪共鸣",
@@ -72,8 +69,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [activeIssue, setActiveIssue] = useState<number | null>(null);
-  const [coverTitle, setCoverTitle] = useState("");
-  const [coverSubtitle, setCoverSubtitle] = useState("");
+  const videoTextRef = useRef<VideoTextSettingsHandle | null>(null);
   const draftRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
 
   const artifactRevision = stage?.status === 'processing' ? 'processing' : stage?.updated_at;
@@ -87,10 +83,6 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
         const initial = [...(d.candidates || [])];
         if (d.manual_draft && initial[d.manual_draft.index] != null) initial[d.manual_draft.index] = d.manual_draft.text;
         setDrafts(initial);
-        // Cover copy must be explicitly chosen. Falling back to the hook/body
-        // can silently submit an entire narration paragraph as a title.
-        setCoverTitle(d.cover_title || "");
-        setCoverSubtitle(d.cover_subtitle || "");
         if (d.chosen != null) setSelected(d.chosen);
         else if (d.candidates?.length === 1) setSelected(0);
       })
@@ -109,29 +101,22 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
       return;
     }
     const isHistory = task.content_category === "social_science";
-    if (isHistory && (!coverTitle.trim() || !coverSubtitle.trim())) {
-      setErr("历史类请先填写封面主标题和副标题");
-      return;
-    }
-    if (isHistory && (coverTitle.trim().length > COVER_TITLE_MAX_LENGTH || coverSubtitle.trim().length > COVER_SUBTITLE_MAX_LENGTH)) {
-      setErr(`封面主标题不得超过 ${COVER_TITLE_MAX_LENGTH} 字，副标题不得超过 ${COVER_SUBTITLE_MAX_LENGTH} 字`);
-      return;
-    }
     setBusy(true);
     setErr(null);
-    const { data: confirmed, error } = await supabase.rpc("confirm_rewrite", {
-      p_stage_id: stage.id,
-      p_chosen_index: selected,
-      p_final_text: finalText,
-      p_cover_title: isHistory ? coverTitle.trim() : null,
-      p_cover_subtitle: isHistory ? coverSubtitle.trim() : null,
-    });
-    if (error || !confirmed) {
-      setBusy(false);
-      setErr(error?.message || "改写确认未生效，请刷新后重试");
-      return;
-    }
-    setBusy(false);
+    try {
+      const titles = await videoTextRef.current?.saveForRewrite(isHistory);
+      if (!titles) { setErr('请检查上方“成片画面文字”的提示，处理后再确认改写稿。'); return; }
+      const { data: confirmed, error } = await supabase.rpc("confirm_rewrite", {
+        p_stage_id: stage.id,
+        p_chosen_index: selected,
+        p_final_text: finalText,
+        p_cover_title: isHistory ? titles.title : null,
+        p_cover_subtitle: isHistory ? titles.subtitle : null,
+      });
+      if (error || !confirmed) throw new Error(error?.message || "改写确认未生效，请刷新后重试");
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : '改写确认失败，请重试');
+    } finally { setBusy(false); }
   };
 
   const isReview = stage?.status === "needs_review";
@@ -170,7 +155,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   return (
     <DetailShell title="改写" stage={stage} onRerun={onRerun} actions={actions}>
       {task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} />}
-      <VideoTextSettings taskId={taskId} />
+      <VideoTextSettings ref={videoTextRef} taskId={taskId} disabled={busy} historyCover={task.content_category === 'social_science'} legacyTitle={data?.cover_confirmed ? data.cover_title : undefined} legacySubtitle={data?.cover_confirmed ? data.cover_subtitle : undefined} />
       {(isReview || isDone) && data && (
         <>
           <section className="rewrite-summary-grid" aria-label="改写稿摘要">
@@ -189,17 +174,6 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>{data.rewrite_review ? '按语义重写' : '原版本'}</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>书名</span><strong>{data.book_title ? "随文案确认" : "未识别"}</strong></div>
           </section>}
-          {task.content_category === "social_science" && (
-            <section className="rewrite-cover-fields" aria-label="历史类封面标题">
-              <h3>封面标题确认</h3>
-              <p>主标题和副标题将用于封面前 15 帧，正文不显示书名和作者。</p>
-              <p role="status" style={{ color: data.cover_confirmed ? "var(--status-success)" : "var(--status-warning)" }}>
-                {data.cover_confirmed ? "主标题与副标题已同步确认，可继续语音和成片。" : "主标题与副标题待确认，确认前不会开始语音和成片。"}
-              </p>
-              <label>主标题<input value={coverTitle} onChange={event => setCoverTitle(event.target.value)} maxLength={COVER_TITLE_MAX_LENGTH} placeholder="输入封面主标题" /></label>
-              <label>副标题<input value={coverSubtitle} onChange={event => setCoverSubtitle(event.target.value)} maxLength={COVER_SUBTITLE_MAX_LENGTH} placeholder="输入封面副标题" /></label>
-            </section>
-          )}
           <div className="rewrite-workspace">
           <aside className="rewrite-advice" aria-label="合规检查建议">
           {report && (
