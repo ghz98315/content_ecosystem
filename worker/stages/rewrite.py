@@ -12,7 +12,7 @@ import config
 import compliance
 import db
 import storage
-from rewrite_review import MAX_REVISIONS, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length
+from rewrite_review import MAX_REVISIONS, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length, attempt_rank, length_bounds
 from prompt_profiles import (
     author_name,
     derive_keyword,
@@ -215,15 +215,7 @@ def _candidate_issues(
         return issues
 
     source_len = _text_len(source)
-    # The history/social-science rewrite profile follows the approved
-    # promote-洗稿0827 brief: preserve the opening/closing conversion blocks
-    # and keep the complete script within +/-10% of the source length.
-    if category == "social_science":
-        tolerance = 0.10
-    else:
-        tolerance = 0.15 if mode == "repost_dedup" else 0.25
-    min_len = max(40, round(source_len * (1 - tolerance)))
-    max_len = max(min_len + 20, round(source_len * (1 + tolerance)))
+    min_len, max_len = length_bounds(source)
     for i, text in enumerate(candidates):
         if narration_mode == "dual_dialogue":
             issues.extend(_dialogue_structure_issues(text))
@@ -281,8 +273,11 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     hook = opening_hook(source)
     prompt = load_prompt(context['category'], 'initial_dedup')
     source_body = remainder(source, hook)
+    minimum, maximum = length_bounds(source)
+    hook_chars = effective_length(hook)
     history: list[dict] = []
     last: tuple[list[str], list[int], dict] | None = None
+    best_rank: tuple | None = None
     stop_reason = 'limit_reached'
     last_issues: list[str] = []
     for attempt in range(MAX_REVISIONS + 1):
@@ -300,6 +295,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                     f"内容分类：{context['category']}；模式：{mode}\n主题：{context.get('keyword', '')}\n"
                     f"原视频标题：{context.get('title', '')}\n补充要求：{notes or '无'}\n"
                     f"必须保留的书名与数字：{'、'.join(protected_terms(source)) or '无'}\n"
+                    f"原稿有效字数{effective_length(source)}字；全文必须为{minimum}-{maximum}字。"
+                    f"程序拼接的钩子有{hook_chars}字，你输出的 rewritten_remainder 必须为{max(0, minimum-hook_chars)}-{max(0, maximum-hook_chars)}字。\n"
                     '字数偏差仅指长度，表达需要深度重构。不要重复输出锁定钩子。\n'
                     f'【锁定钩子，程序逐字拼接】\n{hook}\n\n【可改写正文，包含结尾】\n{source_body}'
                     + feedback
@@ -341,7 +338,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         strategies = obj.get('rewrite_strategy', []) if isinstance(obj, dict) else []
         strategies = [s.strip()[:240] for s in strategies if isinstance(s, str) and s.strip()][:5] if isinstance(strategies, list) else []
         entry = {'attempt': attempt + 1, 'revision': attempt, 'text': text,
-                 'strategy': strategies, 'issues': issues, 'similarity': similarity}
+                 'strategy': strategies, 'issues': issues, 'similarity': similarity,
+                 'complete': getattr(choice, 'finish_reason', None) != 'length'}
         history.append(entry)
         actual_tail = text.split('\n\n')[-1]
         structure.update({
@@ -352,10 +350,12 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             'complete': getattr(choice, 'finish_reason', None) != 'length',
             'quality_warnings': issues,
         })
-        # Retain the last complete draft if a later response was truncated.
-        if structure['complete'] or last is None:
+        # A later revision can regress; hand over the best usable draft at the cap.
+        rank = attempt_rank(entry)
+        if best_rank is None or rank < best_rank:
             last = (candidates, [_text_len(text)], structure)
             selected_attempt = attempt + 1
+            best_rank = rank
         last_issues = issues
         if not issues:
             stop_reason = 'locked_hook_floor' if similarity['status'] != 'passed' else 'passed'
@@ -604,6 +604,18 @@ def run(stage: dict) -> tuple[str, str | None]:
                 final_text = str(params.get("final_text") or candidates[idx]).strip()
                 if not final_text:
                     raise ValueError("最终文案不能为空")
+                if rw.get('rewrite_review'):
+                    original_source = rw.get('source_text') or source
+                    minimum, _maximum = length_bounds(original_source)
+                    if effective_length(final_text) < minimum:
+                        message = f'文稿不得减少超过15%：原稿{effective_length(original_source)}字，至少{minimum}字，当前{effective_length(final_text)}字。请补回原有信息后确认。'
+                        rw['manual_draft'] = {'index': idx, 'text': final_text}
+                        _upload_rewrite(sp, rw)
+                        restored_params = {key: value for key, value in params.items() if key not in ('chosen_index', 'final_text')}
+                        db.get_client().table('stages').update({'status':'needs_review', 'error':message,
+                            'params':restored_params, 'output_ref':sp}).eq('id',stage['id']).execute()
+                        return 'needs_review', sp
+                    rw.pop('manual_draft', None)
                 rw.update({
                     "chosen": idx,
                     "final_text": final_text,
@@ -671,6 +683,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "candidate_count": len(candidates),
         "candidate_lengths": lengths,
         "source_length": payload["source_length"],
+        "source_effective_chars": effective_length(source),
         "rewrite_mode": mode,
         "source_task_id": source_task_id or None,
         "model": config.REWRITE_MODEL,

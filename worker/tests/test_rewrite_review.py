@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import unittest
+import tempfile
 from types import SimpleNamespace
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import patch, MagicMock
 
-from rewrite_review import evaluate, format_for_reading, normalized, opening_hook, remainder
+from rewrite_review import evaluate, format_for_reading, normalized, opening_hook, remainder, length_bounds
 from stages.rewrite import _generate_candidates, _request_rewrite
+from stages import rewrite
 
 
 HOOK = '您是否也遇到过？先别急着下结论。咱们慢慢说清楚。'
@@ -22,6 +25,14 @@ def response(body: str, reason='stop'):
 
 
 class LocalReviewTests(unittest.TestCase):
+    def test_fifteen_percent_reduction_is_inclusive_but_less_is_rejected(self):
+        source = '甲' * 100
+        self.assertEqual((85, 110), length_bounds(source))
+        at_limit = evaluate(source, '乙' * 85, '')
+        below_limit = evaluate(source, '乙' * 84, '')
+        self.assertFalse(any('有效字数偏差' in issue for issue in at_limit['retry_issues']))
+        self.assertTrue(any('有效字数偏差' in issue for issue in below_limit['retry_issues']))
+
     def test_punctuation_formatting_cannot_hide_reuse(self):
         formatted = SOURCE.replace('甲', ' 甲\n')
         report = evaluate(SOURCE, formatted, HOOK)
@@ -54,6 +65,29 @@ class LocalReviewTests(unittest.TestCase):
 
 
 class RevisionLoopTests(unittest.TestCase):
+    def test_manual_confirmation_cannot_bypass_length_floor_and_keeps_edits(self):
+        source = '甲' * 100
+        text = '乙' * 84
+        root = Path(__file__).resolve().parents[1] / 'output'
+        with tempfile.TemporaryDirectory(dir=root) as tmp:
+            artifact = Path(tmp) / 'rewrite.json'
+            artifact.write_text(json.dumps({'candidates':['乙' * 95], 'source_text':source,
+                                           'rewrite_review':{'status':'manual_review'}},ensure_ascii=False),encoding='utf-8')
+            latest = MagicMock(); latest.select.return_value=latest; latest.eq.return_value=latest; latest.single.return_value=latest
+            latest.execute.return_value.data={'params':{'chosen_index':0,'final_text':text}}
+            query = MagicMock(); query.select.return_value=query; query.eq.return_value=query; query.order.return_value=query; query.limit.return_value=query
+            query.execute.return_value.data=[{'storage_path':'task/rewrite.json'}]
+            update = MagicMock(); update.update.return_value=update; update.eq.return_value=update
+            client=MagicMock(); client.table.side_effect=[latest,query,update]
+            with patch.object(rewrite.db,'get_client',return_value=client), patch.object(rewrite.db,'get_task_prompt_context',return_value={}), patch.object(rewrite,'_load_clean_text',return_value=source), patch.object(rewrite,'_task_context',return_value={'category':'health'}), patch.object(rewrite.storage,'download_artifact',return_value=str(artifact)), patch.object(rewrite,'_upload_rewrite') as upload, patch.object(rewrite.compliance,'check_text') as audit:
+                status, _=rewrite.run({'id':'stage','task_id':'task'})
+            self.assertEqual('needs_review',status)
+            self.assertEqual(text,upload.call_args.args[1]['manual_draft']['text'])
+            saved=update.update.call_args.args[0]
+            self.assertNotIn('chosen_index',saved['params'])
+            self.assertIn('至少85字',saved['error'])
+            audit.assert_not_called()
+
     def test_missing_model_does_not_repeat_provider_requests(self):
         with patch('stages.rewrite._llm') as client, patch('stages.rewrite.time.sleep') as sleep:
             request = client.return_value.chat.completions.create
@@ -103,6 +137,15 @@ class RevisionLoopTests(unittest.TestCase):
         self.assertEqual(4, request.call_count)
         self.assertTrue(candidates[0].endswith(OLD))
         self.assertEqual(1, data['rewrite_review']['selected_attempt'])
+        self.assertEqual('manual_review', data['rewrite_review']['status'])
+
+    def test_limit_prefers_length_compliant_draft_over_later_short_revision(self):
+        replies = [response(OLD), response(NEW[:400] + '。'), response(NEW), response(NEW[:300] + '。')]
+        with patch('stages.rewrite._request_rewrite', side_effect=replies) as request:
+            candidates, _, data = _generate_candidates(SOURCE + '9。', CONTEXT)
+        self.assertEqual(4, request.call_count)
+        self.assertEqual(3, data['rewrite_review']['selected_attempt'])
+        self.assertTrue(candidates[0].endswith(NEW))
         self.assertEqual('manual_review', data['rewrite_review']['status'])
 
 

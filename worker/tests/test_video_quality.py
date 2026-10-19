@@ -115,11 +115,11 @@ class RewriteQualityTests(unittest.TestCase):
         self.assertTrue(any("较近" in warning for warning in warnings))
         self.assertTrue(any("原句复用" in warning for warning in warnings))
 
-    def test_single_rewrite_allows_twenty_five_percent_length_tolerance(self):
+    def test_single_rewrite_rejects_more_than_fifteen_percent_reduction(self):
         source = "保留主体信息和事实边界。" * 100
         rewritten = source[: round(len(source) * 0.82)]
         issues = _candidate_issues([rewritten], source, "stop", "initial_dedup", "health")
-        self.assertFalse(any("过短" in issue for issue in issues))
+        self.assertTrue(any("过短" in issue for issue in issues))
 
     def test_repost_and_non_health_keep_existing_similarity_policy(self):
         source = "历史材料需要保留年代人物和证据边界，不能把推测说成结论。" * 3

@@ -32,6 +32,7 @@ interface RewriteData {
   source_formatted?: string;
   rewrite_review?: RewriteReview;
   final_similarity?: RewriteReview;
+  manual_draft?: { index: number; text: string };
 }
 
 interface ComplianceIssue {
@@ -80,7 +81,9 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
       .then(r => r.json())
       .then((d: RewriteData) => {
         setData(d);
-        setDrafts(d.candidates || []);
+        const initial = [...(d.candidates || [])];
+        if (d.manual_draft && initial[d.manual_draft.index] != null) initial[d.manual_draft.index] = d.manual_draft.text;
+        setDrafts(initial);
         // Cover copy must be explicitly chosen. Falling back to the hook/body
         // can silently submit an entire narration paragraph as a title.
         setCoverTitle(d.cover_title || "");
@@ -96,6 +99,10 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
     const finalText = drafts[selected]?.trim();
     if (!finalText) {
       setErr("最终文案不能为空");
+      return;
+    }
+    if (data?.source_text && textLength(finalText) < Math.ceil(textLength(data.source_text) * 0.85)) {
+      setErr(`文稿不得减少超过15%，至少需 ${Math.ceil(textLength(data.source_text) * 0.85)} 字，请补回原有信息后确认。`);
       return;
     }
     const isHistory = task.content_category === "social_science";
@@ -129,6 +136,8 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   const report = data?.compliance;
   const activeText = (isDone ? data?.final_text : drafts[selected ?? 0]) || drafts[selected ?? 0] || "";
   const activeLength = textLength(activeText);
+  const minimumLength = data?.source_text ? Math.ceil(textLength(data.source_text) * 0.85) : 0;
+  const lengthTooShort = minimumLength > 0 && activeLength < minimumLength;
   const estimatedSeconds = Math.max(1, Math.round(activeLength / 3.5));
 
   const jumpToIssue = (issue: ComplianceIssue, issueIndex: number) => {
@@ -150,7 +159,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
     }, 0);
   };
   const actions = isReview ? (
-    <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null}>
+    <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null || lengthTooShort}>
       {busy ? "提交中…" : "确认改写稿 →"}
     </TextBtn>
   ) : undefined;
@@ -167,6 +176,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
             <div><span>合规状态</span><strong>{report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
           </section>
           {data.rewrite_review && <RewriteReviewPanel report={{ ...data.rewrite_review, ...(isDone ? data.final_similarity : {}) }} source={data.source_formatted || data.source_text || ''} text={activeText} evaluatedText={isDone && data.final_similarity ? data.final_text || '' : data.candidates[selected ?? 0] || ''} />}
+          {isReview && lengthTooShort && <p role="alert">文稿不得减少超过15%：至少需 {minimumLength} 字，当前 {activeLength} 字。请在下方编辑区补回原有信息后确认。</p>}
           {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "preserved" ? "原文锁定钩子" : data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
 
           {(data.hook_text || data.body_text || data.tail_text) && <section className="rewrite-lock-status" aria-label="改写结构" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-hover)" }}>
