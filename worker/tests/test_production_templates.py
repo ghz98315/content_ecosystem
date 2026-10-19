@@ -8,10 +8,12 @@ from stages.render import _render_text_settings
 class ProductionContractTests(unittest.TestCase):
     def test_actual_4k_landscape_pixel_budget_is_accepted(self):
         from stages.image import _validate_guoxue_resolution
-        _validate_guoxue_resolution(3312,2480)
-        _validate_guoxue_resolution(4096,3072)
+        self.assertIsNone(_validate_guoxue_resolution(3312,2480))
+        self.assertIsNone(_validate_guoxue_resolution(4096,3072))
+        self.assertIn('继续',_validate_guoxue_resolution(2048,1536))
+        self.assertIn('1448×1086',_validate_guoxue_resolution(1448,1086,cells=2))
         with self.assertRaises(ValueError):
-            _validate_guoxue_resolution(2048,1536)
+            _validate_guoxue_resolution(0,1536)
     def test_background_music_cannot_read_another_tasks_file(self):
         from stages.render import _load_bgm_config
         client=MagicMock()

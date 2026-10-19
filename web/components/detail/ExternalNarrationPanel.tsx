@@ -30,7 +30,6 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
   const [uploadStatus, setUploadStatus] = useState('');
   const [draft, setDraft] = useState('');
   const [cues, setCues] = useState<Cue[]>([]);
-  const [checked, setChecked] = useState(false);
   const [notice, setNotice] = useState('');
   const [dirtyTimes, setDirtyTimes] = useState(false);
   const [clipEnd, setClipEnd] = useState<number | null>(null);
@@ -48,7 +47,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       loadedVersion.current = key;
       setDraft(data.current?.subtitle_text || data.script || '');
       setCues(data.current?.review?.segments || []);
-      setDirtyTimes(false); setChecked(false);
+      setDirtyTimes(false);
     }
   }, [stage?.id]);
   useEffect(() => { void load().catch(e => setError(e.message)); }, [load, stage?.updated_at]);
@@ -115,18 +114,23 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       {!payload?.rewriteReady && <p role="status">请先完成改写稿确认，再下载文案并上传配音。</p>}
       {uploadStatus && <p role="status">{uploadStatus}</p>}
       {busy && <progress aria-label="配音文件上传或提交中" />}
-      {(current?.state === 'queued' || stage?.status === 'processing') && <p role="status">正在等待 Worker 识别音频与对齐字幕，刷新后可继续查看。</p>}
+      {(current?.state === 'queued' || stage?.status === 'processing') && <p role="status">正在识别人声、自动校正识别偏差并对齐字幕，完成后自动继续。</p>}
       {review?.error && <p role="alert">处理失败：{review.error}。可以重新上传或重新对齐。</p>}
-      {payload?.audioUrl && <><p>{current?.original_name} · {review?.duration?.toFixed(1)} 秒 · {current?.state === 'approved' ? '已确认' : '待核对'}</p>
+      {payload?.audioUrl && <><p>{current?.original_name} · {review?.duration?.toFixed(1)} 秒 · {current?.state === 'approved' ? '已就绪' : '处理中'}</p>
         <audio ref={audio} controls src={payload.audioUrl} style={{ width: '100%' }} onPlay={() => { /* per-cue playback stops at its recorded end */ }} onTimeUpdate={() => {
           if (clipEnd != null && audio.current && audio.current.currentTime >= clipEnd) { audio.current.pause(); setClipEnd(null); }
         }} />
         <button type="button" className="secondary-action" onClick={() => { setClipEnd(null); void audio.current?.play(); }}>继续播放完整配音</button>
       </>}
       {review?.recognized_text && <>
+        {current?.state === 'approved' && <p role="status">配音与字幕已就绪，后续自动按字幕稿继续。识别差异和时间微调可在下方按需查看，无需逐条确认。</p>}
+        {current?.state === 'review' && <button type="button" className="primary-action" disabled={!canEdit || !draft.trim()} onClick={() => void perform(async () => {
+          await action('realign', { id: current!.id, text: draft.trim() }); setNotice('已提交自动校正，对齐完成后将直接继续。');
+        })}>旧版记录：自动校正并继续</button>}
+        <details><summary>可选：查看识别差异与微调字幕</summary>
         <NarrationDifferencesPanel differences={review.subtitle_differences || review.differences || []}
           baseText={current!.subtitle_text} draft={draft} canEdit={canEdit} suggestionsReady={suggestionsReady}
-          onApply={text => { setDraft(text); setChecked(false); }}
+          onApply={text => setDraft(text)}
           onSave={text => perform(async () => {
             await action('realign', { id: current!.id, text }); setNotice('字幕修改已保存，正在复用识别结果重新对齐。');
           })}
@@ -137,7 +141,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
         <details><summary>查看完整识别文字及原确认稿差异</summary><pre>{review.recognized_text}</pre>
           {(review.differences || []).map((diff, i) => <p key={i}>确认稿：{diff.expected || '（无）'}　识别：{diff.recognized || '（未识别）'}</p>)}
         </details>
-        <label>最终字幕稿<textarea value={draft} disabled={!canEdit} onChange={e => { setDraft(e.target.value); setChecked(false); }} /></label>
+        <label>最终字幕稿<textarea value={draft} disabled={!canEdit} onChange={e => setDraft(e.target.value)} /></label>
         <p>如实际朗读有改词，请修改字幕稿并重新对齐。字幕稿只用于字幕与后续分镜，不回写二创稿。</p>
         <button type="button" className="secondary-action" disabled={!canEdit || !draft.trim()} onClick={() => void perform(async () => {
           await action('realign', { id: current!.id, text: draft.trim() }); setNotice('已提交，重新对齐会复用识别结果。');
@@ -148,18 +152,12 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
             <span>{cue.text}{cue.needs_timing_review && <small> · 请核对时间</small>}</span>
             {(['start', 'end'] as const).map(field => <label key={field}>{field === 'start' ? '起' : '止'}<input type="number" step="0.01" min="0" value={cue[field] ?? ''} disabled={!canEdit || changedText} onChange={event => {
               const value = event.target.value === '' ? null : Number(event.target.value);
-              setCues(items => items.map((item, i) => i === index ? { ...item, [field]: value } : item)); setDirtyTimes(true); setChecked(false);
+              setCues(items => items.map((item, i) => i === index ? { ...item, [field]: value } : item)); setDirtyTimes(true);
             }} /></label>)}
           </div>)}
         </div>
         {dirtyTimes && <button type="button" className="secondary-action" disabled={!canEdit || changedText} onClick={() => void perform(() => action('realign', { id: current!.id, text: draft.trim(), cues }))}>校验并保存字幕时间</button>}
-        {current?.state === 'review' && <div className="external-confirm">
-          <label><input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} />我已试听并核对字幕内容与时间</label>
-          <button type="button" className="primary-action" disabled={busy || !checked || dirtyTimes || changedText || !review.alignment_ready} onClick={() => void perform(async () => {
-            await action('approve', { id: current.id, subtitle_path: current.subtitle_path }); setNotice('配音与字幕已确认，后续将按字幕稿继续生图与渲染。');
-          })}>确认配音和字幕，继续生图</button>
-          {!review.alignment_ready && <p>存在未可靠定位的字幕，请校准时间并保存。</p>}
-        </div>}
+        </details>
       </>}
       {!!payload?.versions?.length && <details><summary>配音版本记录</summary>{payload.versions.map(version => <p key={version.id}>{version.original_name} · {new Date(version.created_at).toLocaleString()} · {({ uploading: '尚未提交', queued: '等待处理', review: '待核对', approved: '已确认', failed: '处理失败' } as Record<string, string>)[version.state] || version.state}
         {version.state === 'uploading' && <button type="button" disabled={busy} onClick={() => void perform(() => action('submit', { id: version.id }))}>继续提交已上传文件</button>}

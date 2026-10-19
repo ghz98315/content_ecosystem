@@ -18,6 +18,30 @@ class ExternalAlignmentTests(unittest.TestCase):
         self.assertTrue(cues[-1]['needs_timing_review'])
         self.assertIsNone(cues[-1]['start'])
 
+    def test_auto_alignment_repairs_minor_asr_typo_without_changing_script(self):
+        text='今天读经典，陪您慢慢读懂生活里的道理。'
+        words=[{'word':'今天读经点','start':0,'end':2},
+               {'word':'陪您慢慢读懂生活里的道理','start':4,'end':9}]
+        cues,coverage=align(text,words,10,repair=True)
+        checked=validate_cues(text,cues,10)
+        self.assertTrue(any(c.get('auto_repaired') for c in checked))
+        self.assertTrue(all(not c['needs_timing_review'] for c in checked))
+        self.assertLess(coverage,1)
+        self.assertEqual(2,checked[0]['end'])
+        self.assertEqual(4,checked[1]['start'])
+
+    def test_auto_alignment_rejects_unrelated_recording(self):
+        with self.assertRaises(ValueError):
+            align('今天读经典，陪您慢慢读懂生活里的道理。',
+                  [{'word':'完全不同的录音资料','start':0,'end':3}],4,repair=True)
+
+    def test_auto_alignment_preserves_script_during_short_asr_omission(self):
+        text='今天读经典，陪您一起慢慢读懂生活里的道理。'
+        words=[{'word':'今天读经典','start':0,'end':2},
+               {'word':'陪您慢慢读懂生活里的道理','start':4,'end':9}]
+        cues,_=align(text,words,10,repair=True)
+        self.assertEqual('今天读经典陪您一起慢慢读懂生活里的道理',''.join(c['text'] for c in validate_cues(text,cues,10)))
+
     def test_numbers_are_compared_by_pronunciation(self):
         cues,coverage=align('每天15分钟。',[{'word':'每天十五分钟','start':0,'end':3}],4)
         self.assertEqual(1,coverage)

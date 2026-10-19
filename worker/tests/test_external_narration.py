@@ -58,9 +58,10 @@ class ExternalNarrationWorkerTests(unittest.TestCase):
                  patch('stages.transcribe._model') as model:
                 external_narration.run(stage)
             model.assert_not_called()
-            self.assertEqual('review',finish.call_args.args[1])
+            self.assertEqual('approved',finish.call_args.args[1])
             report=finish.call_args.args[2]
             self.assertTrue(report['alignment_ready'])
+            self.assertTrue(report['auto_processed'])
             self.assertAlmostEqual(4,report['duration'],places=2)
             self.assertEqual(.5,report['segments'][0]['start'])
             self.assertEqual(2.5,report['segments'][0]['end'])

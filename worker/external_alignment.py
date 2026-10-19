@@ -80,7 +80,7 @@ def differences(expected: str, recognized: str, words: list[dict] | None = None)
     return result
 
 
-def align(text: str, words: list[dict], duration: float) -> tuple[list[dict], float]:
+def align(text: str, words: list[dict], duration: float, *, repair: bool = False) -> tuple[list[dict], float]:
     units = split_semantic_units(text, max_chars=14)
     normalized = [comparable(unit['text']) for unit in units]
     source = ''.join(normalized)
@@ -96,20 +96,62 @@ def align(text: str, words: list[dict], duration: float) -> tuple[list[dict], fl
         step = (end - start) / len(token)
         transcript += token
         times.extend((start + step * i, start + step * (i + 1)) for i in range(len(token)))
+    matcher = difflib.SequenceMatcher(None, source, transcript, autojunk=False)
     matched: dict[int, int] = {}
-    for block in difflib.SequenceMatcher(None, source, transcript, autojunk=False).get_matching_blocks():
+    for block in matcher.get_matching_blocks():
         matched.update({block.a+i: block.b+i for i in range(block.size)})
+    char_times = {i: times[j] for i, j in matched.items()}
+    repaired: set[int] = set()
+    if repair:
+        coverage = len(matched) / max(1, max(len(source), len(transcript)))
+        changes = [op for op in matcher.get_opcodes() if op[0] != 'equal']
+        if coverage < .80 or any(max(b-a, d-c) > 24 for _,a,b,c,d in changes):
+            raise ValueError('录音与字幕文案差异较大，不能作为普通识别误差自动纠正；请上传匹配的录音或字幕稿')
+        for _, a, b, c, d in changes:
+            if a == b:
+                continue
+            if c < d:
+                left, right = times[c][0], times[d-1][1]
+            else:
+                left = times[c-1][1] if c else 0.0
+                right = times[c][0] if c < len(times) else duration
+                if right-left < .02:
+                    # Share the immediate neighboring syllables rather than
+                    # shifting all later captions after a short ASR omission.
+                    left = times[c-1][0] if c else left
+                    right = times[c][1] if c < len(times) else right
+                    step = (right-left)/3
+                    if a-1 in char_times:
+                        char_times[a-1] = (char_times[a-1][0], left+step)
+                    if b in char_times:
+                        char_times[b] = (right-step, char_times[b][1])
+                    left, right = left+step, right-step
+                else:
+                    # Keep long recorded pauses; do not stretch a missing
+                    # character across the entire silence.
+                    span = min(right-left, (b-a)*min(.3, duration/max(1,len(source))))
+                    left = left + (right-left-span)/2
+                    right = left + span
+            if right <= left:
+                raise ValueError('音频缺少可用时间范围，无法自动定位字幕')
+            step = (right-left)/(b-a)
+            for i in range(a,b):
+                char_times[i] = (left+(i-a)*step, left+(i-a+1)*step)
+                repaired.add(i)
     cues = []
     offset = 0
     for unit, token in zip(units, normalized):
-        indices = [matched[i] for i in range(offset, offset + len(token)) if i in matched]
-        ready = bool(indices) and offset in matched and offset + len(token)-1 in matched
+        indices = [i for i in range(offset, offset + len(token)) if i in char_times]
+        ready = bool(indices) and offset in char_times and offset + len(token)-1 in char_times
         # Missing text stays visibly unresolved; do not manufacture timestamps.
-        start = round(times[indices[0]][0], 3) if indices else None
-        end = round(min(duration, times[indices[-1]][1]), 3) if indices else None
+        start = round(char_times[indices[0]][0], 3) if indices else None
+        end = round(min(duration, char_times[indices[-1]][1]), 3) if indices else None
         cues.append({**unit, 'start': start, 'end': end,
                      'needs_timing_review': not ready or end is None or start is None or end <= start,
                      'matched_ratio': round(len(indices)/max(1,len(token)), 3)})
+        if repair:
+            cues[-1]['auto_repaired'] = any(i in repaired for i in range(offset, offset+len(token)))
+            cues[-1]['matched_ratio'] = round(sum(i in matched for i in range(offset,offset+len(token)))/max(1,len(token)),3)
         offset += len(token)
     return cues, round(len(matched)/max(1,len(source)), 4)
 

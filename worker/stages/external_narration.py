@@ -75,7 +75,7 @@ def run(stage: dict) -> tuple[str, None]:
                 recognized=''.join(recognized_parts).strip()
             if not comparable(recognized):
                 raise ValueError('未识别到可对齐的人声，请检查音频')
-            cues,coverage=align(text,words,duration)
+            cues,coverage=align(text,words,duration,repair=True)
             manual=previous.get('requested_cues')
             if manual is not None:
                 cues=validate_cues(text,manual,duration)
@@ -86,6 +86,8 @@ def run(stage: dict) -> tuple[str, None]:
                     ready=True
                 except (ValueError,TypeError):
                     pass
+            if not ready:
+                raise ValueError('音频时间信息不完整，自动对齐未通过校验，请检查录音文件')
             audio_path=job_path+'/narration.wav'
             subtitle_path=job_path+'/subtitles.json'
             payload={'provider':'external','external_id':row['id'],'duration':duration,'text':text,
@@ -100,8 +102,11 @@ def run(stage: dict) -> tuple[str, None]:
                 'script_text':row['script_text'],'subtitle_text':text,'coverage':coverage,
                 'differences':script_differences,
                 'subtitle_differences':subtitle_differences,
-                'difference_method':'speech_sequence_v2', 'difference_base_text':text}
-        _finish(stage,'review',review,audio_path,subtitle_path)
+                'difference_method':'speech_sequence_v2', 'difference_base_text':text,
+                'auto_processed':True, 'alignment_policy':'script_constrained_auto_v1',
+                'auto_repaired_cues':sum(bool(c.get('auto_repaired')) for c in cues),
+                'alignment_note':'以字幕稿为准纠正识别偏差；短缺口时间已自动估算，保留原始识别文字供选看。'}
+        _finish(stage,'approved',review,audio_path,subtitle_path)
     except Exception as exc:
         _finish(stage,'failed',{**previous,'error':str(exc)[:1000], 'alignment_ready':False},
                 row.get('audio_path'),row.get('subtitle_path'))

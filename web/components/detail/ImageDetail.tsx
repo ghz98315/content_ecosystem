@@ -16,6 +16,8 @@ interface IndexEntry {
   prompt?: string;
   prompt_scene?: string;
   image_model?: string;
+  source_size?: number[];
+  resolution_warning?: string;
 }
 interface ImageReview { image_index: number; decision: "approved" | "replace_requested"; note: string | null; created_at: string }
 interface ReplacementRequest { image_index: number; status: "pending" | "processing" | "done" | "failed"; replacement_path: string | null; error: string | null; requested_at: string; invalidated_at?: string | null }
@@ -39,6 +41,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const gridLabel = isGuoxue ? "四宫格" : "九宫格";
   const gridCount = new Set(entries.map(entry => entry.source_grid).filter(Boolean)).size
     || Math.ceil((entries.length + (isGuoxue ? 1 : 0)) / (gridCells * gridCells));
+  const resolutionNotes = [...new Map(entries.filter(entry => entry.resolution_warning).map(entry => [entry.source_grid || entry.path, entry.resolution_warning!])).values()];
   const [selectedProvider, setSelectedProvider] = useState<"apimart" | "xcode">(
     String(providerParams.image_provider || "apimart") === "xcode" ? "xcode" : "apimart"
   );
@@ -202,6 +205,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
             <div><span>Provider</span><strong>{providerName}</strong><small>{imageModel}</small></div>
             <div><span>安全规则</span><strong>无可见文字</strong><small>违规语义转生活化类比</small></div>
           </section>
+          {!!resolutionNotes.length && <section className="stage-diagnostic is-warning" role="status"><strong>清晰度备注 · 已自动继续</strong>{resolutionNotes.map((note, index) => <p key={index}>{note}</p>)}</section>}
           <div className="image-workbench-toolbar">
             <div><strong>镜头与文案对应</strong><span>点击图片放大检查，卡片下方显示该镜头实际对应的字幕内容。</span></div>
             <div className="image-review-filters" role="tablist" aria-label="图片状态筛选">
@@ -235,6 +239,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
                     </div>
                     <div style={{ fontSize: 10, color: "var(--text-disabled)" }}>{isGuoxue ? "静帧" : e.motion === "zoom_in" || !e.motion ? "缓慢放大" : e.motion} · 叠化</div>
                     <div className="image-sentence">{e.sentence}</div>
+                    {e.resolution_warning && <p style={{ color: 'var(--status-review)', fontSize: 11 }}>清晰度备注：源图 {e.source_size?.join('×') || '低于请求档位'}，已自动沿用</p>}
                     {e.prompt && <div className="image-prompt-preview">生成提示词：{e.prompt}</div>}
                   </div>
                 </button>

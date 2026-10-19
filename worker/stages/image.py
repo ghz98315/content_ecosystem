@@ -501,12 +501,15 @@ def _crop_to_cell_ratio(piece, ratio: float = _CELL_RATIO):
     return piece.crop((0, top, width, top + target_height))
 
 
-def _validate_guoxue_resolution(width: int, height: int, cells: int = 3) -> None:
+def _validate_guoxue_resolution(width: int, height: int, cells: int = 3) -> str | None:
     # APIMart's 4k tier is approximately 8 MP across aspect ratios. A 4:3
     # response is 3312x2480, while the portrait response is 2336x3520.
     # Validate pixel budget and usable landscape cell size, not a long edge.
+    if width <= 0 or height <= 0 or cells <= 0:
+        raise ValueError('源图尺寸或切图格数无效')
     if width * height < 7_000_000 or width / cells * 0.96 < 1000 or height / cells * 0.96 < 750:
-        raise ValueError(f'国学4K源图实际像素不足：{(width, height)}，请核对服务分辨率')
+        return f'请求4K，实际源图为{width}×{height}；已沿用原图继续切图与成片，清晰度可能低于其他镜头。'
+    return None
 
 
 def _trim_cell_edges(piece, inset_ratio: float = _CELL_EDGE_INSET_RATIO):
@@ -752,10 +755,10 @@ def _find_chosen_text(task_id: str, stage: dict) -> str | None:
     audio_stage = db.get_client().table('stages').select('status,params').eq('task_id',task_id).eq('kind','tts').single().execute().data or {}
     if (audio_stage.get('params') or {}).get('audio_source') == 'external':
         if audio_stage.get('status') != 'done':
-            raise ValueError('请先确认外部配音和字幕')
+            raise ValueError('外部配音与字幕尚未处理完成')
         version = db.get_client().table('external_narrations').select('subtitle_text,state').eq('id',audio_stage['params']['external_id']).single().execute().data or {}
         if version.get('state') != 'approved':
-            raise ValueError('当前外部配音未确认')
+            raise ValueError('当前外部配音尚未就绪')
         return version['subtitle_text']
     res = (
         db.get_client().table("artifacts")
@@ -967,10 +970,10 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
         _validate_grid_source(*grid_size)
-        if visual_style == GUOXUE_STYLE and max(grid_size) < 3500:
-            raise ValueError(f'国学4K源图实际尺寸不足：{grid_size}，已保留原成片，请核对生图服务分辨率')
+        resolution_warning = _validate_guoxue_resolution(*grid_size) if visual_style == GUOXUE_STYLE else None
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
+            "resolution_warning": resolution_warning,
             "grid": "3x3",
             "cell_ratio": "9:16",
             "cell_bounds_x": _grid_bounds(grid_size[0]),
@@ -1151,7 +1154,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             for shot, path in zip(batch, expected_paths):
                 image_paths.append(path)
                 artifact_meta = existing_artifacts[path]
-                meta_list.append({**shot, "cell_ratio": "4:3" if visual_style == GUOXUE_STYLE else "9:16", "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model")})
+                meta_list.append({**shot, "cell_ratio": "4:3" if visual_style == GUOXUE_STYLE else "9:16", "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model"), "resolution_warning": artifact_meta.get("resolution_warning"), "source_size": artifact_meta.get("source_size")})
             continue
 
         raw: bytes | None = None
@@ -1215,12 +1218,16 @@ def run(stage: dict) -> tuple[str, str | None]:
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
         _validate_grid_source(*grid_size, expected_ratio=4/3 if visual_style == GUOXUE_STYLE else None)
-        if visual_style == GUOXUE_STYLE:
-            _validate_guoxue_resolution(*grid_size, cells=grid_cells)
+        resolution_warning = (_validate_guoxue_resolution(*grid_size, cells=grid_cells)
+                              if visual_style == GUOXUE_STYLE else None)
+        if resolution_warning:
+            print(f'  [NOTE] {grid_path}: {resolution_warning}', flush=True)
         source_meta = existing_artifacts.get(grid_path) or {}
         actual_prompt = grid_prompt or source_meta.get("prompt")
         storage.add_artifact(task_id, "image", "image_grid", grid_path, meta={
             "source_size": list(grid_size),
+            "resolution_warning": resolution_warning,
+            "quality_status": "warning" if resolution_warning else "passed",
             "grid": f"{grid_cells}x{grid_cells}",
             "cell_ratio": "4:3" if visual_style == GUOXUE_STYLE else "9:16",
             "cell_bounds_x": _grid_bounds(grid_size[0], grid_cells),
@@ -1253,6 +1260,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "char_count": shot["char_count"], "char_start": shot["char_start"],
                 "char_end": shot["char_end"], "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"], "source_grid": grid_path,
+                "source_size": list(grid_size), "resolution_warning": resolution_warning,
                 "cell_ratio": "4:3" if visual_style == GUOXUE_STYLE else "9:16",
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
@@ -1264,12 +1272,13 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
             })
             image_paths.append(path)
-            meta_list.append({**shot, "cell_ratio": "4:3" if visual_style == GUOXUE_STYLE else "9:16", "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model})
+            meta_list.append({**shot, "cell_ratio": "4:3" if visual_style == GUOXUE_STYLE else "9:16", "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
     storage.add_artifact(task_id, "image", "image_index", index_path, meta={
         "total": len(image_paths),
+        "resolution_warnings": list({entry.get('source_grid'): entry['resolution_warning'] for entry in meta_list if entry.get('resolution_warning')}.values()),
         "narration_char_count": sum(shot["char_count"] for shot in storyboard),
         "history_director_analysis": is_history,
         "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
