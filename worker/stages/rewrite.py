@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import time
@@ -13,6 +14,7 @@ import compliance
 import db
 import storage
 from rewrite_review import MAX_REVISIONS, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length, attempt_rank, length_bounds
+from rewrite_skill import resolve_domain, prompt_extension, audit_output, DomainConflict
 from prompt_profiles import (
     author_name,
     derive_keyword,
@@ -272,15 +274,30 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     """Initial generation plus at most three content revisions, then human review."""
     hook = opening_hook(source)
     prompt = load_prompt(context['category'], 'initial_dedup')
+    skill_profile = context.get('rewrite_skill')
+    if skill_profile:
+        extension, skill_profile = prompt_extension(skill_profile)
+        prompt += '\n\n' + extension
     source_body = remainder(source, hook)
     minimum, maximum = length_bounds(source)
     hook_chars = effective_length(hook)
-    history: list[dict] = []
+    history: list[dict] = list(context.get('rewrite_resume') or [])
+    checkpoint = context.get('rewrite_checkpoint')
     last: tuple[list[str], list[int], dict] | None = None
     best_rank: tuple | None = None
     stop_reason = 'limit_reached'
     last_issues: list[str] = []
-    for attempt in range(MAX_REVISIONS + 1):
+    for saved in history:
+        if saved.get('text') and saved.get('structure') and saved.get('similarity'):
+            rank = attempt_rank(saved)
+            if best_rank is None or rank < best_rank:
+                last = ([saved['text']], [_text_len(saved['text'])], json.loads(json.dumps(saved['structure'])))
+                selected_attempt = saved['attempt']; best_rank = rank
+        last_issues = saved.get('issues', [])
+    already_passed = bool(last and not next(item for item in history if item['attempt']==selected_attempt).get('issues'))
+    if already_passed:
+        stop_reason = 'passed' if next(item for item in history if item['attempt']==selected_attempt)['similarity']['status']=='passed' else 'locked_hook_floor'
+    for attempt in range(MAX_REVISIONS + 1 if already_passed else len(history), MAX_REVISIONS + 1):
         feedback = ''
         if history:
             previous = history[-1]
@@ -288,6 +305,10 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             feedback += '\n【必须处理的问题】\n' + '\n'.join(last_issues)
             feedback += '\n【可改写区重复片段】\n' + '\n'.join(
                 previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
+        history.append({'attempt':attempt+1,'revision':attempt,'text':'','issues':['请求已预留，未收到完整结果'],'complete':False,'state':'reserved'})
+        if checkpoint:
+            checkpoint(history)
+        request_started = time.monotonic()
         try:
             response = _request_rewrite(
                 model=config.REWRITE_MODEL,
@@ -304,6 +325,10 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                 response_format={'type': 'json_object'},
             )
         except Exception:
+            history[-1]['state'] = 'service_error'
+            history[-1]['issues'] = ['改写请求失败，保留已有稿及已使用次数']
+            if checkpoint:
+                checkpoint(history)
             if last is None:
                 raise
             stop_reason = 'service_error'
@@ -325,7 +350,9 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             text = candidates[0] if len(candidates) == 1 else ''
         if not text:
             last_issues = ['未返回完整JSON正文，请返回 rewritten_remainder 字段']
-            history.append({'attempt': attempt + 1, 'revision': attempt, 'issues': last_issues, 'text': ''})
+            history[-1] = {'attempt': attempt + 1, 'revision': attempt, 'issues': last_issues, 'text': '', 'state':'invalid'}
+            if checkpoint:
+                checkpoint(history)
             continue
         structure = _rewrite_structure(raw, text)
         similarity = review_rewrite(source, text, hook)
@@ -335,12 +362,18 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         if missing_terms:
             issues.append('未原样保留书名或数字：' + '、'.join(missing_terms))
         issues = list(dict.fromkeys(issues))
+        skill_audit = audit_output(source, text, obj) if skill_profile else None
+        if skill_audit:
+            issues = list(dict.fromkeys(issues + skill_audit['issues']))
         strategies = obj.get('rewrite_strategy', []) if isinstance(obj, dict) else []
         strategies = [s.strip()[:240] for s in strategies if isinstance(s, str) and s.strip()][:5] if isinstance(strategies, list) else []
         entry = {'attempt': attempt + 1, 'revision': attempt, 'text': text,
+                 'generation_seconds': round(time.monotonic() - request_started, 3),
                  'strategy': strategies, 'issues': issues, 'similarity': similarity,
                  'complete': getattr(choice, 'finish_reason', None) != 'length'}
-        history.append(entry)
+        if skill_audit:
+            entry['skill_audit'] = skill_audit
+        history[-1] = entry
         actual_tail = text.split('\n\n')[-1]
         structure.update({
             'hook': hook, 'hook_text': hook, 'hook_strategy': 'preserved',
@@ -350,6 +383,11 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             'complete': getattr(choice, 'finish_reason', None) != 'length',
             'quality_warnings': issues,
         })
+        if skill_audit:
+            structure['rewrite_skill'] = {**skill_profile, **skill_audit}
+        if checkpoint:
+            entry['structure'] = json.loads(json.dumps(structure))
+            checkpoint(history)
         # A later revision can regress; hand over the best usable draft at the cap.
         rank = attempt_rank(entry)
         if best_rank is None or rank < best_rank:
@@ -370,8 +408,9 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     structure['rewrite_review'] = {
         **final_report, 'max_revisions': MAX_REVISIONS,
         'revisions_used': len(history) - 1, 'selected_attempt': selected_attempt,
-        'stop_reason': stop_reason, 'attempts': history,
+        'stop_reason': stop_reason, 'attempts': [{key:value for key,value in item.items() if key != 'structure'} for item in history],
         'strategy': selected['strategy'], 'issues': selected['issues'],
+        'rewrite_skill': structure.get('rewrite_skill'),
         'comparison_summary': [
             f"开头锁定 {effective_length(hook)} 个有效字符，生成稿由程序原样拼接。",
             f"原稿 {final_report['source_chars']} 字，交付稿 {final_report['candidate_chars']} 字，偏差 {final_report['length_deviation']:+.1%}（不计标点与空白）。",
@@ -580,6 +619,14 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "failed", None
     context = _task_context(task_id, source)
     narration_mode = str(params.get("narration_mode") or "single")
+    if chosen is None and narration_mode != 'dual_dialogue':
+        template_rows = db.get_client().table('stages').select('params').eq('task_id',task_id).in_('kind',['image','render']).execute().data or []
+        templates = [(row.get('params') or {}).get('production_template') for row in template_rows]
+        try:
+            context['rewrite_skill'] = resolve_domain(source, params.get('rewrite_domain','auto'), [item for item in templates if item], context['category'])
+        except DomainConflict as exc:
+            db.set_stage(stage['id'],'needs_review',error=str(exc))
+            return 'needs_review', None
 
     if chosen is not None:
         res = (
@@ -651,6 +698,13 @@ def run(stage: dict) -> tuple[str, str | None]:
     rewrite_notes = str(params.get("rewrite_notes") or "").strip()
     if narration_mode == "dual_dialogue":
         rewrite_notes = (rewrite_notes + "\n改为双人播客对话：每段以“主持人：”或“嘉宾：”开头，嘉宾可连续展开；保留事实边界，首段仍须有反差、反常识或悬念钩子。不要增加角色设定以外的事实。 ").strip()
+    checkpoint = None
+    if context.get('rewrite_skill'):
+        from rewrite_checkpoint import prepare
+        _extension, context['rewrite_skill'] = prompt_extension(context['rewrite_skill'])
+        context['rewrite_skill']['base_prompt_sha256'] = hashlib.sha256(load_prompt(context['category'], 'initial_dedup').encode()).hexdigest()
+        resumed, checkpoint = prepare(stage, params, source, context['rewrite_skill'], rewrite_notes, mode)
+        context['rewrite_resume'], context['rewrite_checkpoint'] = resumed, checkpoint
     candidates, lengths, structure = _generate_candidates(
         source,
         context,
@@ -658,6 +712,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         mode,
         narration_mode,
     )
+    context.pop('rewrite_checkpoint', None)
+    context.pop('rewrite_resume', None)
     report = compliance.check_text(
         _llm(), config.REWRITE_MODEL, context["category"], candidates[0], context
     )
@@ -679,6 +735,8 @@ def run(stage: dict) -> tuple[str, str | None]:
     }
     sp = f"{task_id}/rewrite/{uuid.uuid4()}.json"
     _upload_rewrite(sp, payload)
+    if checkpoint:
+        checkpoint(checkpoint.last_history, 'finished')
     storage.add_artifact(task_id, "rewrite", "rewrite", sp, meta={
         "candidate_count": len(candidates),
         "candidate_lengths": lengths,
@@ -692,7 +750,10 @@ def run(stage: dict) -> tuple[str, str | None]:
         "compliance_status": report["status"],
         "hook_strategy": structure["hook_strategy"],
         "review_status": (structure.get('rewrite_review') or {}).get('status'),
-        "prompt_version": 'deep_rewrite_v2' if narration_mode != 'dual_dialogue' else 'dialogue_existing',
+        "prompt_version": 'book_skill_v1.2.0' if context.get('rewrite_skill') else ('deep_rewrite_v2' if narration_mode != 'dual_dialogue' else 'dialogue_existing'),
+        "rewrite_domain": (structure.get('rewrite_skill') or {}).get('domain'),
+        "skill_version": (structure.get('rewrite_skill') or {}).get('version'),
+        "skill_rules_sha256": (structure.get('rewrite_skill') or {}).get('rules_sha256'),
     })
     db.get_client().table("stages").update({
         "status": "needs_review",

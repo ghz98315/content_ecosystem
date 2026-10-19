@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { importSnapshots } from '@/lib/performanceImportServer';
 
 export const dynamic = 'force-dynamic';
 const PLATFORMS = new Set(['douyin', 'kuaishou', 'xiaohongshu', 'shipinhao', 'bilibili', 'other']);
@@ -50,6 +51,10 @@ export async function POST(request: NextRequest) {
     const auth = await context(request);
     if (!auth) return NextResponse.json({ error: '请先登录' }, { status: 401 });
     const body = await request.json();
+    if (body.action === 'metric_import') {
+      try { return NextResponse.json(await importSnapshots(auth.db, auth.owner, body.rows)); }
+      catch (error) { return badRequest(error instanceof Error ? error.message : '导入失败'); }
+    }
     if (body.action === 'post') {
       if (!UUID.test(body.taskId || '') || !PLATFORMS.has(body.platform)) return badRequest('任务或平台无效');
       const { data: task } = await auth.db.from('tasks').select('id,title').eq('id', body.taskId).eq('owner', auth.owner).maybeSingle();

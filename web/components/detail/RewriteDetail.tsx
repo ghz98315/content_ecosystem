@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { DetailShell, TextBtn, DetailCommon } from "./_shell";
 import { VideoTextSettings } from "./VideoTextSettings";
 import { RewriteReviewPanel, RewriteReview } from "./RewriteReviewPanel";
+import { RewriteDomainSettings, RewriteSkillInfo } from './RewriteDomainSettings';
 
 interface RewriteData {
   candidates: string[];
@@ -33,6 +34,7 @@ interface RewriteData {
   rewrite_review?: RewriteReview;
   final_similarity?: RewriteReview;
   manual_draft?: { index: number; text: string };
+  rewrite_skill?: RewriteSkillInfo;
 }
 
 interface ComplianceIssue {
@@ -167,6 +169,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
 
   return (
     <DetailShell title="改写" stage={stage} onRerun={onRerun} actions={actions}>
+      {task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} />}
       <VideoTextSettings taskId={taskId} />
       {(isReview || isDone) && data && (
         <>

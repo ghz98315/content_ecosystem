@@ -7,6 +7,7 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { supabase } from "@/lib/supabase";
 import { useAnonAuth } from "@/lib/useAnonAuth";
 import { Task } from "@/lib/types";
+import { PerformanceImport } from '@/components/PerformanceImport';
 
 type Post = { id: string; task_id: string; platform: string; title: string; post_url: string | null; published_at: string };
 type Metric = { id: string; post_id: string; recorded_at: string; views: number; likes: number; comments: number; shares: number; saves: number; follows: number; notes: string };
@@ -119,6 +120,7 @@ export default function PerformancePage() {
           </form>
         </section>
       </div>
+      <PerformanceImport posts={posts} defaultPostId={selectedPost} onImported={reload} />
       <section style={box}>
         <h2 style={{ fontSize: 18, marginTop: 0 }}>选题汇总</h2>
         <p style={{ color: "var(--text-secondary)", fontSize: 12 }}>同一任务在多个平台发布时合并展示，便于找出值得继续分发的选题。播放量是各平台最新快照之和，并非去重人数。</p>
