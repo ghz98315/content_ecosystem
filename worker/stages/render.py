@@ -20,7 +20,7 @@ import imageio_ffmpeg
 import db
 import storage
 import config
-from production_templates import validate_template
+from production_templates import validate_template, validate_task_template
 from quality import inspect_render_quality
 
 W, H = 1080, 1920
@@ -34,7 +34,7 @@ TRANSITION_DUR = 0.2
 ZOOM_OVERSAMPLE = 4
 ZOOM_AMOUNT = 0.10
 LANDSCAPE_ZOOM_AMOUNT = 0.16
-LANDSCAPE_WORK_SCALE = 4
+LANDSCAPE_WORK_SCALE = 2
 LANDSCAPE_RENDER_SCALE = 2
 DISCLAIMER_GAP_LINES = 4
 TITLE_FONT_SIZE = 84
@@ -774,6 +774,7 @@ def _concat_intro(intro: str, content: str, out_mp4: str, tmpdir: str) -> None:
 
 def run(stage: dict) -> tuple[str, str | None]:
     validate_template(stage.get('params') or {}, 'render')
+    validate_task_template(stage)
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
     render_started = time.monotonic()
@@ -810,6 +811,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "failed", None
 
     images: list[dict] = _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
+    expected_ratio = (stage.get('params') or {}).get('production_template')
+    if expected_ratio == 'guoxue-v1' and any(image.get('cell_ratio') not in (None,'4:3') for image in images):
+        raise ValueError('已有图片比例与国学4:3模板不一致，请重新生图；旧成片已保留')
     segments: list[dict] = subs_data.get("segments", []) if isinstance(subs_data, dict) else []
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
@@ -880,12 +884,13 @@ def run(stage: dict) -> tuple[str, str | None]:
             revision = db.get_client().table('artifacts').select('created_at').eq('task_id',task_id).eq('type','image_index').order('created_at',desc=True).limit(1).execute().data
             if revision:
                 cached = picture_cache.cache_path(task_id, {
-                    'version':'subpixel-linear-zoom-16-v2', 'index_revision':revision[0]['created_at'],
+                    'version':'subpixel-linear-zoom-16-v3', 'index_revision':revision[0]['created_at'],
                     'images':images, 'timeline':timeline, 'durations':durations,
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
                     'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
                     'encoder': 'nvenc' if _nvenc_available() else config.RENDER_ENCODER_PRESET,
                     'fps':FPS, 'dimensions':[W,H], 'zoom':LANDSCAPE_ZOOM_AMOUNT,
+                    'motion_scales':[LANDSCAPE_WORK_SCALE,LANDSCAPE_RENDER_SCALE],
                     'dissolve_limit':config.RENDER_DISSOLVE_MAX_CLIPS,
                 })
         except Exception:

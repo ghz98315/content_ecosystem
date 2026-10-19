@@ -52,7 +52,7 @@ def scene_direction(text: str, index: int) -> str:
     )
 
 
-def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 3) -> str:
+def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 2) -> str:
     if grid_cells not in (2, 3):
         raise ValueError('国学宫格仅支持2x2或3x3')
     cell_count = grid_cells * grid_cells

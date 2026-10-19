@@ -1,10 +1,12 @@
 """Named production contracts; copy rewriting stays on its existing category."""
-TEMPLATES = {
-    'guoxue-v1': ('guoxue_gongbi_life', '4:3', 'landscape_blur'),
-    'health-v1': ('warm_editorial', '9:16', 'portrait'),
-    'history-v1': ('history_ink_scroll', '9:16', 'portrait'),
-    'education-v1': ('clean_modern', '9:16', 'portrait'),
-}
+import json
+from pathlib import Path
+
+# The same manifest is imported by web/lib/productionTemplates.ts.
+DEFINITIONS = {item['id']: item for item in json.loads(
+    (Path(__file__).resolve().parents[1] / 'web/lib/productionTemplateManifest.json').read_text(encoding='utf-8'))}
+TEMPLATES = {key: (item['style'], item['aspect'], item['frameMode']) for key,item in DEFINITIONS.items()}
+
 
 
 def inherit_template(current: dict, source: dict, kind: str) -> dict:
@@ -29,3 +31,19 @@ def validate_template(params: dict, kind: str) -> None:
     expected = {'visual_style': style, 'image_aspect_ratio': aspect} if kind == 'image' else {'frame_mode': frame_mode}
     if any(params.get(key) != value for key, value in expected.items()):
         raise ValueError('内容模板与画面配置不一致，已停止以避免不同内容类型混用')
+
+
+def validate_task_template(stage: dict) -> None:
+    """Check the image and render snapshots agree before spending or encoding."""
+    if not (stage.get('params') or {}).get('production_template'):
+        return
+    import db
+    rows = db.retry(lambda: db.get_client().table('stages').select('kind,params')
+                    .eq('task_id',stage['task_id']).in_('kind',['image','render']).execute()).data or []
+    snapshots = {row['kind']: row.get('params') or {} for row in rows}
+    if set(snapshots) != {'image','render'}:
+        raise ValueError('画面模板快照不完整，请重新保存任务模板')
+    for kind,params in snapshots.items():
+        validate_template(params,kind)
+    if snapshots['image'].get('production_template') != snapshots['render'].get('production_template'):
+        raise ValueError('生图与成片模板不一致，请统一后重试；已有产物已保留')

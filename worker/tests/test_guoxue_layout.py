@@ -117,7 +117,7 @@ class GuoxueLayoutTests(unittest.TestCase):
         self.assertTrue(shots[0]['short_source_exception'])
 
     def test_grid_uses_traditional_clothes_and_varied_spaces(self):
-        prompt = grid_prompt(['在集市买菜', '到田地里劳作', '与家人吃晚饭'], cover=True)
+        prompt = grid_prompt(['在集市买菜', '到田地里劳作', '与家人吃晚饭'], cover=True, grid_cells=3)
         for required in ['工笔', '淡墨', 'Nike', '堂屋', '集市', '田野', '独立封面', '4:3', '3行3列']:
             self.assertIn(required, prompt)
         self.assertIn('不要分隔线', prompt)

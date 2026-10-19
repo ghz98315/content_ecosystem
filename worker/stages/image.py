@@ -21,7 +21,7 @@ from pathlib import Path
 import httpx
 
 import config
-from production_templates import validate_template
+from production_templates import validate_template, validate_task_template, DEFINITIONS
 import db
 import storage
 from narration import clean_tts_text
@@ -323,7 +323,7 @@ _CELL_RATIO = 9 / 16
 _GRID_SIZE = config.IMAGE_GRID_SIZE
 _CELL_EDGE_INSET_RATIO = 0.02
 _IMAGE_SPLIT_VERSION = 3
-_GUOXUE_GRID = 2
+_GUOXUE_GRID = int(DEFINITIONS['guoxue-v1']['gridCells'])
 _GUOXUE_REFERENCE_FILE = Path(__file__).resolve().parents[1] / 'local-assets' / 'visual' / 'guoxue-style-reference.png'
 _GUOXUE_REFERENCE_STORAGE_PATH = 'style-references/guoxue-gongbi-reference.png'
 _IMAGE_PROVIDER_JOBS_LOCK = threading.Lock()
@@ -446,11 +446,7 @@ def _build_grid_prompt(
     grid_direction = (
         "请生成一张竖版九宫格总图，将画面平均分为3×3共9个等大的竖版格子，从左到右从上到下对应1-9。"
         "每格按9:16竖版画面构图，主体完整并保持在格子中央安全区域。"
-        if profile else
-        "请生成一张横向九宫格总图，将画面平均分为3×3共9个等大的格子，从左到右从上到下对应1-9。"
-        "每格按4:3画面构图，主体完整并保持在格子中央安全区域。"
     )
-    grid_direction = grid_direction.replace("4:3", "9:16")
     reference_direction = {
         "none": "Keep a consistent palette, lighting, lens language and era across all cells.",
         "book_cover": "Use the confirmed book cover only as a visual reference for palette, material and era; never reproduce its text or layout.",
@@ -523,7 +519,7 @@ def _trim_cell_edges(piece, inset_ratio: float = _CELL_EDGE_INSET_RATIO):
 
 
 def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None, cell_ratio: float = _CELL_RATIO) -> list[bytes]:
-    """切成 n 张4:3小图；边界使用同一组精确像素坐标，避免累计误差。"""
+    """按明确指定的 cell_ratio 切成 n 张小图；边界使用同一组精确像素坐标，避免累计误差。"""
     from PIL import Image
     cells = max(1, int(grid_cells or _GRID))
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
@@ -1030,6 +1026,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
 def run(stage: dict) -> tuple[str, str | None]:
     """Idempotent image stage: resume completed grids after an interruption."""
     validate_template(stage.get('params') or {}, 'image')
+    validate_task_template(stage)
     task_id = stage["task_id"]
     text = clean_tts_text(_find_chosen_text(task_id, stage) or "")
     if not text:

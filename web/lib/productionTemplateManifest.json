@@ -1,0 +1,50 @@
+[
+  {
+    "id": "guoxue-v1",
+    "label": "国学 · 工笔淡墨 · 4:3四宫格",
+    "category": "health",
+    "style": "guoxue_gongbi_life",
+    "preset": "guoxue-gongbi-life",
+    "aspect": "4:3",
+    "frameMode": "landscape_blur",
+    "gridCells": 2,
+    "font": "PlayFont-ChenkunGBT",
+    "color": "#BA413B"
+  },
+  {
+    "id": "health-v1",
+    "label": "健康 · 温暖生活 · 9:16九宫格",
+    "category": "health",
+    "style": "warm_editorial",
+    "preset": "health-warm-editorial",
+    "aspect": "9:16",
+    "frameMode": "portrait",
+    "gridCells": 3,
+    "font": "KaiTi",
+    "color": "#FFF4D9"
+  },
+  {
+    "id": "history-v1",
+    "label": "历史社科 · 工笔淡彩 · 9:16九宫格",
+    "category": "social_science",
+    "style": "history_ink_scroll",
+    "preset": "history-ink-scroll",
+    "aspect": "9:16",
+    "frameMode": "portrait",
+    "gridCells": 3,
+    "font": "KaiTi",
+    "color": "#FFF4D9"
+  },
+  {
+    "id": "education-v1",
+    "label": "经管 · 现代阅读 · 9:16九宫格",
+    "category": "education",
+    "style": "clean_modern",
+    "preset": "education-clean-modern",
+    "aspect": "9:16",
+    "frameMode": "portrait",
+    "gridCells": 3,
+    "font": "KaiTi",
+    "color": "#FFF4D9"
+  }
+]

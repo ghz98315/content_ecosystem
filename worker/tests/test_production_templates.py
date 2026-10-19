@@ -88,3 +88,32 @@ class ProductionContractTests(unittest.TestCase):
             timer=StageTiming({'id':'stage','task_id':'task','kind':'render'})
             timer.start();timer.finish()
             self.assertFalse(timer.saved)
+
+
+class TemplateConsistencyTests(unittest.TestCase):
+    def test_manifest_is_shared_and_guoxue_uses_four_landscape_cells(self):
+        from production_templates import DEFINITIONS
+        from guoxue_visuals import grid_prompt
+        item=DEFINITIONS['guoxue-v1']
+        self.assertEqual((item['aspect'],item['gridCells'],item['frameMode']),('4:3',2,'landscape_blur'))
+        prompt=grid_prompt(['虚构场景'])
+        self.assertIn('2行2列四宫格',prompt)
+        self.assertNotIn('9:16',prompt)
+
+    def test_mixed_stage_templates_are_rejected_before_generation(self):
+        from production_templates import validate_task_template
+        from types import SimpleNamespace
+        client=MagicMock()
+        query=client.table.return_value.select.return_value.eq.return_value.in_.return_value
+        query.execute.return_value=SimpleNamespace(data=[
+            {'kind':'image','params':{'production_template':'guoxue-v1','template_version':1,'visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'}},
+            {'kind':'render','params':{'production_template':'history-v1','template_version':1,'frame_mode':'portrait'}}])
+        with patch('db.get_client',return_value=client):
+            with self.assertRaisesRegex(ValueError,'不一致'):
+                validate_task_template({'task_id':'test','params':{'production_template':'guoxue-v1'}})
+
+    def test_copy_category_selector_does_not_switch_visual_template(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parents[2]/'web/app/video-collection/page.tsx').read_text(encoding='utf-8')
+        self.assertNotIn('setProductionTemplateId(category',source)
+        self.assertIn('修改下方文案规则不会切换画面模板',source)

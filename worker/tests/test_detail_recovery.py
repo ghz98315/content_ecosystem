@@ -48,7 +48,7 @@ class DetailRecoveryTests(unittest.TestCase):
     render._make_landscape_clip(str(source),30,str(Path(tmp)/'out.mp4'),motion='zoom_in')
    args=encode.call_args.args[0];graph=args[args.index('-filter_complex')+1]
    self.assertIn('0.16',graph);self.assertIn('(on/899)',graph);self.assertNotIn('pow(on/',graph)
-   self.assertIn('crop=4320:3240,format=yuv444p',graph)
+   self.assertIn('crop=2160:1620,format=yuv444p',graph)
    self.assertIn('s=2160x1620:fps=30,scale=1080:810',graph)
 
 if __name__=='__main__':unittest.main()
