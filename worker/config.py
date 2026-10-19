@@ -24,7 +24,7 @@ REWRITE_RETRIES = max(0, int(os.environ.get("REWRITE_RETRIES", "2")))
 REWRITE_MAX_TOKENS = max(1024, int(os.environ.get("REWRITE_MAX_TOKENS", "8192")))
 
 CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "deepseek-chat")
-REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "deepseek-chat" if REWRITE_PROVIDER == "deepseek" else "gpt-5.5")
+REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "deepseek-chat" if REWRITE_PROVIDER == "deepseek" else "gpt-6.1-sol")
 BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "gpt-5.5")
 
 # ---- 生图（可独立于文字模型，支持 openai / doubao 两个后端）----

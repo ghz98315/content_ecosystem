@@ -33,6 +33,8 @@ def _request_rewrite(**kwargs):
         try:
             return _llm().chat.completions.create(**kwargs)
         except Exception as exc:
+            if 'model_not_found' in str(exc).lower():
+                raise
             if not any(code in str(exc) for code in ("502", "503", "504", "524")) or attempt >= config.REWRITE_RETRIES:
                 raise
             time.sleep(min(60, 2 ** (attempt + 1)))

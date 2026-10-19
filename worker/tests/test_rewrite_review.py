@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from rewrite_review import evaluate, format_for_reading, normalized, opening_hook, remainder
-from stages.rewrite import _generate_candidates
+from stages.rewrite import _generate_candidates, _request_rewrite
 
 
 HOOK = '您是否也遇到过？先别急着下结论。咱们慢慢说清楚。'
@@ -54,6 +54,15 @@ class LocalReviewTests(unittest.TestCase):
 
 
 class RevisionLoopTests(unittest.TestCase):
+    def test_missing_model_does_not_repeat_provider_requests(self):
+        with patch('stages.rewrite._llm') as client, patch('stages.rewrite.time.sleep') as sleep:
+            request = client.return_value.chat.completions.create
+            request.side_effect = RuntimeError('503 model_not_found')
+            with self.assertRaisesRegex(RuntimeError, 'model_not_found'):
+                _request_rewrite(model='unavailable')
+            self.assertEqual(1, request.call_count)
+            sleep.assert_not_called()
+
     def generate(self, replies, mode='initial_dedup'):
         with patch('stages.rewrite._request_rewrite', side_effect=replies) as request:
             result = _generate_candidates(SOURCE, CONTEXT, mode=mode)
