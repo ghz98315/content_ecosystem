@@ -1,0 +1,23 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+const module = { exports: {} };
+new Function('module', 'exports', ts.transpileModule(fs.readFileSync('lib/narrationEdits.ts', 'utf8'),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(module, module.exports);
+const { canApplyNarrationDifference, applyNarrationDifferences: apply } = module.exports;
+const diff = (start, end, original, suggestion) => ({ raw_start: start, raw_end: end, original, suggestion });
+const base = '先读经典，再谈心得。';
+const first = diff(2, 4, '经典', '道德经');
+const second = diff(7, 9, '心得', '感受');
+assert.equal(apply(base, base, [{ difference: first, replacement: '道德经' }, { difference: second, replacement: '感受' }]), '先读道德经，再谈感受。');
+assert.equal(apply('今天读经典', '今天读经典', [{ difference: diff(2, 2, '', '先'), replacement: '先' }]), '今天先读经典');
+assert.equal(apply('今天先读经典', '今天先读经典', [{ difference: diff(2, 3, '先', ''), replacement: '' }]), '今天读经典');
+assert.throws(() => apply(base, '已编辑', [{ difference: first, replacement: '道德经' }]));
+assert.throws(() => apply(base, base, []));
+assert.throws(() => apply(base, base, [{ difference: first, replacement: '经书' }, { difference: first, replacement: '经典' }]));
+assert.throws(() => apply(base, base, [{ difference: diff(2, 4, '错误', '其他'), replacement: '其他' }]));
+assert.equal(canApplyNarrationDifference({ kind: 'replace', expected: '五', recognized: '六' }, base), false);
+assert.equal(canApplyNarrationDifference(diff(-1, 2, '', ''), base), false);
+assert.throws(() => apply('字', '字', [{ difference: diff(0, 1, '字', ''), replacement: '' }]));
+assert.equal(apply('📖经典', '📖经典', [{ difference: diff(3, 4, '典', '书'), replacement: '书' }]), '📖经书');
+console.log('Narration edit contracts: 11 checks passed.');

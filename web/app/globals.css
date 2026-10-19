@@ -687,6 +687,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .external-cue input { width:65px; }
 .external-cue small, .external-error { color: var(--status-failed); }
 .external-confirm { display:grid; gap:14px; }
+.narration-differences { margin:16px 0; border:1px solid var(--border); border-radius:10px; padding:14px; }
+.narration-differences summary { cursor:pointer; font-weight:600; }
+.narration-diff-list { display:grid; gap:12px; max-height:620px; overflow:auto; padding:4px; }
+.narration-diff-item { border:1px solid var(--border); border-radius:8px; padding:12px; min-width:0; }
+.narration-diff-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.narration-diff-heading label { display:flex; align-items:center; gap:8px; }
+.narration-diff-item > label { display:grid; gap:6px; font-size:13px; }
+.narration-diff-item input[type=text] { width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:6px; color:var(--text-primary); background:var(--bg-surface); }
+.narration-diff-context { overflow-wrap:anywhere; }
+.narration-diff-context mark { background:rgba(234,179,8,.18); color:inherit; padding:1px 3px; }
+.external-narration-panel .narration-diff-warning { color:var(--status-failed); }
 @media(max-width:650px) { .external-cue { grid-template-columns:60px 1fr; } }
 
 .publication-editor { padding: 22px; margin: 22px 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-surface); }

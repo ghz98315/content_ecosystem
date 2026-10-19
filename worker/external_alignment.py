@@ -12,12 +12,71 @@ def comparable(text: str) -> str:
     return ''.join(c.lower() for c in normalize_tts_numbers(text) if c.isalnum())
 
 
-def differences(expected: str, recognized: str) -> list[dict]:
+def _comparable_spans(text: str) -> tuple[str, list[tuple[int, int]]]:
+    """Track raw character spans through the existing speech-number cleanup."""
+    spoken = normalize_tts_numbers(text)
+    spans: list[tuple[int, int]] = [(0, 0)] * len(spoken)
+    for kind, a, b, c, d in difflib.SequenceMatcher(None, text, spoken, autojunk=False).get_opcodes():
+        for index in range(c, d):
+            spans[index] = (a + index - c, a + index - c + 1) if kind == 'equal' else (a, b)
+    indices = [index for index, char in enumerate(spoken) if char.isalnum()]
+    return (''.join(spoken[i].lower() for i in indices),
+            [spans[i] for i in indices for _ in spoken[i].lower()])
+
+
+def _raw_span(spans: list[tuple[int, int]], start: int, end: int, text: str) -> tuple[int, int] | None:
+    if start == end:
+        point = spans[start][0] if start < len(spans) else (spans[-1][1] if spans else 0)
+        # Never insert halfway into a normalized numeric token.
+        if 0 < start < len(spans) and spans[start - 1][1] > point:
+            return None
+        return point, point
+    begin, finish = spans[start][0], spans[end - 1][1]
+    if (start and spans[start - 1][1] > begin) or (end < len(spans) and spans[end][0] < finish):
+        return None
+    return begin, finish
+
+
+def differences(expected: str, recognized: str, words: list[dict] | None = None) -> list[dict]:
     left, right = comparable(expected), comparable(recognized)
+    mapped_left, left_spans = _comparable_spans(expected)
+    mapped_right, right_spans = _comparable_spans(recognized)
+    # Map recognized offsets to existing word timestamps; absent data stays absent.
+    timed_chars: list[tuple[float, float]] = []
+    timed_text = ''
+    for word in words or []:
+        token = comparable(str(word.get('word') or ''))
+        timed_text += token
+        timed_chars.extend([(float(word['start']), float(word['end']))] * len(token))
+    timed_matches = {}
+    if timed_chars:
+        for block in difflib.SequenceMatcher(None, right, timed_text, autojunk=False).get_matching_blocks():
+            timed_matches.update({block.a+i: block.b+i for i in range(block.size)})
     result = []
     for kind, a, b, c, d in difflib.SequenceMatcher(None, left, right, autojunk=False).get_opcodes():
         if kind != 'equal':
-            result.append({'kind': kind, 'expected': left[a:b], 'recognized': right[c:d], 'offset': a})
+            item = {'kind': kind, 'expected': left[a:b], 'recognized': right[c:d], 'offset': a}
+            raw_left = _raw_span(left_spans, a, b, expected) if mapped_left == left else None
+            raw_right = _raw_span(right_spans, c, d, recognized) if mapped_right == right else None
+            if raw_left is not None and raw_right is not None:
+                begin, finish = raw_left
+                rbegin, rfinish = raw_right
+                # Python offsets are code points; the browser slices UTF-16 strings.
+                item.update({'raw_start': len(expected[:begin].encode('utf-16-le')) // 2,
+                             'raw_end': len(expected[:finish].encode('utf-16-le')) // 2,
+                             'original': expected[begin:finish], 'suggestion': recognized[rbegin:rfinish],
+                             'context_before': expected[max(0, begin-18):begin],
+                             'context_after': expected[finish:finish+18]})
+            positions = [timed_matches[i] for i in range(c, d) if i in timed_matches]
+            if not positions:
+                neighbor = timed_matches.get(c, timed_matches.get(c-1))
+                positions = [neighbor] if neighbor is not None else []
+            if positions:
+                item['audio_start'] = max(0, timed_chars[min(positions)][0] - .5)
+                item['audio_end'] = timed_chars[max(positions)][1] + .5
+            item['review_hint'] = ('识别中未找到，可能漏读或漏识别；应用建议会删除字幕文字，请先试听'
+                                   if kind == 'delete' else '识别结果可能有同音字、专名或数字错误，请试听后采用')
+            result.append(item)
     return result
 
 

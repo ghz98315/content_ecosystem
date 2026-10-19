@@ -94,10 +94,13 @@ def run(stage: dict) -> tuple[str, None]:
                      'audio_path':audio_path,'alignment_ready':ready}
             storage.upload(audio_path,str(decoded),'audio/wav')
             storage.upload_bytes(subtitle_path,json.dumps(payload,ensure_ascii=False).encode(),'application/json')
+        script_differences = differences(row['script_text'],recognized,words)
+        subtitle_differences = script_differences if text == row['script_text'] else differences(text,recognized,words)
         review={**payload,'source_sha256':source_hash,'recognized_text':recognized,'words':words,
                 'script_text':row['script_text'],'subtitle_text':text,'coverage':coverage,
-                'differences':differences(row['script_text'],recognized),
-                'subtitle_differences':differences(text,recognized)}
+                'differences':script_differences,
+                'subtitle_differences':subtitle_differences,
+                'difference_method':'speech_sequence_v2', 'difference_base_text':text}
         _finish(stage,'review',review,audio_path,subtitle_path)
     except Exception as exc:
         _finish(stage,'failed',{**previous,'error':str(exc)[:1000], 'alignment_ready':False},

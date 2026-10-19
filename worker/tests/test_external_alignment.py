@@ -27,6 +27,46 @@ class ExternalAlignmentTests(unittest.TestCase):
     def test_repeated_spoken_text_is_reported(self):
         self.assertTrue(differences('今天读经典。','今天读经典今天读经典。'))
 
+    def test_batch_edit_uses_exact_raw_positions_and_keeps_punctuation(self):
+        text = '每天15分钟，先读经典，再聊心得。'
+        items = differences(text, '每天十五分钟，先读经书，再聊感受。')
+        self.assertEqual(2, len(items))
+        for item in reversed(items):
+            start, end = item['raw_start'], item['raw_end']
+            self.assertEqual(item['original'], text[start:end])
+            text = text[:start] + item['suggestion'] + text[end:]
+        self.assertEqual('每天15分钟，先读经书，再聊感受。', text)
+
+    def test_partial_normalized_number_is_not_batch_editable(self):
+        items = differences('每天15分钟。', '每天十六分钟。')
+        self.assertTrue(items)
+        self.assertNotIn('raw_start', items[0])
+
+    def test_unicode_positions_are_browser_utf16_offsets(self):
+        item = differences('📖今天读经典。', '📖今天读经书。')[0]
+        self.assertEqual(6, item['raw_start'])
+        self.assertEqual('典', item['original'])
+
+    def test_insert_and_delete_have_explicit_suggestions(self):
+        deleted = differences('今天先读经典。', '今天读经典。')[0]
+        self.assertEqual('先', deleted['original'])
+        self.assertEqual('', deleted['suggestion'])
+        added = differences('今天读经典。', '今天先读经典。')[0]
+        self.assertEqual('', added['original'])
+        self.assertEqual('先', added['suggestion'])
+
+    def test_word_timestamps_locate_difference_for_preview(self):
+        item = differences('今天读经典。', '今天读经书。',
+                           [{'word':'今天读经书', 'start':1, 'end':3}])[0]
+        self.assertEqual(.5, item['audio_start'])
+        self.assertEqual(3.5, item['audio_end'])
+
+    def test_repeated_words_keep_distinct_raw_positions(self):
+        text = '先读经典，再读经典，最后讨论。'
+        items = differences(text, '先读经典，再读经书，最后讨论。')
+        self.assertEqual(1, len(items))
+        self.assertEqual(text.rindex('典'), items[0]['raw_start'])
+
     def test_subtitle_cannot_exceed_audio_or_overlap(self):
         for cues in ([{'text':'经典','start':1,'end':3}],
                      [{'text':'经','start':0,'end':1.5},{'text':'典','start':1,'end':2}],

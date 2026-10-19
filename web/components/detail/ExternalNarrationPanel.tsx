@@ -3,13 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Stage } from '@/lib/types';
+import { NarrationDifference } from '@/lib/narrationEdits';
+import { NarrationDifferencesPanel } from './NarrationDifferencesPanel';
 
 type Cue = { text: string; start: number | null; end: number | null; needs_timing_review?: boolean };
 type Version = {
   id: string; state: string; subtitle_path: string | null; subtitle_text: string; original_name: string;
   review: { error?: string; recognized_text?: string; duration?: number; coverage?: number;
     alignment_ready?: boolean; segments?: Cue[];
-    differences?: Array<{ kind: string; expected: string; recognized: string }> };
+    differences?: NarrationDifference[]; subtitle_differences?: NarrationDifference[];
+    difference_method?: string; difference_base_text?: string };
 };
 type Payload = { script: string; rewriteReady: boolean; audioUrl: string | null; current: Version | null;
   versions: Array<{ id: string; state: string; original_name: string; created_at: string }> };
@@ -92,6 +95,8 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
   };
   const current = payload?.current;
   const review = current?.review;
+  const suggestionsReady = review?.difference_method === 'speech_sequence_v2'
+    && review?.difference_base_text === current?.subtitle_text;
   const changedText = draft.trim() !== (current?.subtitle_text || '').trim();
   const canEdit = !busy && stage?.status !== 'processing' && !!current && ['review', 'approved', 'failed'].includes(current.state);
   return <section className="external-narration-panel">
@@ -119,9 +124,17 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
         <button type="button" className="secondary-action" onClick={() => { setClipEnd(null); void audio.current?.play(); }}>继续播放完整配音</button>
       </>}
       {review?.recognized_text && <>
-        <details><summary>核对朗读差异（{review.differences?.length || 0} 处疑似差异）</summary>
-          <p>识别可能把同音字、专名或数字识别错。请结合音频核对，不会自动修改已确认的二创稿。</p>
-          <pre>{review.recognized_text}</pre>
+        <NarrationDifferencesPanel differences={review.subtitle_differences || review.differences || []}
+          baseText={current!.subtitle_text} draft={draft} canEdit={canEdit} suggestionsReady={suggestionsReady}
+          onApply={text => { setDraft(text); setChecked(false); }}
+          onSave={text => perform(async () => {
+            await action('realign', { id: current!.id, text }); setNotice('字幕修改已保存，正在复用识别结果重新对齐。');
+          })}
+          onPreview={(start, end) => preview({ text: '', start, end: Math.min(end, review.duration ?? end) })} />
+        {!suggestionsReady && <button type="button" className="secondary-action" disabled={!canEdit || !draft.trim()} onClick={() => void perform(async () => {
+          await action('realign', { id: current!.id, text: draft.trim() }); setNotice('正在复用识别结果生成批量修改建议。');
+        })}>生成批量修改建议</button>}
+        <details><summary>查看完整识别文字及原确认稿差异</summary><pre>{review.recognized_text}</pre>
           {(review.differences || []).map((diff, i) => <p key={i}>确认稿：{diff.expected || '（无）'}　识别：{diff.recognized || '（未识别）'}</p>)}
         </details>
         <label>最终字幕稿<textarea value={draft} disabled={!canEdit} onChange={e => { setDraft(e.target.value); setChecked(false); }} /></label>
