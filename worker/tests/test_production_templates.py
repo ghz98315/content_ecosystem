@@ -116,4 +116,5 @@ class TemplateConsistencyTests(unittest.TestCase):
         from pathlib import Path
         source=(Path(__file__).resolve().parents[2]/'web/app/video-collection/page.tsx').read_text(encoding='utf-8')
         self.assertNotIn('setProductionTemplateId(category',source)
+        self.assertNotIn('setContentCategory(selected.category)',source)
         self.assertIn('修改下方文案规则不会切换画面模板',source)
