@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { assertStorageUploadSize } from '@/lib/uploadPolicyServer';
 
 const BUCKET = "artifacts";
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -22,6 +23,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "仅支持 MP3、WAV 或 M4A 音频" }, { status: 400 });
   }
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "音频文件不能超过 10 MB" }, { status: 400 });
+  try { await assertStorageUploadSize(sb,file.size,3_500_000); }
+  catch(error){return NextResponse.json({error:error instanceof Error?error.message:'文件大小检查失败'},{status:400});}
 
   const ext = file.name.split(".").pop()?.toLowerCase() || "mp3";
   const path = `voice-samples/${auth.user.id}/${crypto.randomUUID()}.${ext}`;

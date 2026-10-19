@@ -21,6 +21,7 @@ out/
 web/.env
 web/.env.local
 web/tsconfig.tsbuildinfo
+web/public/media-runtime/
 .vercel
 
 # ---- misc ----

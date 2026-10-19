@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { assertStorageUploadSize } from '@/lib/uploadPolicyServer';
 
 const BUCKET = "artifacts";
 const MAX_BYTES = 500 * 1024 * 1024;
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
     const ext = String(body.name || "").split(".").pop()?.toLowerCase() || (mime.startsWith("audio/") ? "mp3" : "mp4");
     if (!mime.startsWith("audio/") && !mime.startsWith("video/") && !TEXT_TYPES.has(mime) && !/\.(txt|md|markdown)$/i.test(String(body.name || ""))) return NextResponse.json({ error: "仅支持视频、音频、TXT 或 Markdown 文件" }, { status: 400 });
     if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) return NextResponse.json({ error: "上传文件必须小于 500MB" }, { status: 400 });
+    await assertStorageUploadSize(sb,size);
     const path = `${taskId}/manual.${ext}`;
     const { data, error } = await sb.storage.from(BUCKET).createSignedUploadUrl(path, { upsert: true });
     if (error || !data?.token) return NextResponse.json({ error: error?.message || "创建上传授权失败" }, { status: 500 });

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { Stage } from '@/lib/types';
 import { NarrationDifference } from '@/lib/narrationEdits';
 import { NarrationDifferencesPanel } from './NarrationDifferencesPanel';
+import { prepareMediaUpload } from '@/lib/prepareMediaUpload';
 
 type Cue = { text: string; start: number | null; end: number | null; needs_timing_review?: boolean };
 type Version = {
@@ -74,11 +75,12 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
     await perform(async () => {
       if (!stage) return;
       setUploadStatus('正在准备上传…');
-      const res = await fetch('/api/narration', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ stageId: stage.id, name: file.name, size: file.size }) });
+      const preparedFile=await prepareMediaUpload(file,'narration',setUploadStatus);
+      const res = await fetch('/api/narration', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ stageId: stage.id, name: preparedFile.name, size: preparedFile.size }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '准备上传失败');
       setUploadStatus('正在上传音频，请勿关闭页面…');
-      const result = await supabase.storage.from('artifacts').uploadToSignedUrl(data.path, data.token, file, { contentType: file.name.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg' });
+      const result = await supabase.storage.from('artifacts').uploadToSignedUrl(data.path, data.token, preparedFile, { contentType: preparedFile.name.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg' });
       if (result.error) throw result.error;
       await action('submit', { id: data.id });
       setUploadStatus('上传完成，等待识别与字幕对齐。');
@@ -107,7 +109,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
     </div>
     {error && <p role="alert" className="external-error">{error}<button type="button" onClick={() => void perform(load)}>重试读取</button></p>}
     {external && <>
-      <p>请上传无背景音乐的最终人声 WAV 或 MP3（最多 200MB、60 分钟）。原文件会保留，每次替换创建新版本。</p>
+      <p>请上传无背景音乐的最终人声 WAV 或 MP3（最多 200MB、60 分钟）。大文件会在本地转成MP3后上传，电脑原文件不改；云端保存上传版，每次替换创建新版本。</p>
       <div className="external-actions">
         <button type="button" className="secondary-action" disabled={!payload?.rewriteReady || !payload.script} onClick={downloadScript}>下载确认朗读稿</button>
         <label className="secondary-action">{current ? '上传新版本' : '上传配音'}<input type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" disabled={busy || !payload?.rewriteReady || stage?.status === 'processing'} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void upload(file); }} /></label>

@@ -12,13 +12,14 @@ import httpx
 
 import db
 import config
+from media_upload import upload_limit_bytes, prepared_file
 
 BUCKET = os.environ.get("SUPABASE_BUCKET", "artifacts")
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-_RESUMABLE_THRESHOLD = 49 * 1024 * 1024
+_RESUMABLE_THRESHOLD = 6 * 1024 * 1024
 _RESUMABLE_CHUNK_SIZE = 6 * 1024 * 1024
 
 
@@ -83,6 +84,11 @@ def download_artifact(storage_path: str, suffix: str = "") -> str:
 
 def upload(storage_path: str, local_file: str, content_type: str = "video/mp4") -> str:
     """上传本地文件到 Storage，返回 storage_path。覆盖同名。"""
+    with prepared_file(local_file, content_type) as prepared:
+        return _upload_prepared(storage_path, prepared, content_type)
+
+
+def _upload_prepared(storage_path: str, local_file: str, content_type: str) -> str:
     file_size = os.path.getsize(local_file)
     if file_size >= _RESUMABLE_THRESHOLD:
         return _upload_resumable(storage_path, local_file, content_type, file_size)
@@ -158,6 +164,12 @@ def _upload_resumable(
 
 def upload_bytes(storage_path: str, data: bytes, content_type: str) -> str:
     """直接上传字节（用于 JSON 等动态内容）。覆盖同名。"""
+    if len(data)>upload_limit_bytes():
+        fd,path=tempfile.mkstemp(suffix=os.path.splitext(storage_path)[1])
+        try:
+            with os.fdopen(fd,'wb') as source:source.write(data)
+            return upload(storage_path,path,content_type)
+        finally:os.remove(path)
     db.retry(
         lambda: db.get_client().storage.from_(BUCKET).upload(
             storage_path, data, {"content-type": content_type, "upsert": "true"},

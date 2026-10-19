@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { assertStorageUploadSize } from '@/lib/uploadPolicyServer';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
     if (!['wav', 'mp3'].includes(extension || '') || !Number.isSafeInteger(size) || size <= 0 || size > 200 * 1024 * 1024) {
       throw new Error('请上传不超过 200MB 的 WAV 或 MP3');
     }
+    await assertStorageUploadSize(admin,size);
     const prepared = await user.rpc('narration_action', { p_stage_id: stage.id, p_action: 'prepare', p_data: { name, extension, size } });
     if (prepared.error) throw new Error(prepared.error.message);
     const version = prepared.data;

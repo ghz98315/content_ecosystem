@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Stage } from "@/lib/types";
+import { prepareMediaUpload } from '@/lib/prepareMediaUpload';
 
 const BUCKET = "artifacts";
 
@@ -18,6 +19,7 @@ export function ManualUpload({
   const [author, setAuthor] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [status,setStatus]=useState('');
 
   const submit = async () => {
     if (!file) {
@@ -27,19 +29,22 @@ export function ManualUpload({
     setBusy(true);
     setErr(null);
     try {
+      const preparedFile=await prepareMediaUpload(file,'manual',setStatus);
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session?.access_token) throw new Error("登录会话已失效，请刷新页面后重试");
       const headers = { Authorization: `Bearer ${sessionData.session.access_token}`, "Content-Type": "application/json" };
-      const requestUpload = await fetch("/api/manual-upload", { method: "POST", headers, body: JSON.stringify({ taskId, stageId: stage.id, name: file.name, size: file.size, mime: file.type }) });
+      const requestUpload = await fetch("/api/manual-upload", { method: "POST", headers, body: JSON.stringify({ taskId, stageId: stage.id, name: preparedFile.name, size: preparedFile.size, mime: preparedFile.type }) });
       const uploadInfo = await readResponse(requestUpload);
       if (!requestUpload.ok) throw new Error(uploadInfo.error || "创建上传授权失败");
       if (!uploadInfo.path || !uploadInfo.token) throw new Error("上传授权响应不完整");
       const uploadPath = uploadInfo.path;
-      const { error: uploadError } = await supabase.storage.from(BUCKET).uploadToSignedUrl(uploadPath, uploadInfo.token, file, { contentType: file.type });
+      setStatus('正在上传处理后的文件…');
+      const { error: uploadError } = await supabase.storage.from(BUCKET).uploadToSignedUrl(uploadPath, uploadInfo.token, preparedFile, { contentType: preparedFile.type });
       if (uploadError) throw uploadError;
-      const confirm = await fetch("/api/manual-upload", { method: "PATCH", headers, body: JSON.stringify({ taskId, stageId: stage.id, path: uploadPath, mime: file.type, title, author }) });
+      const confirm = await fetch("/api/manual-upload", { method: "PATCH", headers, body: JSON.stringify({ taskId, stageId: stage.id, path: uploadPath, mime: preparedFile.type, title, author }) });
       const confirmed = await readResponse(confirm);
       if (!confirm.ok) throw new Error(confirmed.error || "上传后确认失败");
+      setStatus('上传完成');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -54,6 +59,7 @@ export function ManualUpload({
       </div>
       <input
         type="file"
+        disabled={busy}
         accept="video/*,audio/*,.txt,.md,.markdown,text/plain,text/markdown"
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         style={{ fontSize: 13 }}
@@ -76,6 +82,7 @@ export function ManualUpload({
         {busy ? "上传中…" : "上传并继续"}
       </button>
       {err && <div style={{ color: "var(--status-failed)", fontSize: 12, marginTop: 4 }}>{err}</div>}
+      {status&&<p role="status">{status}</p>}
     </div>
   );
 }

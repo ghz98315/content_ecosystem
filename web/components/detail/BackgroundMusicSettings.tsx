@@ -1,5 +1,6 @@
 "use client";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { prepareMediaUpload } from '@/lib/prepareMediaUpload';
 
 import { useEffect,useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -39,14 +40,15 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
   async function upload(file: File | undefined) {
     if (!file) return;
     const extension=file.name.split('.').pop()?.toLowerCase();
-    if (!['mp3','wav','m4a'].includes(extension || '') || file.size<=0 || file.size>25*1024*1024) {setError('请选择25MB以内的MP3、WAV或M4A音乐');return;}
+    if (!['mp3','wav','m4a'].includes(extension || '') || file.size<=0) {setError('请选择有效的MP3、WAV或M4A音乐');return;}
     setBusy(true);setError('');setMessage('');
     try {
-      const response=await authenticatedFetch('/api/background-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId,name:file.name,size:file.size})});
+      const uploadFile=await prepareMediaUpload(file,'bgm',setMessage);
+      const response=await authenticatedFetch('/api/background-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId,name:uploadFile.name,size:uploadFile.size})});
       const prepared=await response.json();
       if(!response.ok)throw new Error(prepared.error || '准备音乐上传失败');
       const next=prepared.path;
-      const {error}=await supabase.storage.from('artifacts').uploadToSignedUrl(next,prepared.token,file,{contentType:file.type || 'audio/mpeg'});
+      const {error}=await supabase.storage.from('artifacts').uploadToSignedUrl(next,prepared.token,uploadFile,{contentType:uploadFile.type || 'audio/mpeg'});
       if(error)throw error;
       setPath(next);setAuthorized(false);setMessage('音乐已上传，请试听并保存设置后再确认配音。');
     } catch(err) {setError(err instanceof Error?err.message:'音乐上传失败');}

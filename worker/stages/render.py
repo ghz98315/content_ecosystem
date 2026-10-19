@@ -113,9 +113,9 @@ def _encoder_args(*, intermediate: bool = False, target_kbps: int | None = None)
     return args + ['-pix_fmt', 'yuv420p']
 
 
-def _storage_safe_video_bitrate(duration: float, target_megabytes: float = 42) -> int:
+def _storage_safe_video_bitrate(duration: float, target_megabytes: float = 42, max_bytes: int = 48_000_000) -> int:
     """Leave room for 64-kbps AAC and MP4 overhead below Supabase's 50-MB cap."""
-    available_bits = target_megabytes * 1024 * 1024 * 8
+    available_bits = min(target_megabytes * 1024 * 1024, max_bytes * .9) * 8
     return max(180, min(2500, int((available_bits / max(duration, 1) - 96_000) / 1000)))
 
 
@@ -985,7 +985,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
         )
         audio_label = "[audio]" if bgm_local else "[narration]"
-        target_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR)
+        upload_limit = storage.upload_limit_bytes()
+        target_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, max_bytes=upload_limit)
         render_args.extend([
             "-filter_complex", mix_filter,
             "-vf", "ass=subs.ass:fontsdir=fonts",
@@ -995,17 +996,17 @@ def run(stage: dict) -> tuple[str, str | None]:
         ])
         _run_ffmpeg(render_args, check=True, capture_output=True, cwd=tmpdir)
         print(f"  [render] 字幕音乐合成累计 {time.monotonic() - render_started:.1f}s，文件 {os.path.getsize(final) / 1048576:.1f} MiB", flush=True)
-        if os.path.getsize(final) > 47 * 1024 * 1024:
+        if os.path.getsize(final) > upload_limit:
             smaller = os.path.join(tmpdir, 'final_compact.mp4')
-            compact_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, 36)
+            compact_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, 36, max_bytes=upload_limit)
             _run_ffmpeg([
                 ff(), '-y', '-i', final, '-map', '0:v:0', '-map', '0:a:0',
                 *_encoder_args(target_kbps=compact_kbps), '-c:a', 'copy', smaller,
             ], check=True, capture_output=True)
             os.replace(smaller, final)
             print(f"  [render] 存储限额压缩后 {os.path.getsize(final) / 1048576:.1f} MiB", flush=True)
-        if os.path.getsize(final) > 47 * 1024 * 1024:
-            raise ValueError('成片超过当前 Supabase 单文件限额，请缩短视频或提高存储限额')
+        if os.path.getsize(final) > upload_limit:
+            raise ValueError('成片自动压缩后仍超过当前存储安全上限，请缩短视频或分段')
 
         phase_seconds['text_audio_encode_seconds'] = round(time.monotonic() - phase_started, 3)
         phase_started = time.monotonic()

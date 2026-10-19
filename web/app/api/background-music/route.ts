@@ -1,5 +1,6 @@
 import {createClient} from '@supabase/supabase-js';
 import {NextResponse} from 'next/server';
+import { assertStorageUploadSize } from '@/lib/uploadPolicyServer';
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
     const extension=String(body.name || '').split('.').pop()?.toLowerCase();
     const size=Number(body.size);
     if(!['mp3','wav','m4a'].includes(extension || '') || !Number.isSafeInteger(size) || size<=0 || size>25*1024*1024)throw new Error('请选择25MB以内的MP3、WAV或M4A音乐');
+    await assertStorageUploadSize(admin,size,25*1024*1024);
     const {data:render}=await admin.from('stages').select('status').eq('task_id',task.id).eq('kind','render').single();
     if(render?.status==='processing')throw new Error('视频正在合成，请稍后再上传');
     const path=`${task.id}/background-music/${crypto.randomUUID()}.${extension}`;
