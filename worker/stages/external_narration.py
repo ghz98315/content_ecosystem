@@ -29,6 +29,7 @@ def run(stage: dict) -> tuple[str, None]:
         return 'managed', None
     original = None
     previous: dict = {}
+    recognition_cache: dict = {}
     row: dict = {}
     try:
         row = db.retry(lambda: db.get_client().table('external_narrations').select('*').eq('id',params['external_id']).eq('stage_id',stage['id']).single().execute()).data
@@ -49,10 +50,11 @@ def run(stage: dict) -> tuple[str, None]:
         job_path = f"{stage['task_id']}/external/{row['id']}/{uuid.uuid4()}"
         with tempfile.TemporaryDirectory(prefix='external-narration-') as tmp:
             decoded = Path(tmp)/'narration.wav'
-            # PCM avoids any re-encoding joins; original upload is retained.
+            # Analysis-only PCM. Playback/rendering reuse the uploaded original
+            # unchanged, avoiding a second large WAV object and any quality loss.
             process = subprocess.run([
                 imageio_ffmpeg.get_ffmpeg_exe(), '-v','error','-y','-i',original,
-                '-map','0:a:0','-vn','-t','3601','-acodec','pcm_s16le',str(decoded),
+                '-map','0:a:0','-vn','-t','3601','-ac','1','-ar','16000','-acodec','pcm_s16le',str(decoded),
             ],capture_output=True,timeout=300)
             if process.returncode:
                 raise ValueError('音频无法解码，请上传有效 WAV 或 MP3')
@@ -75,6 +77,7 @@ def run(stage: dict) -> tuple[str, None]:
                 recognized=''.join(recognized_parts).strip()
             if not comparable(recognized):
                 raise ValueError('未识别到可对齐的人声，请检查音频')
+            recognition_cache={'source_sha256':source_hash,'recognized_text':recognized,'words':words}
             cues,coverage=align(text,words,duration,repair=True)
             manual=previous.get('requested_cues')
             if manual is not None:
@@ -88,13 +91,12 @@ def run(stage: dict) -> tuple[str, None]:
                     pass
             if not ready:
                 raise ValueError('音频时间信息不完整，自动对齐未通过校验，请检查录音文件')
-            audio_path=job_path+'/narration.wav'
+            audio_path=row['original_path']
             subtitle_path=job_path+'/subtitles.json'
             payload={'provider':'external','external_id':row['id'],'duration':duration,'text':text,
                      'narration_text':text,'segments':cues,'sentence_segments':words,'batches':[],
                      'input_format':'timeline_v3','subtitle_max_chars':14,'segment_count':len(cues),
                      'audio_path':audio_path,'alignment_ready':ready}
-            storage.upload(audio_path,str(decoded),'audio/wav')
             storage.upload_bytes(subtitle_path,json.dumps(payload,ensure_ascii=False).encode(),'application/json')
         script_differences = differences(row['script_text'],recognized,words)
         subtitle_differences = script_differences if text == row['script_text'] else differences(text,recognized,words)
@@ -108,7 +110,7 @@ def run(stage: dict) -> tuple[str, None]:
                 'alignment_note':'以字幕稿为准纠正识别偏差；短缺口时间已自动估算，保留原始识别文字供选看。'}
         _finish(stage,'approved',review,audio_path,subtitle_path)
     except Exception as exc:
-        _finish(stage,'failed',{**previous,'error':str(exc)[:1000], 'alignment_ready':False},
+        _finish(stage,'failed',{**previous,**recognition_cache,'error':str(exc)[:1000], 'alignment_ready':False},
                 row.get('audio_path'),row.get('subtitle_path'))
     finally:
         if original:

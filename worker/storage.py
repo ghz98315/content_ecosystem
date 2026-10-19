@@ -122,6 +122,8 @@ def _upload_resumable(
     }
     with httpx.Client(verify=certifi.where(), timeout=httpx.Timeout(120.0, connect=20.0)) as client:
         response = db.retry(lambda: client.post(endpoint, headers=headers))
+        if response.status_code == 413:
+            raise ValueError(f'上传文件约 {file_size / 1048576:.1f} MiB，超过 Supabase 单文件限制；分片上传也受此限制。请使用原始压缩音频或压缩媒体后重试。')
         if response.status_code not in (201, 204):
             raise RuntimeError(f"Supabase resumable upload init failed: {response.status_code} {response.text[:300]}")
         location = response.headers.get("location")
