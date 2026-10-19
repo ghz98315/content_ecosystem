@@ -5,12 +5,14 @@ import json
 import os
 import re
 import time
+import uuid
 from difflib import SequenceMatcher
 
 import config
 import compliance
 import db
 import storage
+from rewrite_review import MAX_REVISIONS, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length
 from prompt_profiles import (
     author_name,
     derive_keyword,
@@ -44,7 +46,7 @@ def _llm():
 
 
 def _text_len(text: str) -> int:
-    return len(re.sub(r"\s+", "", text or ""))
+    return effective_length(text)
 
 
 def _normalized(text: str) -> str:
@@ -230,35 +232,12 @@ def _candidate_issues(
                 issues.append(f"改写稿过短（{length}/{source_len} 字）")
             if length > max_len:
                 issues.append(f"改写稿明显超出原文长度（{length}/{source_len} 字）")
-            source_sentences = [s.strip() for s in re.split(r"(?<=[。！？!?；;])", source) if s.strip()]
-            candidate_sentences = [s.strip() for s in re.split(r"(?<=[。！？!?；;])", text) if s.strip()]
-            lock_count = min(4, len(source_sentences), len(candidate_sentences))
-            if lock_count:
-                source_hook = _normalized("".join(source_sentences[:lock_count]))
-                candidate_hook = _normalized("".join(candidate_sentences[:lock_count]))
-                if not candidate_hook.startswith(source_hook):
-                    issues.append("开头黄金钩子未按原文保留")
-            tail_count = min(2, len(source_sentences), len(candidate_sentences))
-            if tail_count:
-                source_tail = _normalized("".join(source_sentences[-tail_count:]))
-                candidate_tail = _normalized("".join(candidate_sentences[-tail_count:]))
-                if not candidate_tail.endswith(source_tail):
-                    issues.append("结尾收束未按原文保留")
-            if len(source_sentences) > lock_count + tail_count:
-                source_body = _normalized("".join(source_sentences[lock_count:-tail_count]))
-                candidate_body = _normalized("".join(candidate_sentences[lock_count:-tail_count]))
-                if source_body and candidate_body and _similarity(source_body, candidate_body) >= 0.20:
-                    issues.append("中段相似度未低于20%")
+            if not text.lstrip().startswith(opening_hook(source)):
+                issues.append("开头黄金钩子未按原文保留")
         if re.search(r"(?:未完待续|请继续|继续输出|\.\.\.|……)\s*$", text):
             issues.append("改写稿疑似被截断")
         if text.rstrip().endswith(("，", ",", "：", ":", "；", ";", "、")):
             issues.append("改写稿结尾不完整")
-            if category == "social_science":
-                source_lead = re.split(r"[。！？!?；;]", source, maxsplit=4)[:4]
-                source_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", "".join(source_lead))
-                candidate_lead = re.sub(r"[\s，。！？!?；;：:“”‘’、]", "", comparison_text)
-                if source_lead and not candidate_lead.startswith(source_lead):
-                    issues.append("历史类开头3-4句未按要求原样保留")
         for title in re.findall(r"《([^》]+)》", source):
             if f"《{title}》" not in text:
                 issues.append(f"未完整保留书名《{title}》")
@@ -285,8 +264,6 @@ def _candidate_warnings(
             warnings.append(f"健康首发改写存在较长原句复用（连续 {common_run} 个有效字符）")
     if _similarity(source[:50], text[:50]) < 0.35:
         warnings.append("开头钩子改动较大")
-    if _similarity(source[-50:], text[-50:]) < 0.35:
-        warnings.append("结尾改动较大")
     return warnings
 
 
@@ -297,6 +274,111 @@ def _rewrite_prompt_kind(category: str, mode: str, narration_mode: str) -> str:
     return prompt_kind
 
 
+def _generate_single_candidates(source: str, context: dict, notes: str, mode: str) -> tuple[list[str], list[int], dict]:
+    """Initial generation plus at most three content revisions, then human review."""
+    hook = opening_hook(source)
+    prompt = load_prompt(context['category'], 'initial_dedup')
+    source_body = remainder(source, hook)
+    history: list[dict] = []
+    last: tuple[list[str], list[int], dict] | None = None
+    stop_reason = 'limit_reached'
+    last_issues: list[str] = []
+    for attempt in range(MAX_REVISIONS + 1):
+        feedback = ''
+        if history:
+            previous = history[-1]
+            feedback = '\n\n【上一轮稿件】\n' + previous.get('text', '')
+            feedback += '\n【必须处理的问题】\n' + '\n'.join(last_issues)
+            feedback += '\n【可改写区重复片段】\n' + '\n'.join(
+                previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
+        try:
+            response = _request_rewrite(
+                model=config.REWRITE_MODEL,
+                messages=[{'role': 'system', 'content': prompt}, {'role': 'user', 'content': (
+                    f"内容分类：{context['category']}；模式：{mode}\n主题：{context.get('keyword', '')}\n"
+                    f"原视频标题：{context.get('title', '')}\n补充要求：{notes or '无'}\n"
+                    f"必须保留的书名与数字：{'、'.join(protected_terms(source)) or '无'}\n"
+                    '字数偏差仅指长度，表达需要深度重构。不要重复输出锁定钩子。\n'
+                    f'【锁定钩子，程序逐字拼接】\n{hook}\n\n【可改写正文，包含结尾】\n{source_body}'
+                    + feedback
+                )}], temperature=0.7, max_tokens=config.REWRITE_MAX_TOKENS,
+                response_format={'type': 'json_object'},
+            )
+        except Exception:
+            if last is None:
+                raise
+            stop_reason = 'service_error'
+            break
+        choice = response.choices[0]
+        raw = (choice.message.content or '').strip()
+        try:
+            obj = json.loads(raw)
+        except (ValueError, TypeError):
+            obj = {}
+        body = str(obj.get('rewritten_remainder') or '').strip() if isinstance(obj, dict) else ''
+        if body:
+            # The fixed prefix is assembled in code, not entrusted to the model.
+            body = remainder(body, hook) if body.startswith(hook) else body
+            text = hook + '\n\n' + format_for_reading(body)
+            candidates = [text]
+        else:
+            candidates = _parse_candidates(raw)
+            text = candidates[0] if len(candidates) == 1 else ''
+        if not text:
+            last_issues = ['未返回完整JSON正文，请返回 rewritten_remainder 字段']
+            history.append({'attempt': attempt + 1, 'revision': attempt, 'issues': last_issues, 'text': ''})
+            continue
+        structure = _rewrite_structure(raw, text)
+        similarity = review_rewrite(source, text, hook)
+        issues = _candidate_issues(candidates, source, getattr(choice, 'finish_reason', None),
+                                   mode, context['category'], 'single') + similarity['retry_issues']
+        missing_terms = [term for term in protected_terms(source) if term not in text]
+        if missing_terms:
+            issues.append('未原样保留书名或数字：' + '、'.join(missing_terms))
+        issues = list(dict.fromkeys(issues))
+        strategies = obj.get('rewrite_strategy', []) if isinstance(obj, dict) else []
+        strategies = [s.strip()[:240] for s in strategies if isinstance(s, str) and s.strip()][:5] if isinstance(strategies, list) else []
+        entry = {'attempt': attempt + 1, 'revision': attempt, 'text': text,
+                 'strategy': strategies, 'issues': issues, 'similarity': similarity}
+        history.append(entry)
+        actual_tail = text.split('\n\n')[-1]
+        structure.update({
+            'hook': hook, 'hook_text': hook, 'hook_strategy': 'preserved',
+            'body_text': remainder(text, hook), 'tail_text': actual_tail,
+            'paragraphs': [p for p in text.split('\n\n') if p.strip()],
+            'source_text': source, 'source_formatted': format_for_reading(source),
+            'complete': getattr(choice, 'finish_reason', None) != 'length',
+            'quality_warnings': issues,
+        })
+        # Retain the last complete draft if a later response was truncated.
+        if structure['complete'] or last is None:
+            last = (candidates, [_text_len(text)], structure)
+            selected_attempt = attempt + 1
+        last_issues = issues
+        if not issues:
+            stop_reason = 'locked_hook_floor' if similarity['status'] != 'passed' else 'passed'
+            break
+    if last is None:
+        raise ValueError('改写服务连续未返回可用正文，请稍后重试')
+    candidates, lengths, structure = last
+    selected = next(entry for entry in history if entry['attempt'] == selected_attempt)
+    final_report = dict(selected['similarity'])
+    if stop_reason not in {'passed', 'locked_hook_floor'} or selected['issues']:
+        final_report['status'] = 'manual_review'
+    structure['rewrite_review'] = {
+        **final_report, 'max_revisions': MAX_REVISIONS,
+        'revisions_used': len(history) - 1, 'selected_attempt': selected_attempt,
+        'stop_reason': stop_reason, 'attempts': history,
+        'strategy': selected['strategy'], 'issues': selected['issues'],
+        'comparison_summary': [
+            f"开头锁定 {effective_length(hook)} 个有效字符，生成稿由程序原样拼接。",
+            f"原稿 {final_report['source_chars']} 字，交付稿 {final_report['candidate_chars']} 字，偏差 {final_report['length_deviation']:+.1%}（不计标点与空白）。",
+            f"首次有效稿正文重复指标 {next(e['similarity']['unlocked']['score'] for e in history if e.get('similarity')):.1%}，交付稿 {final_report['unlocked']['score']:.1%}。",
+        ],
+    }
+    return candidates, lengths, structure
+
+
 def _generate_candidates(
     source: str,
     context: dict[str, str],
@@ -304,9 +386,11 @@ def _generate_candidates(
     mode: str = "initial_dedup",
     narration_mode: str = "single",
 ) -> tuple[list[str], list[int], dict]:
+    if narration_mode != "dual_dialogue":
+        return _generate_single_candidates(source, context, rewrite_notes, mode)
     source_len = _text_len(source)
     prompt_kind = _rewrite_prompt_kind(context["category"], mode, narration_mode)
-    prompt = load_prompt(context["category"], prompt_kind)
+    prompt = load_prompt(context["category"], prompt_kind, use_shared=False)
     source_label = "首发版本最终确认稿" if mode == "repost_dedup" else "已清洗正文"
     tolerance_label = "10%" if context["category"] == "social_science" else ("8%" if mode == "repost_dedup" else "12%")
     terms = "、".join(protected_terms(source)) or "无额外词语"
@@ -523,6 +607,11 @@ def run(stage: dict) -> tuple[str, str | None]:
                     "final_text": final_text,
                     "final_length": _text_len(final_text),
                 })
+                if rw.get('rewrite_review'):
+                    original_source = rw.get('source_text') or source
+                    rw['final_similarity'] = review_rewrite(original_source, final_text, rw.get('hook_text') or opening_hook(original_source))
+                    rw['final_similarity']['issues'] = rw['final_similarity']['retry_issues']
+                    rw['final_similarity']['stop_reason'] = 'manual_confirmed'
                 if context["category"] == "social_science":
                     rw["cover_title"] = str(params.get("cover_title") or "").strip()
                     rw["cover_subtitle"] = str(params.get("cover_subtitle") or "").strip()
@@ -574,7 +663,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "compliance": report,
         **structure,
     }
-    sp = f"{task_id}/rewrite.json"
+    sp = f"{task_id}/rewrite/{uuid.uuid4()}.json"
     _upload_rewrite(sp, payload)
     storage.add_artifact(task_id, "rewrite", "rewrite", sp, meta={
         "candidate_count": len(candidates),
@@ -583,14 +672,18 @@ def run(stage: dict) -> tuple[str, str | None]:
         "rewrite_mode": mode,
         "source_task_id": source_task_id or None,
         "model": config.REWRITE_MODEL,
-        "complete": True,
+        "complete": payload["complete"],
         "content_category": context["category"],
         "compliance_status": report["status"],
         "hook_strategy": structure["hook_strategy"],
+        "review_status": (structure.get('rewrite_review') or {}).get('status'),
+        "prompt_version": 'deep_rewrite_v2' if narration_mode != 'dual_dialogue' else 'dialogue_existing',
     })
     db.get_client().table("stages").update({
         "status": "needs_review",
         "output_ref": sp,
-        "error": "存在高风险合规项，请修改后重新确认" if report["status"] == "blocked" else None,
+        "error": "存在高风险合规项，请修改后重新确认" if report["status"] == "blocked" else (
+            "自动二创检查未全部达标，请查看对照与返工记录后人工确认"
+            if (structure.get('rewrite_review') or {}).get('status') == 'manual_review' else None),
     }).eq("id", stage["id"]).execute()
     return "needs_review", sp

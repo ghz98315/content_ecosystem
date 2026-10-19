@@ -104,7 +104,7 @@ class RewriteQualityTests(unittest.TestCase):
         rewritten = "今天分享一些完全不同的新鲜故事和人物经历，内容主题已经发生变化，最后也换成另一套营销引导。" * 3
         issues = _candidate_issues([rewritten], source, "stop")
         self.assertIn("开头黄金钩子未按原文保留", issues)
-        self.assertIn("结尾收束未按原文保留", issues)
+        self.assertNotIn("结尾收束未按原文保留", issues)
 
     def test_health_initial_rewrite_reports_near_copy_as_warning(self):
         source = "很多人以为少吃一顿饭就能让身体轻松下来，其实真正的问题往往藏在每天的饮食节奏里。" * 3

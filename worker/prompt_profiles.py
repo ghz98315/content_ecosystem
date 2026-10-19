@@ -22,9 +22,9 @@ def normalize_category(value: object) -> str:
     return category
 
 
-def load_prompt(category: str, kind: str) -> str:
+def load_prompt(category: str, kind: str, *, use_shared: bool = True) -> str:
     category = normalize_category(category)
-    if kind == "initial_dedup":
+    if use_shared and kind in {"initial_dedup", "repost_dedup"}:
         shared = PROMPT_ROOT.parent / "rewrite_deep_rewrite.txt"
         if shared.is_file():
             return shared.read_text(encoding="utf-8").strip()

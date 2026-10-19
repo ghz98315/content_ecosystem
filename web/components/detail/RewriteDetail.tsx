@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { DetailShell, TextBtn, DetailCommon } from "./_shell";
 import { VideoTextSettings } from "./VideoTextSettings";
+import { RewriteReviewPanel, RewriteReview } from "./RewriteReviewPanel";
 
 interface RewriteData {
   candidates: string[];
@@ -27,6 +28,10 @@ interface RewriteData {
   cover_title?: string;
   cover_subtitle?: string;
   cover_confirmed?: boolean;
+  source_text?: string;
+  source_formatted?: string;
+  rewrite_review?: RewriteReview;
+  final_similarity?: RewriteReview;
 }
 
 interface ComplianceIssue {
@@ -54,7 +59,7 @@ const LEGACY_STYLE_HINTS = [
 ];
 
 function textLength(text: string) {
-  return text.replace(/\s/g, "").length;
+  return Array.from(text.normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '')).length;
 }
 
 export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
@@ -122,7 +127,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   const isReview = stage?.status === "needs_review";
   const isDone = stage?.status === "done";
   const report = data?.compliance;
-  const activeText = drafts[selected ?? 0] || data?.final_text || "";
+  const activeText = (isDone ? data?.final_text : drafts[selected ?? 0]) || drafts[selected ?? 0] || "";
   const activeLength = textLength(activeText);
   const estimatedSeconds = Math.max(1, Math.round(activeLength / 3.5));
 
@@ -157,16 +162,17 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
         <>
           <section className="rewrite-summary-grid" aria-label="改写稿摘要">
             <div><span>原文长度</span><strong>{data.source_length ?? "—"} 字</strong><small>清洗后输入文本</small></div>
-            <div><span>当前稿件</span><strong>{activeLength} 字</strong><small>{data.complete ? "完整性检查通过" : "确认前检查全文"}</small></div>
+            <div><span>当前稿件</span><strong>{activeLength} 字</strong><small>{data.complete ? "全文已返回，仍需核对信息" : "确认前检查全文"}</small></div>
             <div><span>预计口播</span><strong>{Math.floor(estimatedSeconds / 60)}:{String(estimatedSeconds % 60).padStart(2, "0")}</strong><small>按当前文案估算</small></div>
             <div><span>合规状态</span><strong>{report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
           </section>
-          {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
+          {data.rewrite_review && <RewriteReviewPanel report={{ ...data.rewrite_review, ...(isDone ? data.final_similarity : {}) }} source={data.source_formatted || data.source_text || ''} text={activeText} evaluatedText={isDone && data.final_similarity ? data.final_text || '' : data.candidates[selected ?? 0] || ''} />}
+          {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "preserved" ? "原文锁定钩子" : data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
 
           {(data.hook_text || data.body_text || data.tail_text) && <section className="rewrite-lock-status" aria-label="改写结构" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-hover)" }}>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>开头</span><strong>已锁定</strong><small style={{ display: "block" }}>{data.hook_text ? `${textLength(data.hook_text)} 字` : ""}</small></div>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>中段</span><strong>深度重写</strong><small style={{ display: "block" }}>{data.body_text ? `${textLength(data.body_text)} 字` : ""}</small></div>
-            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>已锁定</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>{data.rewrite_review ? '按语义重写' : '原版本'}</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>书名</span><strong>{data.book_title ? "随文案确认" : "未识别"}</strong></div>
           </section>}
           {task.content_category === "social_science" && (
@@ -238,9 +244,9 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
             const length = textLength(text);
             const estimatedSeconds = Math.max(1, Math.round(length / 3.5));
             const isSingleDraft = data.candidates.length === 1;
-            const styleName = isSingleDraft ? "轻度改写稿" : (LEGACY_STYLE_NAMES[i] ?? `候选 ${i + 1}`);
+            const styleName = isSingleDraft ? (data.rewrite_review ? "深度二创稿" : "改写稿") : (LEGACY_STYLE_NAMES[i] ?? `候选 ${i + 1}`);
             const styleHint = isSingleDraft
-              ? "保留原文钩子、主体结构和结尾，仅调整少量措辞"
+              ? (data.rewrite_review ? "开头逐字保留，正文重构，结尾按语义改写" : "请核对原文信息与当前表达")
               : LEGACY_STYLE_HINTS[i];
             return (
               <section

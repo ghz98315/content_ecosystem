@@ -59,7 +59,8 @@ class RewriteConfirmationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact = Path(tmpdir) / "rewrite.json"
             artifact.write_text(
-                json.dumps({"candidates": ["reviewed draft"], "compliance": {"status": "blocked"}}),
+                json.dumps({"candidates": ["reviewed draft"], "compliance": {"status": "blocked"},
+                            "rewrite_review": {"status": "manual_review"}, "source_text": "source", "hook_text": "source"}),
                 encoding="utf-8",
             )
             artifact_query = MagicMock()
@@ -103,6 +104,8 @@ class RewriteConfirmationTests(unittest.TestCase):
         self.assertEqual(("done", "task/rewrite.json"), (status, output_ref))
         self.assertEqual("approved draft", upload.call_args.args[1]["final_text"])
         self.assertEqual({"status": "blocked"}, upload.call_args.args[1]["compliance"])
+        self.assertIn('final_similarity', upload.call_args.args[1])
+        self.assertEqual('manual_confirmed', upload.call_args.args[1]['final_similarity']['stop_reason'])
 
 
 if __name__ == "__main__":

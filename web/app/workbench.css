@@ -125,3 +125,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .publication-replies > label small { grid-column: 2; grid-row: 2; }
   .publication-replies > label button { grid-row: 2; min-height: 26px; white-space: nowrap; }
 }
+/* Rewrite review uses independent scroll areas for long original and revised scripts. */
+.rewrite-review-panel { padding: 16px; margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); font-size: 12px; line-height: 1.7; }
+.rewrite-review-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.rewrite-review-heading strong { font-size: 14px; }
+.rewrite-review-panel p, .rewrite-review-heading span { color: var(--text-secondary); }
+.rewrite-review-panel .rewrite-review-warning { color: var(--status-review); }
+.rewrite-review-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 12px 0; }
+.rewrite-review-metrics div { display: grid; gap: 4px; }
+.rewrite-review-metrics span { color: var(--text-secondary); }
+.rewrite-review-metrics strong { font-size: 18px; }
+.rewrite-review-panel details { margin-top: 12px; }
+.rewrite-review-panel summary { cursor: pointer; }
+.rewrite-review-panel blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--border); overflow-wrap: anywhere; }
+.rewrite-reading-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+.rewrite-reading-compare section { min-width: 0; }
+.rewrite-reading-compare h4 { margin: 0 0 8px; font-size: 12px; }
+.rewrite-review-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; padding: 14px; background: var(--bg-page); border: 1px solid var(--border); border-radius: var(--radius-md); line-height: 1.9; font-family: inherit; font-size: 13px; }
+@media (max-width: 700px) { .rewrite-review-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rewrite-reading-compare { grid-template-columns: minmax(0, 1fr); } }
