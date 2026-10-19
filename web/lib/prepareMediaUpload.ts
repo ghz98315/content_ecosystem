@@ -26,7 +26,7 @@ export async function prepareMediaUpload(file:File,purpose:Purpose,onStatus:(mes
   engine.on('log',({message})=>{const match=/Duration:\s*(\d+):(\d+):([\d.]+)/.exec(message);if(match)probeDuration=Number(match[1])*3600+Number(match[2])*60+Number(match[3]);});
   engine.on('progress',({progress})=>{if(!probing)onStatus(`正在本地${file.type.startsWith('video/')?'提取音轨':'压缩音频'} ${Math.min(99,Math.max(0,Math.round(progress*100)))}%…`);});
   let loadTimer:ReturnType<typeof setTimeout>|undefined;
-  try{await Promise.race([engine.load({coreURL:'/media-runtime/v0.12.10/ffmpeg-core.js',wasmURL:'/media-runtime/v0.12.10/ffmpeg-core.wasm'}),new Promise<never>((_,reject)=>{loadTimer=setTimeout(()=>reject(new Error('本地处理工具加载超时，请检查网络后重试')),120_000);})]);}finally{clearTimeout(loadTimer);}
+  try{await Promise.race([engine.load({classWorkerURL:'/media-runtime/wrapper-v0.12.15/worker.js',coreURL:'/media-runtime/v0.12.10/ffmpeg-core.js',wasmURL:'/media-runtime/v0.12.10/ffmpeg-core.wasm'}),new Promise<never>((_,reject)=>{loadTimer=setTimeout(()=>reject(new Error('本地处理工具加载超时，请检查网络后重试')),120_000);})]);}finally{clearTimeout(loadTimer);}
   await engine.writeFile('input.media',new Uint8Array(await file.arrayBuffer()));
   await engine.exec(['-i','input.media'],30_000);inputDuration=probeDuration;
   if(!Number.isFinite(inputDuration)||inputDuration<=0)throw new Error('无法识别媒体时长，请换用有效的音视频文件');
