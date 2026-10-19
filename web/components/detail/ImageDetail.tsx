@@ -54,7 +54,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
 
   useEffect(() => {
     setSelectedProvider(String(providerParams.image_provider || "apimart") === "xcode" ? "xcode" : "apimart");
-  }, [stage?.id, stage?.params]);
+  }, [stage?.id, providerParams.image_provider]);
 
   const saveProviderAndRerun = async () => {
     if (!stage?.id || providerBusy) return;

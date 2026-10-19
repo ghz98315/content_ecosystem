@@ -33,7 +33,9 @@ INTRO_DUR = COVER_FRAMES / FPS
 TRANSITION_DUR = 0.2
 ZOOM_OVERSAMPLE = 4
 ZOOM_AMOUNT = 0.10
-LANDSCAPE_ZOOM_AMOUNT = 0.12
+LANDSCAPE_ZOOM_AMOUNT = 0.16
+LANDSCAPE_WORK_SCALE = 4
+LANDSCAPE_RENDER_SCALE = 2
 DISCLAIMER_GAP_LINES = 4
 TITLE_FONT_SIZE = 84
 AUTHOR_FONT_SIZE = 52
@@ -532,11 +534,12 @@ def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion
             easing = f'(on/{frames - 1})'
             progress = easing if motion == 'zoom_in' else f'(1-{easing})'
             graph = (
-                f'[1:v]scale={W * 2}:{foreground_h * 2}:force_original_aspect_ratio=increase:flags=lanczos,'
-                f'crop={W * 2}:{foreground_h * 2},'
+                f'[1:v]scale={W * LANDSCAPE_WORK_SCALE}:{foreground_h * LANDSCAPE_WORK_SCALE}:force_original_aspect_ratio=increase:flags=lanczos,'
+                f'crop={W * LANDSCAPE_WORK_SCALE}:{foreground_h * LANDSCAPE_WORK_SCALE},format=yuv444p,'
                 f"zoompan=z='1+{LANDSCAPE_ZOOM_AMOUNT}*{progress}':"
                 "x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
-                f'd={frames}:s={W}x{foreground_h}:fps={FPS}[photo];'
+                f'd={frames}:s={W * LANDSCAPE_RENDER_SCALE}x{foreground_h * LANDSCAPE_RENDER_SCALE}:fps={FPS},'
+                f'scale={W}:{foreground_h}:flags=lanczos[photo];'
                 f'[0:v][photo]overlay=0:{foreground_y}:shortest=1,setsar=1,format=yuv420p[v]'
             )
             _run_ffmpeg([
@@ -871,7 +874,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             revision = db.get_client().table('artifacts').select('created_at').eq('task_id',task_id).eq('type','image_index').order('created_at',desc=True).limit(1).execute().data
             if revision:
                 cached = picture_cache.cache_path(task_id, {
-                    'version':'linear-zoom-12-v1', 'index_revision':revision[0]['created_at'],
+                    'version':'subpixel-linear-zoom-16-v2', 'index_revision':revision[0]['created_at'],
                     'images':images, 'timeline':timeline, 'durations':durations,
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
                     'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
@@ -1080,7 +1083,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cover_frames": COVER_FRAMES,
             "motion": "alternating_zoom_in_out" if landscape_layout else "zoom_in",
             "zoom_amount": LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT,
-            "zoom_oversample": 2 if landscape_layout else ZOOM_OVERSAMPLE,
+            "zoom_oversample": LANDSCAPE_WORK_SCALE if landscape_layout else ZOOM_OVERSAMPLE,
+            "motion_render_scale": LANDSCAPE_RENDER_SCALE if landscape_layout else 1,
             "transition": transition_mode,
             "transition_duration": TRANSITION_DUR,
             "timeline_version": 3 if is_timeline_v3 else 2,

@@ -4,7 +4,7 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 
 import Link from "next/link";
 import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks } from "@/lib/productionTemplates";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/lib/supabase";
@@ -124,7 +124,9 @@ function VideoCollectionContent() {
   const dialogueVoiceProfiles = useMemo(() => voiceProfiles.filter(isDualDialogueProfile), [voiceProfiles]);
   const selectableVoiceProfiles = useMemo(() => voiceProfiles.filter(profile => narrationMode === "dual_dialogue" ? isDualDialogueProfile(profile) : profile.id !== defaultVoiceProfile?.id && !isDualDialogueProfile(profile)), [defaultVoiceProfile, narrationMode, voiceProfiles]);
 
+  const loadVersion = useRef(0);
   const load = async () => {
+    const request = ++loadVersion.current;
     setLoading(true);
     setLoadError(null);
     const pageSize = 25;
@@ -136,6 +138,7 @@ function VideoCollectionContent() {
       p_min_comments: minComments ? Number(minComments) : 0,
       p_book_query: bookQuery.trim() || null,
     }, { count: "exact" }).range(from, from + pageSize - 1);
+    if (request !== loadVersion.current) return;
     if (taskResult.error) {
       const text = `采集任务加载失败：${taskResult.error.message}`;
       setLoadError(text);
@@ -160,6 +163,7 @@ function VideoCollectionContent() {
       supabase.from("stages").select("task_id,kind,seq,status").in("task_id", taskIds).order("seq"),
       supabase.from("task_book_signals").select("task_id,detected_title,detected_author,confidence,evidence,confirmed_title,confirmed_author").in("task_id", taskIds),
     ]);
+    if (request !== loadVersion.current) return;
     if (artifactResult.error || stageResult.error || bookSignalResult.error) {
       const text = `关联产物加载失败：${artifactResult.error?.message || stageResult.error?.message || bookSignalResult.error?.message || "请稍后重试"}`;
       setLoadError(text);
@@ -176,12 +180,14 @@ function VideoCollectionContent() {
     if (!userId) return;
     load();
     supabase.from("voice_profiles").select("id,display_name,provider,model,voice_id,sample_path,enabled,is_default").eq("enabled", true).order("updated_at", { ascending: false }).then(({ data }) => data && setVoiceProfiles(data as VoiceProfile[]));
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => void load(), 250); };
     const channel = supabase.channel("video-collection-workbench")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, load)
-      .on("postgres_changes", { event: "*", schema: "public", table: "artifacts" }, load)
-      .on("postgres_changes", { event: "*", schema: "public", table: "stages" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "artifacts" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "stages" }, refresh)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { ++loadVersion.current; clearTimeout(refreshTimer); supabase.removeChannel(channel); };
   }, [userId, query, status, minFollowers, minComments, bookQuery, page]);
 
   useEffect(() => {
@@ -430,7 +436,7 @@ function VideoCollectionContent() {
       </section>
       <section className="collection-import" aria-label="配音速度设置"><div><h2>配音速度</h2><p>速度会随新任务保存，也可在配音阶段调整后重跑。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>口播速度</span><select value={ttsRate} onChange={event => setTtsRate(event.target.value)} aria-label="默认配音速度"><option value="-5%">稍慢 5%</option><option value="-8%">舒缓 8%（推荐）</option><option value="-12%">慢速 12%</option><option value="0%">标准速度</option></select></div></div></section>
       {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
-      {loading && <div className="collection-loading" role="status"><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>}
+      <div className={`collection-loading${loading ? '' : ' is-idle'}`} role="status" aria-hidden={!loading}><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}
       <section className="collection-results" aria-labelledby="collection-results-heading"><div className="collection-toolbar"><div><h2 id="collection-results-heading">采集结果 <span>{totalTasks}</span></h2><p>每页读取 25 条任务及其关联产物；缺失字段不会以示例数据替代。</p></div><div className="collection-filters"><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索标题、作者或链接" aria-label="搜索采集任务" /><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} aria-label="按任务状态筛选"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={minFollowers} onChange={event => { setMinFollowers(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低粉丝" aria-label="最低粉丝数" /><input value={minComments} onChange={event => { setMinComments(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低评论" aria-label="最低评论数" /></div></div>
         {selectedIds.length > 0 && <div className="collection-bulk-bar"><span>已选 {selectedIds.length} 条</span><button className="secondary-action" onClick={copySelectedUrls}>复制来源链接</button><button className="secondary-action" onClick={cancelSelectedPending}>取消待处理任务</button><button className="collection-bulk-clear" onClick={() => setSelectedIds([])}>清除选择</button></div>}

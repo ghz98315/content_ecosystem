@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -17,6 +17,7 @@ import { TemplateRecovery } from "@/components/TemplateRecovery";
 import { compactTitle, splitSourceDescription } from "@/lib/sourceMetadata";
 import { useWorkflowClock } from "@/lib/useWorkflowClock";
 import { nodeClock } from "@/lib/workflowTiming";
+import { resolveStageSelection } from "@/lib/workflowStability";
 
 interface SourceMeta {
   duration?: number;
@@ -54,14 +55,19 @@ export default function TaskDetail() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const clock = useWorkflowClock(task, stages);
   const [visited, setVisited] = useState<StageKind[]>(['ingest']);
+  const manualSelection = useRef(false);
+  const loadVersion = useRef(0);
+  const statusSignature = stages.map(stage => `${stage.id}:${stage.status}`).join('|');
+  const selectStage = (kind: StageKind) => { manualSelection.current = true; setSelected(kind); };
   useEffect(() => { setVisited(previous => previous.includes(selected) ? previous : [...previous, selected]); }, [selected]);
-  useEffect(() => { setVisited(['ingest']); setSelected('ingest'); }, [id]);
+  useEffect(() => { manualSelection.current = false; setVisited(['ingest']); setSelected('ingest'); }, [id]);
   useEffect(() => {
     document.querySelectorAll<HTMLMediaElement>('.stage-view[hidden] audio, .stage-view[hidden] video, .stage-views[hidden] audio, .stage-views[hidden] video').forEach(media => media.pause());
   }, [selected, workspaceView]);
 
   const load = async () => {
     if (!userId || !id) return;
+    const request = ++loadVersion.current;
     setLoading(true);
     setLoadError(null);
     const [taskResult, stageResult, tasksResult, artifactResult] = await Promise.all([
@@ -70,6 +76,7 @@ export default function TaskDetail() {
       supabase.from("tasks").select("*").order("created_at", { ascending: false }),
       supabase.from("artifacts").select("meta,created_at").eq("task_id", id).eq("stage_kind", "ingest").eq("type", "audio").order("created_at", { ascending: false }).limit(1),
     ]);
+    if (request !== loadVersion.current) return;
     if (taskResult.error && taskResult.error.code !== "PGRST116") setLoadError(taskResult.error.message);
     if (taskResult.data) setTask(taskResult.data as Task);
     if (stageResult.error) setLoadError(current => current || stageResult.error.message);
@@ -86,21 +93,18 @@ export default function TaskDetail() {
   useEffect(() => {
     if (!userId || !id) return;
     void load();
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => void load(), 250); };
     const channel = supabase.channel(`task-${id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `id=eq.${id}` }, load)
-      .on("postgres_changes", { event: "*", schema: "public", table: "stages", filter: `task_id=eq.${id}` }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `id=eq.${id}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "stages", filter: `task_id=eq.${id}` }, refresh)
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    return () => { ++loadVersion.current; clearTimeout(refreshTimer); void supabase.removeChannel(channel); };
   }, [userId, id]);
 
   useEffect(() => {
-    const selectedStage = stages.find(stage => stage.kind === selected);
-    // Keep a rerun stage selected while it is queued/running; otherwise the
-    // first pending upstream stage can make a downstream rerun look global.
-    if (selected !== "ingest" && selectedStage && ["pending", "processing", "needs_review", "failed"].includes(selectedStage.status)) return;
-    const active = stages.find(stage => ["processing", "needs_review", "failed"].includes(stage.status)) || stages.find(stage => stage.status === "done");
-    if (active) setSelected(active.kind);
-  }, [stages]);
+    setSelected(previous => resolveStageSelection(stages, previous, manualSelection.current));
+  }, [statusSignature]);
 
   const currentStage = stages.find(stage => stage.kind === selected);
   const doneCount = stages.filter(stage => stage.status === "done").length;
@@ -121,7 +125,7 @@ export default function TaskDetail() {
   }, [sourceCapturedAt, sourceMeta, task]);
 
   const setAction = (text: string, ok = true) => setNotice({ text, ok });
-  const openStage = (kind: StageKind) => { setSelected(kind); setWorkspaceView("flow"); };
+  const openStage = (kind: StageKind) => { selectStage(kind); setWorkspaceView("flow"); };
 
   const rerun = async (stageId: string) => {
     if (actionBusy) return;
@@ -206,7 +210,7 @@ export default function TaskDetail() {
         <button type="button" className={workspaceView === "preflight" ? "is-active" : ""} aria-pressed={workspaceView === "preflight"} onClick={() => setWorkspaceView("preflight")}>生成前检查 <span className="tab-count">{stages.filter(stage => stage.kind !== "render" && stage.status === "done").length}/7</span></button>
       </nav>
       {workspaceView === "flow" ? <>
-        <PipelineBar stages={stages} selected={selected} onSelect={setSelected} clock={clock} />
+        <PipelineBar stages={stages} selected={selected} onSelect={selectStage} clock={clock} />
         {stages.length === 0 && <div className="task-stage-empty" role="status">当前任务还没有阶段记录，稍后会自动刷新。</div>}
         <div className="task-stage-context"><span>当前阶段</span><strong>{STAGES.find(item => item.kind === selected)?.label}</strong><span className={`status-badge status-${currentStage?.status || "pending"}`}>{STATUS_LABEL[currentStage?.status || 'pending']}</span><small>{nodeClock(currentStage, clock.records, clock.now).label}</small></div>
       </> : null}

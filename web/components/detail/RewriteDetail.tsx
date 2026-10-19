@@ -74,6 +74,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   const [coverSubtitle, setCoverSubtitle] = useState("");
   const draftRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
 
+  const artifactRevision = stage?.status === 'processing' ? 'processing' : stage?.updated_at;
   useEffect(() => {
     if (!stage?.output_ref) return;
     authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
@@ -92,7 +93,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
         else if (d.candidates?.length === 1) setSelected(0);
       })
       .catch(() => setErr("改写稿加载失败，请刷新后重试"));
-  }, [stage?.output_ref, stage?.updated_at]);
+  }, [stage?.output_ref, artifactRevision]);
 
   const confirm = async () => {
     if (selected == null || !stage) return;

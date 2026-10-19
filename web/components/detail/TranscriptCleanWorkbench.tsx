@@ -72,6 +72,8 @@ export function TranscriptCleanWorkbench({
   const [editedCleanText, setEditedCleanText] = useState("");
   const [savingClean, setSavingClean] = useState(false);
 
+  const transcriptRevision = transcriptStage?.status === 'processing' ? 'processing' : transcriptStage?.updated_at;
+  const cleanRevision = cleanStage?.status === 'processing' ? 'processing' : cleanStage?.updated_at;
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -94,7 +96,7 @@ export function TranscriptCleanWorkbench({
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [transcriptStage?.output_ref, transcriptStage?.updated_at, cleanStage?.output_ref, cleanStage?.updated_at]);
+  }, [transcriptStage?.output_ref, transcriptRevision, cleanStage?.output_ref, cleanRevision]);
 
   const rawText = transcript || clean?.raw || "";
   const originalRawText = rawTranscript || clean?.raw || rawText;

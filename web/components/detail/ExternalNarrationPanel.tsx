@@ -50,7 +50,8 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       setDirtyTimes(false);
     }
   }, [stage?.id]);
-  useEffect(() => { void load().catch(e => setError(e.message)); }, [load, stage?.updated_at]);
+  const reviewRevision = stage?.status === 'processing' ? 'processing' : stage?.updated_at;
+  useEffect(() => { void load().catch(e => setError(e.message)); }, [load, reviewRevision]);
   useEffect(() => {
     if (stage?.status !== 'processing' && stage?.status !== 'pending') return;
     const timer = setInterval(() => void load().catch(e => setError(e.message)), 8000);
