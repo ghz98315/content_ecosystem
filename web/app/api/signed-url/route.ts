@@ -39,5 +39,8 @@ export async function GET(req: NextRequest) {
   if (error || !data?.signedUrl)
     return NextResponse.json({ error: error?.message ?? "signed url failed" }, { status: 404 });
 
-  return NextResponse.json({ signedUrl: data.signedUrl },{headers:{'Cache-Control':'no-store'}});
+  const signedUrl = new URL(data.signedUrl);
+  const version = req.nextUrl.searchParams.get('version');
+  if (version) signedUrl.searchParams.set('cacheNonce', version.slice(0, 128));
+  return NextResponse.json({ signedUrl: signedUrl.toString() },{headers:{'Cache-Control':'no-store'}});
 }

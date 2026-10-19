@@ -46,6 +46,7 @@ const QUALITY_COLOR = { passed: "var(--status-done)", warning: "var(--status-rev
 
 export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: DetailCommon) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoMotion, setVideoMotion] = useState<{ motion?: string; zoom_amount?: number }>({});
   const [isPreviousVideo, setIsPreviousVideo] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -60,38 +61,43 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const [review, setReview] = useState<ReviewEntry | null>(null);
 
   const router = useRouter();
+  const completedRevision = stage?.status === 'done' ? stage.updated_at : stage?.status;
 
   useEffect(() => {
     let active = true;
     setVideoUrl(null);
     setIsPreviousVideo(false);
+    setVideoMotion({});
     setLoading(true);
     const loadVideo = async () => {
       let path = stage?.output_ref ?? null;
       let previous = false;
-      if (!path) {
-        const { data } = await supabase
+      const { data } = await supabase
           .from("artifacts")
-          .select("storage_path")
+          .select("storage_path,created_at,meta")
           .eq("task_id", taskId)
           .eq("stage_kind", "render")
           .eq("type", "final")
           .order("created_at", { ascending: false })
           .limit(1);
-        path = data?.[0]?.storage_path ?? null;
+      const artifact = data?.[0];
+      if (!path) {
+        path = artifact?.storage_path ?? null;
         previous = Boolean(path);
       }
       if (!path) return;
-      const response = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`);
+      const revision = artifact?.storage_path === path ? artifact.created_at : completedRevision;
+      const response = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}&version=${encodeURIComponent(revision || '')}`);
       const { signedUrl } = await response.json();
       if (active && signedUrl) {
         setVideoUrl(signedUrl);
         setIsPreviousVideo(previous);
+        setVideoMotion(artifact?.storage_path === path ? artifact.meta || {} : {});
       }
     };
     loadVideo().catch(() => {}).finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [stage?.output_ref, stage?.status, taskId]);
+  }, [stage?.output_ref, stage?.status, completedRevision, taskId]);
 
   useEffect(() => {
     let active = true;
@@ -270,14 +276,14 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         <section className="render-workbench">
           <div className="render-video-panel">
             <div className="render-panel-heading"><div><strong>成片预览</strong><span>{isPreviousVideo ? "当前展示上一次成功版本" : "当前任务最新版本"}</span></div><span className="status-badge status-done">可人工检查</span></div>
-            <video controls src={videoUrl} />
+            <video key={videoUrl} controls src={videoUrl} />
           </div>
           <aside className="render-preset-panel" aria-label="当前成片方案">
             <div><p className="eyebrow">当前成片方案</p><h3>{productionTemplate?.label || '历史任务方案'}</h3><p>模板随本任务固定保存，文字与背景音乐可在成片前设置。</p></div>
             <dl>
               <div><dt>画幅</dt><dd>竖版 9:16</dd></div>
               <div><dt>画面</dt><dd>{isGuoxue ? '工笔淡墨 · 4:3主体 · 模糊填充' : '独立类别画面'}</dd></div>
-              <div><dt>动效</dt><dd>{isGuoxue ? '完整保留主体 · 按配音切换分镜' : '缓慢 Zoom In · 短叠化'}</dd></div>
+              <div><dt>动效</dt><dd>{videoMotion.motion === 'alternating_zoom_in_out' ? `缓慢放大 / 缩小交替 · 幅度 ${Math.round((videoMotion.zoom_amount || 0) * 100)}%` : videoMotion.motion === 'static_landscape' ? '当前版本为静态横图' : '以当前成片实际效果为准'}</dd></div>
               <div><dt>声音</dt><dd>配音与字幕时间轴对齐</dd></div>
               <div><dt>背景音乐</dt><dd>{task.bgm_path ? "已配置任务级混音" : "未配置"}</dd></div>
             </dl>

@@ -8,6 +8,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import hashlib
+import subprocess
+import time
+from pathlib import Path
 from functools import lru_cache
 
 import config
@@ -71,14 +75,57 @@ def _persist_book_signal(task_id: str, signal: dict) -> None:
         pass
 
 
-@lru_cache(maxsize=1)
-def _model():
+@lru_cache(maxsize=2)
+def _model(device=None, compute=None):
     from faster_whisper import WhisperModel
     return WhisperModel(
         config.WHISPER_MODEL,
-        device=config.WHISPER_DEVICE,
-        compute_type=config.WHISPER_COMPUTE,
+        device=device or config.WHISPER_DEVICE,
+        compute_type=compute or config.WHISPER_COMPUTE,
     )
+
+
+def _transcribe_media(path: str):
+    """Decode through the existing ffmpeg runtime, avoiding PyAV ABI conflicts."""
+    import numpy as np
+    import imageio_ffmpeg
+    started = time.monotonic()
+    decoded = subprocess.run([
+        imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-i', path,
+        '-map', '0:a:0', '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', '-',
+    ], check=True, capture_output=True, timeout=300)
+    audio = np.frombuffer(decoded.stdout, dtype=np.float32)
+    if not audio.size:
+        raise ValueError('音频中没有可识别的采样')
+    decode_seconds = time.monotonic() - started
+    loaded = time.monotonic()
+    device, compute = config.WHISPER_DEVICE, config.WHISPER_COMPUTE
+    fallback_reason = None
+    recognized = loaded
+    try:
+        model = _model()
+        model_seconds = time.monotonic() - loaded
+        recognized = time.monotonic()
+        segments, info = model.transcribe(audio, language='zh', word_timestamps=True, vad_filter=True)
+        segments = list(segments)  # Recognition is lazy; time it only after consumption.
+    except RuntimeError as exc:
+        if device != 'cuda' or not any(term in str(exc).lower() for term in ('cuda', 'cublas', 'cudnn', 'out of memory', 'gpu')):
+            raise
+        fallback_reason = str(exc)[:180]
+        print('  [asr] 显卡暂不可用，自动回退 CPU：' + fallback_reason, flush=True)
+        model = None
+        _model.cache_clear()
+        device, compute = 'cpu', 'int8'
+        model = _model(device, compute)
+        model_seconds = time.monotonic() - loaded
+        recognized = time.monotonic()
+        segments, info = model.transcribe(audio, language='zh', word_timestamps=True, vad_filter=True)
+        segments = list(segments)
+    metrics = {'decode_seconds': round(decode_seconds, 3), 'model_seconds': round(model_seconds, 3),
+               'recognition_seconds': round(time.monotonic() - recognized, 3),
+               'device': device, 'compute': compute, 'fallback_reason': fallback_reason}
+    print('  [asr] ' + json.dumps(metrics, ensure_ascii=False), flush=True)
+    return segments, info, metrics
 
 
 def _find_audio(task_id: str) -> str | None:
@@ -103,14 +150,34 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error="未找到音频产物（ingest 未完成？）")
         return "failed", None
 
+    started = time.monotonic()
     local = storage.download_artifact(audio_path, suffix=".mp3")
+    download_seconds = time.monotonic() - started
     try:
-        segments, info = _model().transcribe(
-            local,
-            language="zh",
-            word_timestamps=True,
-            vad_filter=True,     # 去静音，减少幻听
-        )
+        source_hash = hashlib.sha256(Path(local).read_bytes()).hexdigest()
+        model_file = Path(config.WHISPER_MODEL) / 'model.bin'
+        signature = hashlib.sha256(json.dumps({
+            'model': config.WHISPER_MODEL,
+            'model_revision': model_file.stat().st_mtime_ns if model_file.exists() else None,
+            'device': config.WHISPER_DEVICE, 'compute': config.WHISPER_COMPUTE,
+            'policy': 'zh-word-times-vad-pcm-v1',
+        }, sort_keys=True).encode()).hexdigest()
+        if not (stage.get('params') or {}).get('force_transcribe'):
+            try:
+                cached = db.get_client().table('artifacts').select('storage_path').eq('task_id', task_id).eq('stage_kind', 'transcribe').eq('type', 'transcript').eq('meta->>source_sha256', source_hash).eq('meta->>asr_signature', signature).limit(1).execute().data
+                if cached:
+                    # Confirm the cached object still exists before reusing its ref.
+                    probe = storage.download_artifact(cached[0]['storage_path'], '.json')
+                    try:
+                        payload = json.loads(Path(probe).read_text(encoding='utf-8'))
+                        if payload.get('text') and payload.get('segments'):
+                            print('  [asr] 同一任务、音频和配置命中已有逐字稿', flush=True)
+                            return 'done', cached[0]['storage_path']
+                    finally:
+                        Path(probe).unlink(missing_ok=True)
+            except Exception:
+                pass
+        segments, info, metrics = _transcribe_media(local)
         seg_list = []
         full_text = []
         for s in segments:
@@ -128,11 +195,14 @@ def run(stage: dict) -> tuple[str, str | None]:
             full_text.append(s.text)
 
         raw_text = "".join(full_text).strip()
+        punctuate_started = time.monotonic()
+        reading_text = _punctuate_for_reading(raw_text)
+        metrics.update(download_seconds=round(download_seconds, 3), punctuation_seconds=round(time.monotonic() - punctuate_started, 3))
         transcript = {
             "language": info.language,
             "duration": round(info.duration, 3),
             "text": raw_text,
-            "reading_text": _punctuate_for_reading(raw_text),
+            "reading_text": reading_text,
             "segments": seg_list,
         }
         data = json.dumps(transcript, ensure_ascii=False, indent=2).encode("utf-8")
@@ -145,6 +215,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             "segment_count": len(seg_list),
             "char_count": len(transcript["text"]),
             "book_signal": book_signal,
+            "source_sha256": source_hash,
+            "asr_signature": signature,
+            "timings": metrics,
         })
         _persist_book_signal(task_id, book_signal)
         return "done", sp

@@ -64,8 +64,8 @@ def run(stage: dict) -> tuple[str, None]:
                 words=previous['words']
                 recognized=previous['recognized_text']
             else:
-                from stages.transcribe import _model
-                segments, _info = _model().transcribe(str(decoded),language='zh',word_timestamps=True,vad_filter=True)
+                from stages.transcribe import _transcribe_media
+                segments, _info, _asr_metrics = _transcribe_media(str(decoded))
                 words=[]
                 recognized_parts=[]
                 for segment in segments:

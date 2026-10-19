@@ -5,6 +5,17 @@ import uuid
 import db
 
 
+def resource_snapshot():
+    """Optional point samples; these are not historical peak measurements."""
+    try:
+        import psutil
+        return {'available_memory_mb': round(psutil.virtual_memory().available / 1024**2),
+                'worker_memory_mb': round(psutil.Process().memory_info().rss / 1024**2),
+                'cpu_percent_sample': psutil.cpu_percent(interval=0.1)}
+    except Exception:
+        return None
+
+
 class StageTiming:
     def __init__(self, stage: dict):
         self.stage = stage
@@ -12,6 +23,9 @@ class StageTiming:
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.clock = time.monotonic()
         self.meta = {'stage_id': stage['id'], 'started_at': self.started_at, 'state': 'running'}
+        resources = resource_snapshot()
+        if resources:
+            self.meta['resources_at_start'] = resources
         self.saved = False
 
     def start(self):
@@ -30,6 +44,9 @@ class StageTiming:
             return
         meta = {**self.meta, 'ended_at': datetime.now(timezone.utc).isoformat(),
                 'processing_seconds': round(time.monotonic() - self.clock, 3), 'state': 'finished'}
+        resources = resource_snapshot()
+        if resources:
+            meta['resources_at_end'] = resources
         try:
             db.retry(lambda: db.get_client().table('artifacts').update({'meta': meta}).eq('id', self.id).execute(), attempts=2)
         except Exception as exc:

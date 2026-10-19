@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import uuid
+import hashlib
+import picture_cache
 import os
 import re
 import shutil
@@ -30,7 +33,7 @@ INTRO_DUR = COVER_FRAMES / FPS
 TRANSITION_DUR = 0.2
 ZOOM_OVERSAMPLE = 4
 ZOOM_AMOUNT = 0.10
-LANDSCAPE_ZOOM_AMOUNT = 0.06
+LANDSCAPE_ZOOM_AMOUNT = 0.12
 DISCLAIMER_GAP_LINES = 4
 TITLE_FONT_SIZE = 84
 AUTHOR_FONT_SIZE = 52
@@ -525,7 +528,8 @@ def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion
             if motion not in ('zoom_in', 'zoom_out'):
                 raise ValueError(f'Unsupported landscape motion: {motion}')
             frames = max(2, round(duration * FPS))
-            easing = f'(3*pow(on/{frames - 1},2)-2*pow(on/{frames - 1},3))'
+            # Constant speed stays perceptible during 25-40 second shots.
+            easing = f'(on/{frames - 1})'
             progress = easing if motion == 'zoom_in' else f'(1-{easing})'
             graph = (
                 f'[1:v]scale={W * 2}:{foreground_h * 2}:force_original_aspect_ratio=increase:flags=lanczos,'
@@ -705,7 +709,7 @@ def _concat_clips_exact(clips: list[str], expected_duration: float, out_mp4: str
     """Concatenate all timeline clips deterministically instead of a fragile large xfade graph."""
     manifest = Path(tmpdir) / "content_concat.txt"
     manifest.write_text(
-        "".join(f"file '{Path(clip).as_posix()}'\n" for clip in clips),
+        "".join(f"file '{Path(clip).resolve().as_posix()}'\n" for clip in clips),
         encoding="utf-8",
     )
     _run_ffmpeg([
@@ -751,11 +755,10 @@ def _compose_with_dissolve(clips: list[str], durations: list[float], out_mp4: st
 
 
 def _concat_intro(intro: str, content: str, out_mp4: str, tmpdir: str) -> None:
-    _run_ffmpeg([
-        ff(), "-y", "-i", intro, "-i", content,
-        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
-        "-map", "[v]", *_encoder_args(intermediate=True), "-r", str(FPS), out_mp4,
-    ], check=True, capture_output=True)
+    # Both inputs were encoded with the same frame size, rate and codec.
+    # Joining their packets avoids re-encoding the whole film just for 0.5s.
+    expected = _video_duration(intro) + _video_duration(content)
+    _concat_clips_exact([intro, content], expected, out_mp4, tmpdir)
 
 
 def run(stage: dict) -> tuple[str, str | None]:
@@ -763,6 +766,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
     render_started = time.monotonic()
+    phase_seconds = {}
     _ACTIVE_DEADLINE = time.monotonic() + max(1.0, float(config.RENDER_TIMEOUT))
     print(f"  [render] 编码器：{'NVIDIA NVENC' if _nvenc_available() else 'CPU x264'}", flush=True)
     print("  [render] 读取图片索引", flush=True)
@@ -860,55 +864,94 @@ def run(stage: dict) -> tuple[str, str | None]:
                 for index, (item, duration) in enumerate(zip(images, durations))
             ]
 
-        clip_paths: list[str] = []
-        for i, (item, duration) in enumerate(zip(images, durations)):
-            _check_deadline()
-            image_local = storage.download_artifact(item["path"], ".png")
-            clip = os.path.join(tmpdir, f"clip_{i:03d}.mp4")
-            try:
-                _make_image_clip(image_local, layout_png, duration, clip, frame_mode=frame_mode, shot_index=i)
-            finally:
-                try:
-                    os.remove(image_local)
-                except OSError:
-                    pass
-            clip_paths.append(clip)
-            if (i + 1) % 10 == 0 or i + 1 == len(images):
-                print(f"  [render] 镜头编码 {i + 1}/{len(images)}", flush=True)
-
-        content_mp4 = os.path.join(tmpdir, "content.mp4")
-        transition_mode = "dissolve"
-        if is_timeline_v3:
-            if len(clip_paths) <= config.RENDER_DISSOLVE_MAX_CLIPS:
-                # Merge transitions in a balanced tree. This keeps the measured
-                # timeline exact without the truncation seen in one large xfade chain.
-                _compose_with_dissolve(clip_paths, durations, content_mp4)
-            else:
-                # Many short clips make pairwise xfade disproportionately slow.
-                # Keep the zoom motion and exact audio alignment with hard cuts.
-                transition_mode = "hard_cut_long_timeline"
-                _concat_clips_exact(clip_paths, tts_duration, content_mp4, tmpdir)
-            actual_duration = _video_duration(content_mp4)
-            if abs(actual_duration - tts_duration) > 0.2:
-                raise ValueError(
-                    f"短叠化后成片时长异常：实际 {actual_duration:.3f}s，期望 {tts_duration:.3f}s"
-                )
-            print("  [render] 镜头短叠化合成完成", flush=True)
-        else:
-            if len(clip_paths) <= config.RENDER_DISSOLVE_MAX_CLIPS:
-                _compose_with_dissolve(clip_paths, durations, content_mp4)
-            else:
-                transition_mode = "hard_cut_long_timeline"
-                cut_durations = [
-                    round(float(duration) - (TRANSITION_DUR if i < len(clip_paths) - 1 else 0.0), 3)
-                    for i, duration in enumerate(durations)
-                ]
-                _concat_clips_exact(clip_paths, sum(cut_durations), content_mp4, tmpdir)
-
-        print(f"  [render] 镜头合成累计 {time.monotonic() - render_started:.1f}s", flush=True)
-
+        phase_seconds['prepare_seconds'] = round(time.monotonic() - render_started, 3)
         video_only = os.path.join(tmpdir, "video_only.mp4")
-        _concat_intro(cover_mp4, content_mp4, video_only, tmpdir)
+        cached = None
+        try:
+            revision = db.get_client().table('artifacts').select('created_at').eq('task_id',task_id).eq('type','image_index').order('created_at',desc=True).limit(1).execute().data
+            if revision:
+                cached = picture_cache.cache_path(task_id, {
+                    'version':'linear-zoom-12-v1', 'index_revision':revision[0]['created_at'],
+                    'images':images, 'timeline':timeline, 'durations':durations,
+                    'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
+                    'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
+                    'encoder': 'nvenc' if _nvenc_available() else config.RENDER_ENCODER_PRESET,
+                    'fps':FPS, 'dimensions':[W,H], 'zoom':LANDSCAPE_ZOOM_AMOUNT,
+                    'dissolve_limit':config.RENDER_DISSOLVE_MAX_CLIPS,
+                })
+        except Exception:
+            pass  # Optional cache must never block rendering.
+        cache_hit = bool(cached and picture_cache.restore(cached, video_only))
+        if cache_hit:
+            try:
+                cache_hit = abs(_video_duration(video_only) - (tts_duration + INTRO_DUR)) <= 0.2
+            except Exception:
+                cache_hit = False
+        if cache_hit:
+            transition_mode = 'dissolve' if len(images) <= config.RENDER_DISSOLVE_MAX_CLIPS else 'hard_cut_long_timeline'
+            phase_seconds.update(image_clips_seconds=0, transitions_seconds=0, intro_join_seconds=0)
+            print('  [render] 复用已校验的画面轨，只重新合成文字与配乐', flush=True)
+        else:
+            phase_started = time.monotonic()
+            clip_paths: list[str] = []
+            for i, (item, duration) in enumerate(zip(images, durations)):
+                _check_deadline()
+                image_local = storage.download_artifact(item["path"], ".png")
+                clip = os.path.join(tmpdir, f"clip_{i:03d}.mp4")
+                try:
+                    _make_image_clip(image_local, layout_png, duration, clip, frame_mode=frame_mode, shot_index=i)
+                finally:
+                    try:
+                        os.remove(image_local)
+                    except OSError:
+                        pass
+                clip_paths.append(clip)
+                if (i + 1) % 10 == 0 or i + 1 == len(images):
+                    print(f"  [render] 镜头编码 {i + 1}/{len(images)}", flush=True)
+
+            phase_seconds['image_clips_seconds'] = round(time.monotonic() - phase_started, 3)
+            phase_started = time.monotonic()
+            content_mp4 = os.path.join(tmpdir, "content.mp4")
+            transition_mode = "dissolve"
+            if is_timeline_v3:
+                if len(clip_paths) <= config.RENDER_DISSOLVE_MAX_CLIPS:
+                    # Merge transitions in a balanced tree. This keeps the measured
+                    # timeline exact without the truncation seen in one large xfade chain.
+                    _compose_with_dissolve(clip_paths, durations, content_mp4)
+                else:
+                    # Many short clips make pairwise xfade disproportionately slow.
+                    # Keep the zoom motion and exact audio alignment with hard cuts.
+                    transition_mode = "hard_cut_long_timeline"
+                    _concat_clips_exact(clip_paths, tts_duration, content_mp4, tmpdir)
+                actual_duration = _video_duration(content_mp4)
+                if abs(actual_duration - tts_duration) > 0.2:
+                    raise ValueError(
+                        f"短叠化后成片时长异常：实际 {actual_duration:.3f}s，期望 {tts_duration:.3f}s"
+                    )
+                print("  [render] 镜头短叠化合成完成", flush=True)
+            else:
+                if len(clip_paths) <= config.RENDER_DISSOLVE_MAX_CLIPS:
+                    _compose_with_dissolve(clip_paths, durations, content_mp4)
+                else:
+                    transition_mode = "hard_cut_long_timeline"
+                    cut_durations = [
+                        round(float(duration) - (TRANSITION_DUR if i < len(clip_paths) - 1 else 0.0), 3)
+                        for i, duration in enumerate(durations)
+                    ]
+                    _concat_clips_exact(clip_paths, sum(cut_durations), content_mp4, tmpdir)
+
+            print(f"  [render] 镜头合成累计 {time.monotonic() - render_started:.1f}s", flush=True)
+
+            phase_seconds['transitions_seconds'] = round(time.monotonic() - phase_started, 3)
+            phase_started = time.monotonic()
+            video_only = os.path.join(tmpdir, "video_only.mp4")
+            _concat_intro(cover_mp4, content_mp4, video_only, tmpdir)
+            phase_seconds['intro_join_seconds'] = round(time.monotonic() - phase_started, 3)
+            phase_started = time.monotonic()
+
+            if cached:
+                picture_cache.save(cached, video_only)
+        phase_started = time.monotonic()
 
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
         requested_font = text_settings['title_font']
@@ -955,6 +998,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         if os.path.getsize(final) > 47 * 1024 * 1024:
             raise ValueError('成片超过当前 Supabase 单文件限额，请缩短视频或提高存储限额')
 
+        phase_seconds['text_audio_encode_seconds'] = round(time.monotonic() - phase_started, 3)
+        phase_started = time.monotonic()
         stage_rows = db.retry(
             lambda: db.get_client().table("stages")
             .select("kind,status,error")
@@ -990,6 +1035,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             fps=FPS,
             intro_duration=INTRO_DUR,
         )
+        phase_seconds['quality_seconds'] = round(time.monotonic() - phase_started, 3)
+        print('  [render-timings] ' + json.dumps(phase_seconds), flush=True)
         quality_path = f"{task_id}/quality_report.json"
         storage.upload_bytes(
             quality_path,
@@ -1017,10 +1064,13 @@ def run(stage: dict) -> tuple[str, str | None]:
             "image_count": len(timeline), "duration": tts_duration, "version": 3 if is_timeline_v3 else 2,
         })
 
-        sp = f"{task_id}/final.mp4"
+        # Immutable media paths prevent browsers/CDN serving an older rerender.
+        sp = f"{task_id}/renders/{uuid.uuid4()}/final.mp4"
         storage.upload(sp, final, "video/mp4")
         storage.add_artifact(task_id, "render", "final", sp, meta={
             "width": W,
+            "phase_seconds": phase_seconds,
+            "picture_track_cache_hit": cache_hit,
             "production_template": template_id or 'legacy',
             "height": H,
             "tts_duration": tts_duration,
