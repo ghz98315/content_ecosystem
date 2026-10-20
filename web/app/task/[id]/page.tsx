@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { useAnonAuth } from "@/lib/useAnonAuth";
 import { Task, Stage, StageKind, STAGES, STATUS_LABEL } from "@/lib/types";
 import { AppShell } from "@/components/AppShell";
@@ -73,7 +74,7 @@ export default function TaskDetail() {
     const [taskResult, stageResult, tasksResult, artifactResult] = await Promise.all([
       supabase.from("tasks").select("*").eq("id", id).single(),
       supabase.from("stages").select("*").eq("task_id", id).order("seq"),
-      supabase.from("tasks").select("*").order("created_at", { ascending: false }),
+      supabase.from("tasks").select("*").neq("status", "cancelled").order("created_at", { ascending: false }),
       supabase.from("artifacts").select("meta,created_at").eq("task_id", id).eq("stage_kind", "ingest").eq("type", "audio").order("created_at", { ascending: false }).limit(1),
     ]);
     if (request !== loadVersion.current) return;
@@ -179,7 +180,13 @@ export default function TaskDetail() {
     const { error } = await supabase.from("tasks").update({ status: "cancelled" }).eq("id", id).eq("status", task.status);
     if (!error) await supabase.from("stages").update({ status: "cancelled" }).eq("task_id", id).eq("status", "pending");
     setActionBusy(false);
-    if (error) setAction(error.message, false); else { setTask({ ...task, status: "cancelled" }); setAction("任务已取消"); }
+    if (error) setAction(error.message, false);
+    else {
+      try {
+        await authenticatedFetch('/api/tasks/cleanup-cancelled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskIds: [id] }) });
+      } catch { /* The daily cleanup retries after any active worker stage stops. */ }
+      router.replace('/video-collection');
+    }
   };
 
   if (!userId) return <AppShell><div className="page-loading">正在连接工作区...</div></AppShell>;

@@ -16,7 +16,8 @@ export function Sidebar({ tasks, currentTaskId, onCreateTask, owner = '', connec
   useEffect(() => { setMobileOpen(false); }, [pathname, currentTaskId]);
   useEffect(() => { if (!mobileOpen) return; const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileOpen(false); }; window.addEventListener('keydown', escape); return () => window.removeEventListener('keydown', escape); }, [mobileOpen]);
   const toggle = () => { setCollapsed(previous => { try { localStorage.setItem('sidebar-collapsed', String(!previous)); } catch { /* Optional preference. */ } return !previous; }); };
-  const visible = tasks.filter(task => (!query.trim() || `${task.title || ''} ${task.id}`.toLowerCase().includes(query.trim().toLowerCase())) && (filter === 'all' || task.status === filter));
+  const activeTasks = tasks.filter(task => task.status !== 'cancelled');
+  const visible = activeTasks.filter(task => (!query.trim() || `${task.title || ''} ${task.id}`.toLowerCase().includes(query.trim().toLowerCase())) && (filter === 'all' || task.status === filter));
   const review = tasks.filter(task => task.status === 'needs_review').length;
   return <>
     <button className="mobile-sidebar-trigger" aria-label="打开导航" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><Icon name="panel"/></button>
@@ -28,7 +29,7 @@ export function Sidebar({ tasks, currentTaskId, onCreateTask, owner = '', connec
         const active = item.href === '/' ? pathname === '/' || pathname.startsWith('/task') : pathname.startsWith(item.href);
         return <Link key={item.href} href={item.href} title={item.label} aria-current={active ? 'page' : undefined} className={`sidebar-nav-item${active ? ' is-active' : ''}`}><Icon name={item.icon}/><span className="sidebar-expanded">{item.label}</span>{item.href === '/' && review > 0 && <b className="sidebar-count sidebar-expanded">{review}</b>}</Link>;
       })}</div>)}</nav>
-      <div className="sidebar-recents"><div className="sidebar-recents-heading sidebar-expanded"><span className="sidebar-section-label">最近任务</span><small>{tasks.length}</small></div>
+      <div className="sidebar-recents"><div className="sidebar-recents-heading sidebar-expanded"><span className="sidebar-section-label">最近任务</span><small>{activeTasks.length}</small></div>
         <div className="sidebar-task-tools sidebar-expanded"><input aria-label="搜索任务" placeholder="搜索任务…" value={query} onChange={event => setQuery(event.target.value)}/><select aria-label="按状态筛选" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">全部状态</option><option value="processing">运行中</option><option value="needs_review">待确认</option><option value="done">已完成</option><option value="failed">失败</option></select></div>
         <div className="sidebar-task-list">{visible.slice(0, 20).map(task => <Link key={task.id} href={`/task/${task.id}`} title={`${task.title || task.id} · ${STATUS_LABEL[task.status as keyof typeof STATUS_LABEL] || task.status}`} className={`sidebar-task${task.id === currentTaskId ? ' is-active' : ''}`}><span className={`task-signal signal-${task.status}${task.status === 'processing' ? ' anim-pulse' : ''}`}/><span className="sidebar-expanded"><strong>{task.title || '未命名项目'}</strong><small>{STATUS_LABEL[task.status as keyof typeof STATUS_LABEL] || task.status}</small></span></Link>)}{!visible.length && <p className="sidebar-empty sidebar-expanded">{tasks.length ? '没有匹配的任务' : '从一个链接开始创作'}</p>}</div>
       </div>

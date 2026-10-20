@@ -146,7 +146,7 @@ function VideoCollectionContent() {
       setLoading(false);
       return;
     }
-    const nextTasks = (taskResult.data || []) as Task[];
+    const nextTasks = ((taskResult.data || []) as Task[]).filter(task => task.status !== 'cancelled');
     setTasks(nextTasks);
     setTotalTasks(taskResult.count || 0);
     const taskIds = nextTasks.map(task => task.id);
@@ -392,6 +392,9 @@ function VideoCollectionContent() {
       return;
     }
     await supabase.from("stages").update({ status: "cancelled" }).in("task_id", pendingIds).eq("status", "pending");
+    try {
+      await authenticatedFetch('/api/tasks/cleanup-cancelled', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskIds: (data || []).map(task => task.id) }) });
+    } catch { /* The daily cleanup retries if immediate cleanup is unavailable. */ }
     setSelectedIds([]);
     setMessage(`已取消 ${data?.length || 0} 个待处理任务。`);
     await load();

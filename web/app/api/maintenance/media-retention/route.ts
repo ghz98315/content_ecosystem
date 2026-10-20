@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { cleanupCancelledTask } from '@/lib/cancelledTaskCleanup';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -22,6 +23,23 @@ export async function GET(request: NextRequest) {
   const dryRun = request.nextUrl.searchParams.get('dryRun') === '1';
   const cutoff = new Date(Date.now() - AGE_MS).toISOString();
   const supabase = createClient(url, key);
+  // Run a bounded cancellation sweep first, so media retention cannot starve it.
+  const cancelledResults: Array<{ id: string; result: string }> = [];
+  const cancelledFailures: string[] = [];
+  if (!dryRun) {
+    const { data: cancelled, error: cancelledError } = await supabase.from('tasks')
+      .select('id').eq('status', 'cancelled').order('updated_at', { ascending: true }).limit(20);
+    if (cancelledError) cancelledFailures.push(`cancelled tasks: ${cancelledError.message}`);
+    for (const task of cancelled || []) {
+      if (cancelledResults.filter(item => item.result === 'deleted').length >= 3) break;
+      try {
+        const result = await cleanupCancelledTask(supabase, task.id, undefined, true);
+        cancelledResults.push({ id: task.id, result: result.result });
+      } catch (error) {
+        cancelledFailures.push(`cancelled task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
   const { data: rows, error } = await supabase.from('artifacts')
     .select('id,task_id,type,storage_path,created_at')
     .in('type', MEDIA_TYPES).lt('created_at', cutoff)
@@ -43,7 +61,7 @@ export async function GET(request: NextRequest) {
   let removed = 0;
   let missingObjects = 0;
   let skippedNewer = 0;
-  const failures: string[] = [];
+  const failures: string[] = cancelledFailures;
   // A task can have hundreds of stills. Bound concurrency to fit one cron
   // invocation without sending an unbounded burst to Supabase.
   for (let start = 0; start < paths.length; start += INFO_CONCURRENCY) {
@@ -94,5 +112,5 @@ export async function GET(request: NextRequest) {
   }
   return NextResponse.json({ dryRun, scanned: rows?.length || 0, eligible: paths.length,
     removed, missingObjects, skippedNewer, failures: failures.length,
-    moreCandidates: (rows?.length || 0) === 500 });
+    moreCandidates: (rows?.length || 0) === 500, cancelledResults });
 }

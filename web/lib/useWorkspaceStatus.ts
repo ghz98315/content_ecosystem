@@ -17,7 +17,7 @@ export function useWorkspaceStatus() {
         if (!session.session) { if (active) setState(previous => ({ ...previous, status: 'connecting', owner: '', tasks: [] })); return; }
         const owner = session.session.user.id;
         const [tasks, stages] = await Promise.all([
-          supabase.from('tasks').select('*').eq('owner', owner).order('created_at', { ascending: false }).limit(30),
+          supabase.from('tasks').select('*').eq('owner', owner).neq('status', 'cancelled').order('created_at', { ascending: false }).limit(30),
           supabase.from('stages').select('updated_at').eq('status', 'processing').order('updated_at', { ascending: false }).limit(1),
         ]);
         if (tasks.error || stages.error) throw tasks.error || stages.error;

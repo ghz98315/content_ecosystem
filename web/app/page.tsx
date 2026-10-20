@@ -33,7 +33,7 @@ export default function HomePage() {
     setTasksLoading(true);
     setTasksError(null);
     try {
-      const { data, error } = await supabase.from("tasks").select("*").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("tasks").select("*").neq("status", "cancelled").order("created_at", { ascending: false });
       if (error) {
         setTasksError(error.message);
         return;
