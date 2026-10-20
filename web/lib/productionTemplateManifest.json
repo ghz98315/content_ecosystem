@@ -1,13 +1,14 @@
 [
   {
     "id": "guoxue-v1",
-    "label": "国学 · 工笔淡墨 · 4:3四宫格",
+    "label": "国学 · 工笔淡墨 · 4:3四宫格（2K）",
     "category": "guoxue",
     "style": "guoxue_gongbi_life",
     "preset": "guoxue-gongbi-life",
     "aspect": "4:3",
     "frameMode": "landscape_blur",
     "gridCells": 2,
+    "gridResolution": "2k",
     "font": "PlayFont-ChenkunGBT",
     "color": "#BA413B"
   },

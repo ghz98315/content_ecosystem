@@ -14,7 +14,7 @@ def inherit_template(current: dict, source: dict, kind: str) -> dict:
     if current.get('production_template') or not source.get('production_template'):
         return current
     keys = {'production_template', 'template_version'}
-    keys |= ({'visual_style','visual_preset_id','image_aspect_ratio','image_provider','image_model'}
+    keys |= ({'visual_style','visual_preset_id','image_aspect_ratio','image_provider','image_model','grid_resolution'}
              if kind == 'image' else {'frame_mode','title_font','title_color'})
     result = {**current, **{key: source[key] for key in keys if key in source}}
     validate_template(result, kind)
@@ -31,6 +31,8 @@ def validate_template(params: dict, kind: str) -> None:
     expected = {'visual_style': style, 'image_aspect_ratio': aspect} if kind == 'image' else {'frame_mode': frame_mode}
     if any(params.get(key) != value for key, value in expected.items()):
         raise ValueError('内容模板与画面配置不一致，已停止以避免不同内容类型混用')
+    if kind == 'image' and template == 'guoxue-v1' and params.get('grid_resolution', '4k') not in {'2k', '4k'}:
+        raise ValueError('国学四宫格分辨率配置无效')
     line = params.get('content_line')
     if line and line != DEFINITIONS[template]['category']:
         raise ValueError('内容类型与成片模板不一致，请检查任务配置')

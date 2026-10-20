@@ -27,6 +27,17 @@ class ProductionContractTests(unittest.TestCase):
         self.assertIn('1448×1086',_validate_guoxue_resolution(1448,1086,cells=2))
         with self.assertRaises(ValueError):
             _validate_guoxue_resolution(0,1536)
+
+    def test_new_guoxue_grid_uses_2k_without_changing_old_task_snapshot(self):
+        from stages.image import _guoxue_grid_resolution, _validate_guoxue_resolution
+        from production_templates import DEFINITIONS
+        self.assertEqual('2k', DEFINITIONS['guoxue-v1']['gridResolution'])
+        self.assertEqual('2k', _guoxue_grid_resolution({'params': {'grid_resolution': '2k'}}))
+        self.assertEqual('4k', _guoxue_grid_resolution({'params': {'production_template': 'guoxue-v1'}}))
+        self.assertIsNone(_validate_guoxue_resolution(2048,1536,cells=2,resolution='2k'))
+        self.assertIn('2K', _validate_guoxue_resolution(1448,1086,cells=2,resolution='2k'))
+        with self.assertRaises(ValueError):
+            validate_template({'production_template':'guoxue-v1','template_version':1,'visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3','grid_resolution':'1k'},'image')
     def test_background_music_cannot_read_another_tasks_file(self):
         from stages.render import _load_bgm_config
         client=MagicMock()

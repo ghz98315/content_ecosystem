@@ -327,6 +327,15 @@ _GRID_SIZE = config.IMAGE_GRID_SIZE
 _CELL_EDGE_INSET_RATIO = 0.02
 _IMAGE_SPLIT_VERSION = 3
 _GUOXUE_GRID = int(DEFINITIONS['guoxue-v1']['gridCells'])
+
+
+def _guoxue_grid_resolution(stage: dict) -> str:
+    # New tasks snapshot 2k in their image stage. Existing tasks without a
+    # snapshot retain the 4k behavior when they are resumed or regenerated.
+    resolution = str((stage.get('params') or {}).get('grid_resolution') or '4k').lower()
+    if resolution not in {'2k', '4k'}:
+        raise ValueError('国学四宫格分辨率配置无效')
+    return resolution
 _GUOXUE_REFERENCE_FILE = Path(__file__).resolve().parents[1] / 'local-assets' / 'visual' / 'guoxue-style-reference.png'
 _GUOXUE_REFERENCE_STORAGE_PATH = 'style-references/guoxue-gongbi-reference.png'
 _IMAGE_PROVIDER_JOBS_LOCK = threading.Lock()
@@ -500,14 +509,19 @@ def _crop_to_cell_ratio(piece, ratio: float = _CELL_RATIO):
     return piece.crop((0, top, width, top + target_height))
 
 
-def _validate_guoxue_resolution(width: int, height: int, cells: int = 3) -> str | None:
-    # APIMart's 4k tier is approximately 8 MP across aspect ratios. A 4:3
-    # response is 3312x2480, while the portrait response is 2336x3520.
+def _validate_guoxue_resolution(width: int, height: int, cells: int = 3, resolution: str = '4k') -> str | None:
+    # APIMart's 4k tier is approximately 8 MP; 2k landscape is about 3 MP.
     # Validate pixel budget and usable landscape cell size, not a long edge.
     if width <= 0 or height <= 0 or cells <= 0:
         raise ValueError('源图尺寸或切图格数无效')
-    if width * height < 7_000_000 or width / cells * 0.96 < 1000 or height / cells * 0.96 < 750:
-        return f'请求4K，实际源图为{width}×{height}；已沿用原图继续切图与成片，清晰度可能低于其他镜头。'
+    if resolution not in {'2k', '4k'}:
+        raise ValueError('国学四宫格分辨率配置无效')
+    minimum_pixels, minimum_cell_width, minimum_cell_height = (
+        (2_500_000, 900, 675) if resolution == '2k' else (7_000_000, 1000, 750)
+    )
+    if (width * height < minimum_pixels or width / cells * 0.96 < minimum_cell_width
+            or height / cells * 0.96 < minimum_cell_height):
+        return f'请求{resolution.upper()}，实际源图为{width}×{height}；已沿用原图继续切图与成片，清晰度可能低于其他镜头。'
     return None
 
 
@@ -1083,9 +1097,10 @@ def run(stage: dict) -> tuple[str, str | None]:
                   if visual_text else task_id)
     generation_id = (stage.get('params') or {}).get('generation_id')
     grid_cells = _GUOXUE_GRID if visual_style == GUOXUE_STYLE else _GRID
+    grid_resolution = _guoxue_grid_resolution(stage) if visual_style == GUOXUE_STYLE else config.APIMART_IMAGE_RESOLUTION
     guoxue_reference = _guoxue_reference_data_url() if visual_style == GUOXUE_STYLE else None
     if visual_style == GUOXUE_STYLE:
-        asset_root += '/styles/guoxue_reference_v3_4x3_4k_2x2'
+        asset_root += f'/styles/guoxue_reference_v3_4x3_{grid_resolution}_2x2'
     if generation_id:
         asset_root += f"/generations/{generation_id}"
     existing_artifacts = _existing_image_artifacts(task_id)
@@ -1111,7 +1126,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             try:
                 raw = _generate_grid_bytes(
                     request_client, image_model, prompt, stage_id=stage['id'], batch_key=batch_key,
-                    size='4:3', resolution='4k', image_urls=[guoxue_reference] if guoxue_reference else None,
+                    size='4:3', resolution=grid_resolution, image_urls=[guoxue_reference] if guoxue_reference else None,
                 )
             except Exception as exc:
                 if not _is_safety_block(exc):
@@ -1120,7 +1135,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 prompt = guoxue_grid_prompt(fallback, cover=with_cover, grid_cells=grid_cells)
                 raw = _generate_grid_bytes(
                     request_client, image_model, prompt, stage_id=stage['id'], batch_key=batch_key,
-                    size='4:3', resolution='4k', image_urls=[guoxue_reference] if guoxue_reference else None,
+                    size='4:3', resolution=grid_resolution, image_urls=[guoxue_reference] if guoxue_reference else None,
                 )
             return raw, prompt
 
@@ -1188,7 +1203,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
                     size='4:3' if visual_style == GUOXUE_STYLE else _GRID_SIZE,
-                    resolution='4k' if visual_style == GUOXUE_STYLE else None,
+                    resolution=grid_resolution if visual_style == GUOXUE_STYLE else None,
                     image_urls=[guoxue_reference] if guoxue_reference else None,
                 )
             except Exception as exc:
@@ -1201,7 +1216,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
                     size='4:3' if visual_style == GUOXUE_STYLE else _GRID_SIZE,
-                    resolution='4k' if visual_style == GUOXUE_STYLE else None,
+                    resolution=grid_resolution if visual_style == GUOXUE_STYLE else None,
                     image_urls=[guoxue_reference] if guoxue_reference else None,
                 )
             storage.upload_bytes(grid_path, raw, "image/png")
@@ -1218,7 +1233,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
         _validate_grid_source(*grid_size, expected_ratio=4/3 if visual_style == GUOXUE_STYLE else None)
-        resolution_warning = (_validate_guoxue_resolution(*grid_size, cells=grid_cells)
+        resolution_warning = (_validate_guoxue_resolution(*grid_size, cells=grid_cells, resolution=grid_resolution)
                               if visual_style == GUOXUE_STYLE else None)
         if resolution_warning:
             print(f'  [NOTE] {grid_path}: {resolution_warning}', flush=True)
@@ -1235,7 +1250,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
             "text_policy": "no_visible_text",
             "validated": True,
-            "requested_resolution": "4k" if visual_style == GUOXUE_STYLE else config.APIMART_IMAGE_RESOLUTION,
+            "requested_resolution": grid_resolution,
             "prompt": actual_prompt,
             "prompt_scenes": [shot["text"] for shot in batch],
             "image_model": image_model,
@@ -1246,7 +1261,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         if with_cover:
             storage.upload_bytes(cover_path, pieces.pop(0), 'image/png')
             storage.add_artifact(task_id, 'image', 'cover_image', cover_path, meta={
-                'source_grid': grid_path, 'visual_style': visual_style, 'resolution': '4k',
+                'source_grid': grid_path, 'visual_style': visual_style, 'resolution': grid_resolution,
                 'role': 'independent_cover', 'split_version': _IMAGE_SPLIT_VERSION,
             })
         for i, piece_bytes in enumerate(pieces):
