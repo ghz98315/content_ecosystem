@@ -707,6 +707,13 @@ def _exact_timeline_durations(timeline: list[dict]) -> list[float]:
     return [round(float(item["duration"]), 3) for item in timeline]
 
 
+def _select_timeline_clip_durations(timeline: list[dict], audio_duration: float) -> list[float]:
+    """Reserve transition overlap only when the selected path applies dissolves."""
+    if _use_dissolve(len(timeline), audio_duration):
+        return _timeline_clip_durations(timeline)
+    return _exact_timeline_durations(timeline)
+
+
 def _use_dissolve(image_count: int, duration: float) -> bool:
     """Bound cumulative re-encoding by both clip count and actual video length."""
     return image_count <= config.RENDER_DISSOLVE_MAX_CLIPS and duration <= config.RENDER_DISSOLVE_MAX_DURATION
@@ -872,9 +879,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         timeline = _build_timeline(images, segments, tts_duration) if is_timeline_v3 else []
         if timeline:
             _validate_timeline(timeline, segments, tts_duration)
-            durations = _timeline_clip_durations(timeline)
-            if len(images) > config.RENDER_DISSOLVE_MAX_CLIPS:
-                durations = _exact_timeline_durations(timeline)
+            durations = _select_timeline_clip_durations(timeline, tts_duration)
         else:
             durations = _allocate_durations(images, tts_duration)
             timeline = [

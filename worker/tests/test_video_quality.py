@@ -52,6 +52,7 @@ from stages.render import (
     _make_cover_clip,
     _make_image_clip,
     _timeline_clip_durations,
+    _select_timeline_clip_durations,
     _validate_timeline,
     _video_duration,
     H,
@@ -763,6 +764,12 @@ class StoryboardTests(unittest.TestCase):
         durations = _allocate_durations(images, 32.0)
         final_duration = sum(durations) - TRANSITION_DUR * (len(images) - 1)
         self.assertAlmostEqual(32.0, final_duration, places=2)
+
+    def test_long_timeline_uses_exact_clips_when_dissolve_is_disabled_by_duration(self):
+        timeline = [{"duration": 28.41}] * 10
+        with patch.object(config, "RENDER_DISSOLVE_MAX_CLIPS", 24), patch.object(config, "RENDER_DISSOLVE_MAX_DURATION", 180):
+            self.assertAlmostEqual(284.1, sum(_select_timeline_clip_durations(timeline, 284.1)), places=2)
+            self.assertAlmostEqual(284.1 + 9 * TRANSITION_DUR, sum(_timeline_clip_durations(timeline)), places=2)
 
     def test_image_clips_and_exact_concat_preserve_timeline_duration(self):
         from PIL import Image
