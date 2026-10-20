@@ -1,4 +1,4 @@
-"""Named production contracts; copy rewriting stays on its existing category."""
+"""Named production contracts with independent, snapshotted content lines."""
 import json
 from pathlib import Path
 
@@ -31,6 +31,9 @@ def validate_template(params: dict, kind: str) -> None:
     expected = {'visual_style': style, 'image_aspect_ratio': aspect} if kind == 'image' else {'frame_mode': frame_mode}
     if any(params.get(key) != value for key, value in expected.items()):
         raise ValueError('内容模板与画面配置不一致，已停止以避免不同内容类型混用')
+    line = params.get('content_line')
+    if line and line != DEFINITIONS[template]['category']:
+        raise ValueError('内容类型与成片模板不一致，请检查任务配置')
 
 
 def validate_task_template(stage: dict) -> None:
@@ -39,11 +42,22 @@ def validate_task_template(stage: dict) -> None:
         return
     import db
     rows = db.retry(lambda: db.get_client().table('stages').select('kind,params')
-                    .eq('task_id',stage['task_id']).in_('kind',['image','render']).execute()).data or []
+                    .eq('task_id',stage['task_id']).in_('kind',['image','render','rewrite']).execute()).data or []
     snapshots = {row['kind']: row.get('params') or {} for row in rows}
-    if set(snapshots) != {'image','render'}:
+    if not {'image','render'} <= set(snapshots):
         raise ValueError('画面模板快照不完整，请重新保存任务模板')
-    for kind,params in snapshots.items():
-        validate_template(params,kind)
+    for kind in ('image','render'):
+        validate_template(snapshots[kind],kind)
     if snapshots['image'].get('production_template') != snapshots['render'].get('production_template'):
         raise ValueError('生图与成片模板不一致，请统一后重试；已有产物已保留')
+    line = snapshots['image'].get('content_line')
+    if line:
+        if snapshots['render'].get('content_line') != line or snapshots.get('rewrite',{}).get('content_line') != line:
+            raise ValueError('文案、图片与成片内容类型不一致，请重新配置任务')
+        selected = snapshots['rewrite'].get('rewrite_domain')
+        if line in ('guoxue','health') and selected not in (line,'mixed'):
+            raise ValueError('二创规则与任务内容类型不一致，请检查二创领域')
+        task = db.retry(lambda: db.get_client().table('tasks').select('content_category')
+                        .eq('id',stage['task_id']).single().execute()).data or {}
+        if task.get('content_category') != line:
+            raise ValueError('任务内容类型与画面模板不一致，请重新配置任务')

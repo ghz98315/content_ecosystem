@@ -32,8 +32,8 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
             raise DomainConflict('正文包含健康主张，请选择“健康”或“混合”；通用领域不能跳过健康规则。')
         if explicit == 'guoxue' and health:
             raise DomainConflict('正文包含健康主张（'+ '、'.join(medical_hits[:4]) +'），请选“混合”或“健康”后重跑；不会静默套用纯国学规则。')
-        if explicit == 'health' and guoxue and not health:
-            raise DomainConflict('正文出现经典主题但没有清晰健康主题，请确认选择“国学”“混合”或“通用”后重跑。')
+        if explicit == 'health' and guoxue:
+            raise DomainConflict('正文包含经典主题，请选择“混合”以同时检查国学与健康规则；不会仅套用健康规则。')
         domain, reason = explicit, '用户明确选择'
     elif guoxue and health:
         domain, reason = 'mixed', '正文同时包含经典与健康信号'
@@ -47,6 +47,8 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
         domain, reason = 'guoxue', '正文经典主题'
     elif 'guoxue-v1' in templates:
         domain, reason = 'guoxue', '所选国学模板推定，未检测到相反的健康主张；请在审稿时核对'
+    elif 'health-v1' in templates:
+        domain, reason = 'health', '所选健康模板推定，未检测到相反的经典主题；请在审稿时核对'
     else:
         domain, reason = 'general', '正文领域不明确，旧分类不足以决定领域，先使用通用框架'
     return {'domain':domain,'label':LABELS[domain],'reason':reason,'evidence':evidence,'version':VERSION}

@@ -51,6 +51,9 @@ class ProductionContractTests(unittest.TestCase):
         self.assertEqual({'production_template':'health-v1'},inherit_template({'production_template':'health-v1'},source,'render'))
     def test_guoxue_isolated_from_other_templates(self):
         validate_template({'production_template':'guoxue-v1','template_version':1,'visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
+        validate_template({'production_template':'guoxue-v1','template_version':1,'content_line':'guoxue','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
+        with self.assertRaisesRegex(ValueError,'内容类型'):
+            validate_template({'production_template':'guoxue-v1','template_version':1,'content_line':'health','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
         for template in ['health-v1','history-v1','education-v1']:
             with self.assertRaises(ValueError):
                 validate_template({'production_template':template,'template_version':1,'visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
@@ -112,12 +115,14 @@ class TemplateConsistencyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'不一致'):
                 validate_task_template({'task_id':'test','params':{'production_template':'guoxue-v1'}})
 
-    def test_copy_category_selector_does_not_switch_visual_template(self):
+    def test_new_content_type_selector_keeps_copy_and_visual_template_together(self):
         from pathlib import Path
         source=(Path(__file__).resolve().parents[2]/'web/app/video-collection/page.tsx').read_text(encoding='utf-8')
         self.assertNotIn('setProductionTemplateId(category',source)
-        self.assertNotIn('setContentCategory(selected.category)',source)
-        self.assertIn('修改下方文案规则不会切换画面模板',source)
+        self.assertIn('setContentCategory(selected.category)',source)
+        self.assertIn('productionTemplate(productionTemplateId).category !== contentCategory',source)
+        self.assertIn('<option value="guoxue">国学类书籍</option>',source)
+        self.assertIn('<option value="health">健康类书籍</option>',source)
 
 
 class RenderTransitionBudgetTests(unittest.TestCase):

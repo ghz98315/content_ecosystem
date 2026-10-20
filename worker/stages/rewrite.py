@@ -618,6 +618,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error=message)
         return "failed", None
     context = _task_context(task_id, source)
+    if params.get('content_line') and params['content_line'] != context['category']:
+        db.set_stage(stage['id'], 'needs_review', error='任务内容类型与二创规则快照不一致，请检查任务设置')
+        return 'needs_review', None
     narration_mode = str(params.get("narration_mode") or "single")
     if chosen is None and narration_mode != 'dual_dialogue':
         template_rows = db.get_client().table('stages').select('params').eq('task_id',task_id).in_('kind',['image','render']).execute().data or []

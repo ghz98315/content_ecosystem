@@ -44,7 +44,7 @@ export interface Task {
   tts_secondary_model?: string | null;
   tts_secondary_voice?: string | null;
   tts_secondary_voice_label?: string | null;
-  content_category?: "health" | "social_science" | "education";
+  content_category?: "guoxue" | "health" | "social_science" | "education";
   rewrite_mode?: "initial_dedup" | "repost_dedup";
   source_task_id?: string | null;
   version_no?: number;

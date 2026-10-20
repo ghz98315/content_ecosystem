@@ -2,7 +2,7 @@
   {
     "id": "guoxue-v1",
     "label": "国学 · 工笔淡墨 · 4:3四宫格",
-    "category": "health",
+    "category": "guoxue",
     "style": "guoxue_gongbi_life",
     "preset": "guoxue-gongbi-life",
     "aspect": "4:3",

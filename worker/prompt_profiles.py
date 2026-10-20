@@ -12,7 +12,7 @@ SKILL_REFERENCE_ROOT = (
     / "wechat-video-book-compliance"
     / "references"
 )
-ACTIVE_CATEGORIES = {"health", "social_science", "education"}
+ACTIVE_CATEGORIES = {"guoxue", "health", "social_science", "education"}
 
 
 def normalize_category(value: object) -> str:

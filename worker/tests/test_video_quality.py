@@ -591,12 +591,17 @@ class StoryboardTests(unittest.TestCase):
         business = _build_grid_prompt(["一本经管书的方法"], "education")
         self.assertIn("史料感", history)
         self.assertIn("保证收益", business)
+        self.assertIn("古籍", _safe_fallback_scenes(1, "guoxue")[0])
+        self.assertNotIn("古籍", _safe_fallback_scenes(1, "health")[0])
 
     def test_dialogue_visuals_are_category_specific_and_safe(self):
+        guoxue = _dialogue_visual_scene("guoxue")
         health = _dialogue_visual_scene("health")
         history = _dialogue_visual_scene("social_science")
         business = _dialogue_visual_scene("education")
         self.assertIn("两位成年人", health)
+        self.assertIn("古籍", guoxue)
+        self.assertNotIn("古籍", health)
         self.assertIn("大厅", health)
         self.assertIn("沙发", health)
         self.assertIn("档案", history)

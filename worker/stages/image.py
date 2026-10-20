@@ -134,7 +134,9 @@ def _is_safety_block(error: Exception) -> bool:
 
 
 def _safe_fallback_scenes(count: int, category: str) -> list[str]:
-    if category == "social_science":
+    if category == "guoxue":
+        scene = "宣纸淡墨的传统书房里，一位长者静读古籍，窗外松影与柔和月色相映，画面温润清雅"
+    elif category == "social_science":
         scene = "明亮书房中的史料阅读与安静思考场景"
     elif category == "education":
         scene = "现代工作空间中的阅读、笔记与理性交流场景"
@@ -146,6 +148,7 @@ def _safe_fallback_scenes(count: int, category: str) -> list[str]:
 def _dialogue_visual_scene(category: str) -> str:
     """Stable, reusable visual for a two-person dialogue render."""
     directions = {
+        "guoxue": "明亮雅致的传统书房里，两位成年人在木案旁讨论古籍，背景有松竹与素雅卷轴，工笔淡墨质感",
         "social_science": "明亮安静的文化大厅里，两位成年人并坐在宽敞沙发上交谈，背景有无字书籍与低调档案陈设，克制纪实感",
         "education": "明亮现代的商务大厅里，两位成年人并坐在宽敞沙发上交谈，背景有无字书籍与简洁陈设，理性可信赖",
     }

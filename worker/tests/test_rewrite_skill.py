@@ -22,9 +22,11 @@ class RewriteSkillTests(unittest.TestCase):
  def test_medical_and_mixed(self):
   self.assertEqual(resolve_domain('关注血糖变化。')['domain'],'health')
   self.assertEqual(resolve_domain('谈《黄帝内经》与血压。')['domain'],'mixed')
+  self.assertEqual(resolve_domain('谈日常习惯。',templates=('health-v1',))['domain'],'health')
  def test_conflicts_do_not_silently_bypass_rules(self):
   for explicit,templates in [('guoxue',()),('general',()),('auto',('guoxue-v1',))]:
    with self.assertRaises(DomainConflict):resolve_domain('血糖相关知识。',explicit,templates)
+  with self.assertRaises(DomainConflict):resolve_domain('谈《黄帝内经》与血压。','health',('health-v1',))
  def test_prompts_load_only_selected_rules_and_hash(self):
   for domain,files in [('guoxue',['guoxue.md']),('health',['health.md']),('mixed',['guoxue.md','health.md']),('general',[])]:
    prompt,profile=prompt_extension(resolve_domain('虚构主题。',domain))

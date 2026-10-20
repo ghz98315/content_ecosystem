@@ -4,7 +4,7 @@
 
 单人口播改写入口加载共享生产提示词，再按领域追加 guoxue.md、health.md 和 rewrite_skill_contract.txt；双人播客保留原流程。不是将整个 SKILL.md 当系统提示词粘贴进去。模型和连接配置沿用现有配置。
 
-二创节点可选自动、国学、健康、混合、通用，保存于 stages.params.rewrite_domain。读取 image/render 的 production_template 提供辅助依据；旧 content_category=health 不能单独判为健康稿。正文经典与健康信号并存时按混合规则；领域冲突停在 needs_review，页面选择后重跑。关键词判断存在误报/漏报，用户需要核对实际领域；通用选择不能绕过已识别健康主张的规则。
+二创节点可选自动、国学、健康、混合、通用，保存于 stages.params.rewrite_domain。新任务按内容类型同时保存对应的文案领域、清洗/合规分类和画面模板；旧 content_category=health 不能单独判为健康稿。正文经典与健康信号并存时按混合规则；领域冲突停在 needs_review，页面选择后重跑。关键词判断存在误报/漏报，用户需要核对实际领域；通用选择不能绕过已识别健康主张的规则。
 
 ## 输出与证据
 
