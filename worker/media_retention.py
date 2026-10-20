@@ -142,6 +142,7 @@ def cleanup_expired_external_audio(*, limit: int = 50, dry_run: bool = False) ->
             if not dry_run:
                 for path, _ in eligible:
                     sb.storage.from_('artifacts').remove([path])
+                    sb.table('artifacts').delete().eq('task_id', task_id).eq('type', 'audio').eq('storage_path', path).execute()
                 review = {**(row.get('review') or {}), 'audio_expired_at': datetime.now(timezone.utc).isoformat()}
                 sb.table('external_narrations').update({'audio_path': None, 'review': review}).eq('id', row['id']).execute()
             report['expired_versions'] += 1

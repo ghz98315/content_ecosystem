@@ -166,6 +166,11 @@ export async function GET(request: NextRequest) {
         if (existing.length) {
           const { error: removeError } = await supabase.storage.from('artifacts').remove(existing);
           if (removeError) throw removeError;
+          for (const path of existing) {
+            const { error: artifactError } = await supabase.from('artifacts').delete()
+              .eq('task_id', row.task_id).eq('type', 'audio').eq('storage_path', path);
+            if (artifactError) throw artifactError;
+          }
         }
         const { error: updateError } = await supabase.from('external_narrations').update({
           audio_path: null,
