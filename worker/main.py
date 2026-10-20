@@ -237,7 +237,7 @@ def main() -> None:
                             print(f"  [retention audio] removed={audio_result['removed']} bytes={audio_result['removed_bytes']} failures={len(audio_result['failures'])}", flush=True)
                     except Exception as exc:
                         print(f"  [retention] cleanup failed: {type(exc).__name__}: {str(exc)[:180]}", flush=True)
-                if not config.WORKER_TASK_ID and time.monotonic() - last_orphan_cleanup >= 86400:
+                if not config.WORKER_TASK_ID and time.monotonic() - last_orphan_cleanup >= 3600:
                     last_orphan_cleanup = time.monotonic()
                     try:
                         from orphan_retention import cleanup_orphan_uploads
