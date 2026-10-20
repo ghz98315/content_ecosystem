@@ -5,11 +5,16 @@ import difflib
 import math
 import re
 
+from opencc import OpenCC
+
 from narration import normalize_tts_numbers, split_semantic_units, strip_subtitle_punctuation
+
+_SIMPLIFIED_CONVERTER = OpenCC('t2s')
 
 
 def comparable(text: str) -> str:
-    return ''.join(c.lower() for c in normalize_tts_numbers(text) if c.isalnum())
+    spoken = _SIMPLIFIED_CONVERTER.convert(normalize_tts_numbers(text))
+    return ''.join(c.lower() for c in spoken if c.isalnum())
 
 
 def _comparable_spans(text: str) -> tuple[str, list[tuple[int, int]]]:
@@ -19,9 +24,23 @@ def _comparable_spans(text: str) -> tuple[str, list[tuple[int, int]]]:
     for kind, a, b, c, d in difflib.SequenceMatcher(None, text, spoken, autojunk=False).get_opcodes():
         for index in range(c, d):
             spans[index] = (a + index - c, a + index - c + 1) if kind == 'equal' else (a, b)
-    indices = [index for index, char in enumerate(spoken) if char.isalnum()]
-    return (''.join(spoken[i].lower() for i in indices),
-            [spans[i] for i in indices for _ in spoken[i].lower()])
+    simplified = _SIMPLIFIED_CONVERTER.convert(spoken)
+    if len(simplified) == len(spoken):
+        converted_spans = spans
+    else:
+        converted_spans = [(0, 0)] * len(simplified)
+        for kind, a, b, c, d in difflib.SequenceMatcher(None, spoken, simplified, autojunk=False).get_opcodes():
+            for index in range(c, d):
+                if kind == 'equal':
+                    converted_spans[index] = spans[a + index - c]
+                elif a < b:
+                    converted_spans[index] = (spans[a][0], spans[b - 1][1])
+                else:
+                    point = spans[a][0] if a < len(spans) else (spans[-1][1] if spans else 0)
+                    converted_spans[index] = (point, point)
+    indices = [index for index, char in enumerate(simplified) if char.isalnum()]
+    return (''.join(simplified[i].lower() for i in indices),
+            [converted_spans[i] for i in indices for _ in simplified[i].lower()])
 
 
 def _raw_span(spans: list[tuple[int, int]], start: int, end: int, text: str) -> tuple[int, int] | None:

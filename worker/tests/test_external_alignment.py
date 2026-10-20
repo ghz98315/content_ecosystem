@@ -48,6 +48,24 @@ class ExternalAlignmentTests(unittest.TestCase):
         self.assertEqual('每天15分钟',cues[0]['text'])
         self.assertEqual([],differences('每天15分钟','每天十五分钟'))
 
+    def test_traditional_asr_matches_simplified_script_without_changing_subtitles(self):
+        text='今天读《道德经》，把心放慢。明天继续读经典。'
+        words=[{'word':'今天讀道德經把心放慢','start':0,'end':4},
+               {'word':'明天繼續讀經典','start':5,'end':8}]
+        cues,coverage=align(text,words,9,repair=True)
+        checked=validate_cues(text,cues,9)
+        self.assertEqual(1,coverage)
+        self.assertEqual([],differences(text,'今天讀《道德經》，把心放慢。明天繼續讀經典。',words))
+        self.assertEqual('今天读道德经把心放慢明天继续读经典',''.join(c['text'] for c in checked))
+        self.assertEqual(5,checked[-1]['start'])
+
+    def test_traditional_asr_difference_keeps_raw_suggestion_positions(self):
+        items=differences('今天读经典。','今天讀經書。')
+        self.assertEqual(1,len(items))
+        self.assertEqual('典',items[0]['original'])
+        self.assertEqual('書',items[0]['suggestion'])
+        self.assertEqual(4,items[0]['raw_start'])
+
     def test_repeated_spoken_text_is_reported(self):
         self.assertTrue(differences('今天读经典。','今天读经典今天读经典。'))
 
