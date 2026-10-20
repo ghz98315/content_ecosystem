@@ -805,7 +805,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     if (audio_stage.get('params') or {}).get('audio_source') == 'external':
         if audio_stage.get('status') != 'done':
             raise ValueError('当前外部配音尚未确认')
-        row = db.get_client().table('external_narrations').select('state,audio_path,subtitle_path').eq('id',audio_stage['params']['external_id']).single().execute().data or {}
+        row = db.get_client().table('external_narrations').select('state,audio_path,subtitle_path,review').eq('id',audio_stage['params']['external_id']).single().execute().data or {}
+        if not row.get('audio_path') and (row.get('review') or {}).get('audio_expired_at'):
+            raise ValueError('配音文件已按 48 小时保留规则清理；请重新上传配音后再成片')
         if row.get('state') != 'approved' or row.get('audio_path') != audio_stage.get('output_ref'):
             raise ValueError('配音版本已变化，请重新确认')
         if audio_path:

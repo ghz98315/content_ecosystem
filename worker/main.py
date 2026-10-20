@@ -211,6 +211,8 @@ def main() -> None:
         print("测试隔离模式：仅处理任务", config.WORKER_TASK_ID)
     recovered_at_startup = False
     last_recovery_check = 0.0
+    last_media_cleanup = 0.0
+    last_orphan_cleanup = 0.0
     network_failures = 0
     while True:
         try:
@@ -223,6 +225,27 @@ def main() -> None:
             worked = tick()
             network_failures = 0
             if not worked:
+                if not config.WORKER_TASK_ID and time.monotonic() - last_media_cleanup >= 3600:
+                    last_media_cleanup = time.monotonic()
+                    try:
+                        from media_retention import cleanup_expired_external_audio, cleanup_expired_media
+                        result = cleanup_expired_media(limit=100)
+                        if result['removed'] or result['failures']:
+                            print(f"  [retention] removed={result['removed']} bytes={result['removed_bytes']} failures={len(result['failures'])}", flush=True)
+                        audio_result = cleanup_expired_external_audio(limit=50)
+                        if audio_result['removed'] or audio_result['failures']:
+                            print(f"  [retention audio] removed={audio_result['removed']} bytes={audio_result['removed_bytes']} failures={len(audio_result['failures'])}", flush=True)
+                    except Exception as exc:
+                        print(f"  [retention] cleanup failed: {type(exc).__name__}: {str(exc)[:180]}", flush=True)
+                if not config.WORKER_TASK_ID and time.monotonic() - last_orphan_cleanup >= 86400:
+                    last_orphan_cleanup = time.monotonic()
+                    try:
+                        from orphan_retention import cleanup_orphan_uploads
+                        orphan_result = cleanup_orphan_uploads(limit=100)
+                        if orphan_result['removed'] or orphan_result['failures']:
+                            print(f"  [orphan retention] removed={orphan_result['removed']} bytes={orphan_result['removed_bytes']} failures={len(orphan_result['failures'])}", flush=True)
+                    except Exception as exc:
+                        print(f"  [orphan retention] cleanup failed: {type(exc).__name__}: {str(exc)[:180]}", flush=True)
                 # A handler may lose its completion write during a network
                 # outage while this process survives. Startup-only recovery
                 # leaves that stage in processing forever after connectivity

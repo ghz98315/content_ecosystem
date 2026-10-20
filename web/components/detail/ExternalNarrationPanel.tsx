@@ -11,6 +11,7 @@ type Cue = { text: string; start: number | null; end: number | null; needs_timin
 type Version = {
   id: string; state: string; subtitle_path: string | null; subtitle_text: string; original_name: string;
   review: { error?: string; recognized_text?: string; duration?: number; coverage?: number;
+    audio_expired_at?: string;
     alignment_ready?: boolean; segments?: Cue[];
     differences?: NarrationDifference[]; subtitle_differences?: NarrationDifference[];
     difference_method?: string; difference_base_text?: string };
@@ -100,7 +101,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
   const suggestionsReady = review?.difference_method === 'speech_sequence_v2'
     && review?.difference_base_text === current?.subtitle_text;
   const changedText = draft.trim() !== (current?.subtitle_text || '').trim();
-  const canEdit = !busy && stage?.status !== 'processing' && !!current && ['review', 'approved', 'failed'].includes(current.state);
+  const canEdit = !busy && stage?.status !== 'processing' && !!current && !review?.audio_expired_at && ['review', 'approved', 'failed'].includes(current.state);
   return <section className="external-narration-panel">
     <div className="external-heading"><div><strong>配音方式</strong><p>确认文案后，可在线下制作配音并上传；二创流程保持原样。</p></div>
       <select aria-label="配音方式" value={external ? 'external' : 'automatic'} disabled={busy || stage?.status === 'processing'} onChange={event => void perform(() => action('source', { source: event.target.value }))}>
@@ -109,7 +110,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
     </div>
     {error && <p role="alert" className="external-error">{error}<button type="button" onClick={() => void perform(load)}>重试读取</button></p>}
     {external && <>
-      <p>请上传无背景音乐的最终人声 WAV 或 MP3（最多 200MB、60 分钟）。大文件会在本地转成MP3后上传，电脑原文件不改；云端保存上传版，每次替换创建新版本。</p>
+      <p>请上传无背景音乐的最终人声 WAV 或 MP3（最多 200MB、60 分钟）。大文件会在本地转成 MP3 后上传，电脑原文件不改；云端配音文件保留 48 小时，文稿和对齐记录继续保留。</p>
       <div className="external-actions">
         <button type="button" className="secondary-action" disabled={!payload?.rewriteReady || !payload.script} onClick={downloadScript}>下载确认朗读稿</button>
         <label className="secondary-action">{current ? '上传新版本' : '上传配音'}<input type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" disabled={busy || !payload?.rewriteReady || stage?.status === 'processing'} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void upload(file); }} /></label>
@@ -119,6 +120,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       {busy && <progress aria-label="配音文件上传或提交中" />}
       {(current?.state === 'queued' || stage?.status === 'processing') && <p role="status">正在识别人声、自动校正识别偏差并对齐字幕，完成后自动继续。</p>}
       {review?.error && <p role="alert">处理失败：{review.error}。可以重新上传或重新对齐。</p>}
+      {review?.audio_expired_at && <p role="status">配音文件已按 48 小时保留规则清理；如需重新成片，请重新上传配音。</p>}
       {payload?.audioUrl && <><p>{current?.original_name} · {review?.duration?.toFixed(1)} 秒 · {current?.state === 'approved' ? '已就绪' : '处理中'}</p>
         <audio ref={audio} controls src={payload.audioUrl} style={{ width: '100%' }} onPlay={() => { /* per-cue playback stops at its recorded end */ }} onTimeUpdate={() => {
           if (clipEnd != null && audio.current && audio.current.currentTime >= clipEnd) { audio.current.pause(); setClipEnd(null); }
@@ -151,7 +153,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
         })}>保存字幕稿并重新对齐</button>
         <div className="external-cues" aria-label="字幕逐句校准">
           {cues.map((cue, index) => <div className="external-cue" key={index}>
-            <button type="button" disabled={cue.start == null || cue.end == null} onClick={() => preview(cue)}>试听 {index + 1}</button>
+            <button type="button" disabled={!payload?.audioUrl || cue.start == null || cue.end == null} onClick={() => preview(cue)}>试听 {index + 1}</button>
             <span>{cue.text}{cue.needs_timing_review && <small> · 请核对时间</small>}</span>
             {(['start', 'end'] as const).map(field => <label key={field}>{field === 'start' ? '起' : '止'}<input type="number" step="0.01" min="0" value={cue[field] ?? ''} disabled={!canEdit || changedText} onChange={event => {
               const value = event.target.value === '' ? null : Number(event.target.value);
