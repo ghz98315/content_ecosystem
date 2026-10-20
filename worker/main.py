@@ -210,6 +210,7 @@ def main() -> None:
     if config.WORKER_TASK_ID:
         print("测试隔离模式：仅处理任务", config.WORKER_TASK_ID)
     recovered_at_startup = False
+    last_recovery_check = 0.0
     network_failures = 0
     while True:
         try:
@@ -218,9 +219,19 @@ def main() -> None:
             if not recovered_at_startup:
                 recover_orphaned_stages()
                 recovered_at_startup = True
+                last_recovery_check = time.monotonic()
             worked = tick()
             network_failures = 0
             if not worked:
+                # A handler may lose its completion write during a network
+                # outage while this process survives. Startup-only recovery
+                # leaves that stage in processing forever after connectivity
+                # returns. Revisit expired leases while the Worker is idle.
+                if time.monotonic() - last_recovery_check >= 60:
+                    recovered = recover_orphaned_stages()
+                    last_recovery_check = time.monotonic()
+                    if recovered:
+                        continue
                 if config.WORKER_TASK_ID and scoped_worker_is_finished(config.WORKER_TASK_ID):
                     print("阶段范围已完成，Scoped Worker 自动退出", flush=True)
                     break
@@ -235,6 +246,7 @@ def main() -> None:
             if db.is_transient_error(e):
                 network_failures += 1
                 db.reset_client()
+                last_recovery_check = 0.0
                 delay = min(30, 2 ** min(network_failures, 5))
                 phase = "启动恢复" if not recovered_at_startup else "轮询"
                 print(f"{phase}网络暂不可用: {type(e).__name__}，{delay} 秒后自动重试", flush=True)
