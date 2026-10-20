@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 from datetime import datetime, timedelta, timezone
+import os
 import ssl
 import time
 from typing import Callable, TypeVar
+from urllib.request import getproxies
 
 import certifi
 import httpx
@@ -33,10 +35,27 @@ _TRANSIENT_MARKERS = (
 )
 
 
+def _use_windows_system_proxy() -> None:
+    """HTTPX does not read the Windows proxy registry without proxy env vars.
+
+    Workers launched at sign-in may inherit no proxy environment even when the
+    desktop system proxy is configured. Recheck on each client rebuild so the
+    normal network retry loop also recovers when the proxy starts later.
+    """
+    if os.name != "nt":
+        return
+    system_proxies = getproxies()
+    for scheme in ("http", "https"):
+        variable = f"{scheme.upper()}_PROXY"
+        if not os.environ.get(variable) and system_proxies.get(scheme):
+            os.environ[variable] = system_proxies[scheme]
+
+
 @lru_cache(maxsize=1)
 def get_client() -> Client:
     global _http_client
     config.require_config()
+    _use_windows_system_proxy()
     _http_client = httpx.Client(
         verify=certifi.where(),
         http2=False,
