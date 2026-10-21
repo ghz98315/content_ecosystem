@@ -14,7 +14,8 @@ type Version = {
     audio_expired_at?: string;
     alignment_ready?: boolean; segments?: Cue[];
     differences?: NarrationDifference[]; subtitle_differences?: NarrationDifference[];
-    difference_method?: string; difference_base_text?: string };
+    difference_method?: string; difference_base_text?: string;
+    pause_optimization?: { applied?: boolean; shortened_count?: number; removed_seconds?: number; note?: string } };
 };
 type Payload = { script: string; rewriteReady: boolean; audioUrl: string | null; current: Version | null;
   versions: Array<{ id: string; state: string; original_name: string; created_at: string }> };
@@ -121,6 +122,8 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       {(current?.state === 'queued' || stage?.status === 'processing') && <p role="status">正在识别人声、自动校正识别偏差并对齐字幕，完成后自动继续。</p>}
       {review?.error && <p role="alert">处理失败：{review.error}。可以重新上传或重新对齐。</p>}
       {review?.audio_expired_at && <p role="status">配音文件已按 48 小时保留规则清理；如需重新成片，请重新上传配音。</p>}
+      {review?.pause_optimization?.applied && <p role="status">已自动缩短 {review.pause_optimization.shortened_count} 处超过 1 秒的静音停顿，共缩短约 {review.pause_optimization.removed_seconds?.toFixed(1)} 秒；字幕与成片使用处理后的配音。</p>}
+      {review?.pause_optimization?.note && <p role="status">{review.pause_optimization.note}</p>}
       {payload?.audioUrl && <><p>{current?.original_name} · {review?.duration?.toFixed(1)} 秒 · {current?.state === 'approved' ? '已就绪' : '处理中'}</p>
         <audio ref={audio} controls src={payload.audioUrl} style={{ width: '100%' }} onPlay={() => { /* per-cue playback stops at its recorded end */ }} onTimeUpdate={() => {
           if (clipEnd != null && audio.current && audio.current.currentTime >= clipEnd) { audio.current.pause(); setClipEnd(null); }

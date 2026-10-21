@@ -12,6 +12,7 @@ from pathlib import Path
 import db
 import storage
 import imageio_ffmpeg
+from external_pause import POLICY as PAUSE_POLICY, cap_internal_pauses
 from external_alignment import align, comparable, differences, validate_cues
 
 
@@ -49,20 +50,30 @@ def run(stage: dict) -> tuple[str, None]:
         source_hash = hashlib.sha256(Path(original).read_bytes()).hexdigest()
         job_path = f"{stage['task_id']}/external/{row['id']}/{uuid.uuid4()}"
         with tempfile.TemporaryDirectory(prefix='external-narration-') as tmp:
-            decoded = Path(tmp)/'narration.wav'
-            # Analysis-only PCM. Playback/rendering reuse the uploaded original
-            # unchanged, avoiding a second large WAV object and any quality loss.
+            decoded_source = Path(tmp)/'narration-source.wav'
             process = subprocess.run([
                 imageio_ffmpeg.get_ffmpeg_exe(), '-v','error','-y','-i',original,
-                '-map','0:a:0','-vn','-t','3601','-ac','1','-ar','16000','-acodec','pcm_s16le',str(decoded),
+                '-map','0:a:0','-vn','-t','3601','-ac','1','-ar','16000','-acodec','pcm_s16le',str(decoded_source),
             ],capture_output=True,timeout=300)
             if process.returncode:
                 raise ValueError('音频无法解码，请上传有效 WAV 或 MP3')
             from stages.tts import _probe_audio_duration
-            duration = _probe_audio_duration(str(decoded))
-            if not 0.1 <= duration <= 3600:
+            source_duration = _probe_audio_duration(str(decoded_source))
+            if not 0.1 <= source_duration <= 3600:
                 raise ValueError('配音时长须在 0.1 秒至 60 分钟之间')
-            if previous.get('source_sha256') == source_hash and previous.get('words'):
+            optimized, pause_report = cap_internal_pauses(
+                original, decoded_source, source_duration, Path(tmp)/'narration-capped.mp3')
+            decoded = decoded_source
+            if optimized is not None:
+                decoded = Path(tmp)/'narration-aligned.wav'
+                process = subprocess.run([
+                    imageio_ffmpeg.get_ffmpeg_exe(), '-v','error','-y','-i',str(optimized),
+                    '-map','0:a:0','-vn','-ac','1','-ar','16000','-acodec','pcm_s16le',str(decoded),
+                ],capture_output=True,timeout=300)
+                if process.returncode:
+                    raise ValueError('优化后的配音无法解码')
+            duration = _probe_audio_duration(str(decoded))
+            if previous.get('source_sha256') == source_hash and previous.get('words') and (previous.get('pause_optimization') or {}).get('policy') == PAUSE_POLICY:
                 words=previous['words']
                 recognized=previous['recognized_text']
             else:
@@ -79,7 +90,7 @@ def run(stage: dict) -> tuple[str, None]:
                 raise ValueError('未识别到可对齐的人声，请检查音频')
             recognition_cache={'source_sha256':source_hash,'recognized_text':recognized,'words':words}
             cues,coverage=align(text,words,duration,repair=True)
-            manual=previous.get('requested_cues')
+            manual=previous.get('requested_cues') if (previous.get('pause_optimization') or {}).get('policy') == PAUSE_POLICY else None
             if manual is not None:
                 cues=validate_cues(text,manual,duration)
             ready=False
@@ -92,11 +103,14 @@ def run(stage: dict) -> tuple[str, None]:
             if not ready:
                 raise ValueError('音频时间信息不完整，自动对齐未通过校验，请检查录音文件')
             audio_path=row['original_path']
+            if optimized is not None:
+                audio_path=job_path+'/narration-capped.mp3'
+                storage.upload(audio_path,str(optimized),'audio/mpeg')
             subtitle_path=job_path+'/subtitles.json'
             payload={'provider':'external','external_id':row['id'],'duration':duration,'text':text,
                      'narration_text':text,'segments':cues,'sentence_segments':words,'batches':[],
                      'input_format':'timeline_v3','subtitle_max_chars':14,'segment_count':len(cues),
-                     'audio_path':audio_path,'alignment_ready':ready}
+                     'audio_path':audio_path,'alignment_ready':ready,'pause_optimization':pause_report}
             storage.upload_bytes(subtitle_path,json.dumps(payload,ensure_ascii=False).encode(),'application/json')
         script_differences = differences(row['script_text'],recognized,words)
         subtitle_differences = script_differences if text == row['script_text'] else differences(text,recognized,words)

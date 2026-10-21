@@ -812,7 +812,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             raise ValueError('配音版本已变化，请重新确认')
         if audio_path:
             Path(audio_path).unlink(missing_ok=True)
-        audio_path = storage.download_artifact(row['audio_path'], '.wav')
+        audio_path = storage.download_artifact(row['audio_path'], Path(row['audio_path']).suffix or '.wav')
         local_subs = storage.download_artifact(row['subtitle_path'], '.json')
         try:
             subs_data = json.loads(Path(local_subs).read_text(encoding='utf-8'))
