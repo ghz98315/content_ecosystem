@@ -18,6 +18,8 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [scene, setScene] = useState(false);
+  const [options, setOptions] = useState<Array<{title:string;subtitle:string}>>([]);
   const dirty = useRef(false);
   const loadedText = useRef('null');
   const loadedTask = useRef(taskId);
@@ -42,6 +44,8 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
       if (!active) return;
       if (loadError) { setError("画面文字读取失败，请刷新后重试"); return; }
       const params = data.params || {};
+      const isScene = params.production_template === 'scene-v1';
+      setScene(isScene); setOptions([]);
       const saved = params.video_text;
       loadedText.current = JSON.stringify(saved ?? null);
       dirty.current = false;
@@ -52,6 +56,16 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
         if (!active) return;
         if (rewrite == null) { setError('兼容标题读取失败，请重新读取后再确认'); return; }
         setValue(resolveVideoText(params,{cover_title:legacyTitle,cover_subtitle:legacySubtitle,...(rewrite.params || {})}));
+      }
+      if (isScene) {
+        const {data: records} = await supabase.from('artifacts').select('meta').eq('task_id',taskId).in('type',['rewrite','scene_visual_plan']).order('created_at',{ascending:false}).limit(8);
+        if (!active) return;
+        const candidates = records?.map(record=>record.meta?.cover_options).find(items=>Array.isArray(items)&&items.length===3) || [];
+        setOptions(candidates);
+        if (!saved && candidates.length && !dirty.current) {
+          setValue(previous=>({...previous,title:candidates[0].title,subtitle:candidates[0].subtitle}));
+          dirty.current = true;
+        }
       }
       setReady(true);
     })().catch(() => { if (active) setError("画面文字读取失败，请刷新后重试"); });
@@ -90,13 +104,15 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
   }
 
   return <section className="book-info-panel" aria-label="成片画面文字" style={{ margin: "16px 0", padding: 16 }}>
-    <h3>成片画面文字</h3>
-    <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>成片后仍可修改。改写、书籍信息与成片页共用同一份设置；留空并保存可隐藏对应文字。保存设置不会直接改变已有视频，重新成片后生效。</p>
+    <h3>{scene ? '封面文字与全片脚注' : '成片画面文字'}</h3>
+    <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>成片后仍可修改。改写、信息设置与成片页共用同一份设置；留空并保存可隐藏对应文字。保存设置不会直接改变已有视频，重新成片后生效。</p>
     {ref && <p style={{fontSize:13,color:'var(--text-secondary)'}}>确认改写稿时会一并保存此处文字，无需重复填写。{historyCover?'历史类主标题和副标题也用于开头封面，确认正文时必填，分别不超过24字和36字。':''}</p>}
+    {scene && <p>主副标题仅在开头0.5秒封面显示；脚注从第一帧持续到最后。封面底图独立生成，发布时可下载静态封面。</p>}
+    {scene && options.length > 0 && <div className="external-actions">{options.map((item,index)=><button key={index} type="button" className="secondary-action" disabled={disabled||busy||!ready||renderStatus==='processing'} onClick={()=>{dirty.current=true;setValue(previous=>({...previous,...item}));setMessage('已选方案，请保存文字');}}>方案{index+1}：{item.title} / {item.subtitle}</button>)}</div>}
     {fields.map(field => <label key={field.key} style={{ display: "block", margin: "12px 0", fontSize: 13 }}>
-      {field.label}
-      <input aria-label={field.label} disabled={disabled || !ready || busy || renderStatus === 'processing'} value={value[field.key]} maxLength={field.max} onChange={event => { dirty.current = true; setValue(previous => ({ ...previous, [field.key]: event.target.value })); setMessage("有未保存修改，请保存，或在确认改写稿时一并保存。"); }} placeholder={field.hint} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px", marginTop: 6 }} />
-      <small style={{ color: "var(--text-secondary)" }}>{field.hint}</small>
+      {scene ? field.key==='title'?'封面主标题':field.key==='subtitle'?'封面副标题':'全片脚注' : field.label}
+      <input aria-label={field.label} disabled={disabled || !ready || busy || renderStatus === 'processing'} value={value[field.key]} maxLength={field.max} onChange={event => { dirty.current = true; setValue(previous => ({ ...previous, [field.key]: event.target.value })); setMessage("有未保存修改，请保存，或在确认改写稿时一并保存。"); }} placeholder={scene ? field.key==='footnote'?'图片由AI生成':'仅显示在0.5秒封面上' : field.hint} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px", marginTop: 6 }} />
+      <small style={{ color: "var(--text-secondary)" }}>{scene ? field.key==='footnote'?'底部安全区域，全片持续显示':field.key==='title'?'封面中央，黄色字、红色描边':'封面主标题下方，白字、黑色描边' : field.hint}</small>
     </label>)}
     <div className="external-actions">
       <button type="button" className="secondary-action" disabled={disabled || !ready || busy || renderStatus === 'processing'} onClick={() => void save(false)}>{busy ? "提交中…" : "仅保存文字"}</button>

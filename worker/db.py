@@ -123,7 +123,15 @@ def get_task_prompt_context(task_id: str) -> dict:
                 .single()
                 .execute()
             )
-            return result.data or {}
+            context = result.data or {}
+            # The template snapshot is authoritative for newly added production
+            # lines on installations with a legacy category CHECK constraint.
+            if context.get('content_category') == 'education':
+                line = retry(lambda: get_client().table('stages').select('params')
+                             .eq('task_id',task_id).eq('kind','rewrite').maybe_single().execute()).data
+                if line and (line.get('params') or {}).get('content_line') == 'scene':
+                    context = {**context,'legacy_content_category':'education','content_category':'scene'}
+            return context
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             message = str(exc)
@@ -164,6 +172,23 @@ def claim_next_stage(task_id: str = "", allowed_kinds: tuple[str, ...] = ()) -> 
         )
         if not task.data or task.data.get("status") not in ("pending", "processing"):
             continue
+        if (task.data.get('source_task_id') and task.data.get('content_category') == 'education'
+                and not (stage.get('params') or {}).get('content_line')):
+            # Initialize an entire scene repost contract before any handler
+            # reads it. Never copy its source's text, images, jobs or audio.
+            source_rows = sb.table('stages').select('kind,params').eq('task_id',task.data['source_task_id']).in_('kind',['rewrite','image','render']).execute().data or []
+            source_snapshots = {row['kind']:row.get('params') or {} for row in source_rows}
+            if source_snapshots.get('image',{}).get('production_template') == 'scene-v1':
+                from production_templates import inherit_template
+                current_rows = sb.table('stages').select('id,kind,params').eq('task_id',stage_task_id).in_('kind',['rewrite','image','render','book']).execute().data or []
+                for row in current_rows:
+                    params = row.get('params') or {}
+                    if row['kind'] in ('image','render'):
+                        params = inherit_template(params,source_snapshots.get(row['kind'],{}),row['kind'])
+                    else:
+                        params = {**params,'content_line':'scene',**({'rewrite_domain':'scene'} if row['kind']=='rewrite' else {'skipped':True})}
+                    sb.table('stages').update({'params':params}).eq('id',row['id']).execute()
+                    if row['id'] == stage['id']: stage['params'] = params
         if (task.data.get("content_category") == "social_science"
                 and stage.get("kind") in ("tts", "render")
                 and not _history_cover_is_confirmed(sb, stage_task_id)):

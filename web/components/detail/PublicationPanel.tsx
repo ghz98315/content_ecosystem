@@ -7,7 +7,7 @@ import { characterCount, PublicationCopy, PUBLICATION_FIELDS, publicationText, v
 type RecordEntry = { id: string; created_at: string; meta: { copy: PublicationCopy; source_hash: string } };
 type Loaded = { record: RecordEntry | null; ready: boolean; sourceHash: string | null; stale: boolean; sourceTitle: string; sourceTags: string[] };
 
-export function PublicationPanel({ taskId }: { taskId: string }) {
+export function PublicationPanel({ taskId, scene=false }: { taskId: string; scene?:boolean }) {
   const [data, setData] = useState<Loaded | null>(null);
   const [copy, setCopy] = useState<PublicationCopy | null>(null);
   const [draftHash, setDraftHash] = useState('');
@@ -65,7 +65,7 @@ export function PublicationPanel({ taskId }: { taskId: string }) {
     if (!copy) return;
     setBusy('save'); setError('');
     try {
-      const valid = validatePublication(copy);
+      const valid = validatePublication(copy, scene);
       const response = await authenticatedFetch('/api/publication', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, action: 'save', copy: valid, sourceHash: draftHash, baseId: data?.record?.id || null }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '保存失败');
@@ -92,7 +92,7 @@ export function PublicationPanel({ taskId }: { taskId: string }) {
       <fieldset className="publication-choices"><legend>封面主副标题 · 三选一</legend><div className="cover-choice-grid">{copy.cover_options.map((option, index) => <button type="button" key={index} disabled={Boolean(busy)} aria-pressed={copy.cover_title === option.title && copy.cover_subtitle === option.subtitle} onClick={() => edit({ ...copy, cover_title: option.title, cover_subtitle: option.subtitle })}><small>方案 {String(index + 1).padStart(2, '0')}</small><strong>{option.title}</strong><span>{option.subtitle}</span></button>)}</div></fieldset>
       <fieldset className="publication-choices"><legend>发布标题 · 三选一</legend><div className="publish-choice-list">{copy.publish_titles.map((title, index) => <button type="button" key={index} disabled={Boolean(busy)} aria-pressed={copy.publish_title === title} onClick={() => edit({ ...copy, publish_title: title })}><small>{String(index + 1).padStart(2, '0')}</small><span>{title}</span></button>)}</div></fieldset>
       <div className="publication-fields">{PUBLICATION_FIELDS.map(field => <label key={field.key} className={field.key.includes('comment') || field.key === 'description' ? 'publication-wide' : ''}>
-        <span>{field.label}<small>{characterCount(copy[field.key])}/{field.max}字</small></span>
+        <span>{scene&&field.key==='purchase_comment'?'商品转化评论（无商品可留空）':field.label}<small>{characterCount(copy[field.key])}/{field.max}字</small></span>
         <textarea aria-label={field.label} rows={field.rows} value={copy[field.key]} disabled={Boolean(busy)} onChange={event => edit({ ...copy, [field.key]: event.target.value })} />
         <button type="button" onClick={() => void clipboard(copy[field.key])}>复制{field.label}</button>
       </label>)}

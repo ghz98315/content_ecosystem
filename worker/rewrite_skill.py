@@ -8,8 +8,8 @@ from rewrite_review import normalized
 
 ROOT = Path(__file__).resolve().parent.parent / 'skills' / 'book-video-rewrite'
 VERSION = '1.2.1'
-DOMAINS = {'guoxue', 'health', 'mixed', 'general'}
-LABELS = {'guoxue':'国学','health':'健康','mixed':'国学与健康混合','general':'通用'}
+DOMAINS = {'guoxue', 'health', 'mixed', 'general', 'scene'}
+LABELS = {'guoxue':'国学','health':'健康','mixed':'国学与健康混合','general':'通用','scene':'山河人文'}
 CLASSICS = ('道德经','论语','庄子','孟子','大学','中庸','易经','黄帝内经')
 MEDICAL = ('血压','血糖','糖尿病','胆固醇','心血管','临床','药物','服药','治疗','疾病','营养','饮食','睡眠','运动')
 
@@ -19,6 +19,12 @@ class DomainConflict(ValueError):
 
 def resolve_domain(source: str, explicit='auto', templates=(), category='health'):
     explicit = str(explicit or 'auto')
+    if category == 'scene' and explicit not in {'auto','scene'}:
+        raise DomainConflict('山河人文生产线请使用山河人文二创规则')
+    if category == 'scene' and explicit == 'auto':
+        explicit = 'scene'
+    if explicit == 'scene' and category != 'scene':
+        raise DomainConflict('山河人文规则仅用于山河人文生产线')
     if explicit not in DOMAINS | {'auto'}:
         raise DomainConflict('二创领域无效，请重新选择国学、健康、混合或通用。')
     classic_hits = [word for word in CLASSICS if word in source and (word != '大学' or '《大学》' in source)]
@@ -55,6 +61,12 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
 
 
 def prompt_extension(profile):
+    if profile['domain'] == 'scene':
+        root = ROOT.parent / 'scene-video-pipeline'
+        rules = (root / 'references' / 'rewrite.md').read_text(encoding='utf-8')
+        contract = (Path(__file__).parent/'prompts'/'rewrite_skill_contract.txt').read_text(encoding='utf-8').strip()
+        text = rules + '\n\n' + contract
+        return text, {**profile, 'version':'scene-1.0', 'rule_files':['scene-video-pipeline/references/rewrite.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
     references = ['guoxue.md','health.md'] if profile['domain']=='mixed' else (
         [profile['domain']+'.md'] if profile['domain'] in ('guoxue','health') else [])
     pieces = [(ROOT/'SKILL.md').read_text(encoding='utf-8')]

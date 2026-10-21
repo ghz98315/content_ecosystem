@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const GRID_TYPES = ['image_grid'];
-const IMAGE_TYPES = ['image', 'image_replacement', 'cover_image'];
+const IMAGE_TYPES = ['image', 'image_replacement', 'cover_image', 'publication_cover'];
 const VIDEO_TYPES = ['final'];
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const GRID_AGE_MS = 24 * 60 * 60 * 1000;

@@ -156,6 +156,9 @@ def _rewrite_structure(raw: str, text: str) -> dict:
     tail_text = str(payload.get("tail_text") or "").strip() if isinstance(payload, dict) else ""
     return {
         "hook": hook,
+        "cover_options": [item for item in (payload.get('cover_options',[]) if isinstance(payload,dict) else [])
+                          if isinstance(item,dict) and 0 < len(str(item.get('title') or '')) <= 24
+                          and 0 < len(str(item.get('subtitle') or '')) <= 36][:3],
         "hook_strategy": strategy or "counter_intuitive",
         "hook_text": hook_text,
         "body_text": body_text,
@@ -806,6 +809,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "content_category": context["category"],
         "compliance_status": report["status"],
         "hook_strategy": structure["hook_strategy"],
+        "cover_options": structure.get('cover_options', []),
         "review_status": (structure.get('rewrite_review') or {}).get('status'),
         "prompt_version": 'book_skill_v1.2.0' if context.get('rewrite_skill') else ('deep_rewrite_v2' if narration_mode != 'dual_dialogue' else 'dialogue_existing'),
         "rewrite_domain": (structure.get('rewrite_skill') or {}).get('domain'),

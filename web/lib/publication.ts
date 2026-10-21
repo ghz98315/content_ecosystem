@@ -39,7 +39,7 @@ export const PUBLICATION_PROMPT = `你是一位中文短视频宣发编辑，为
 export const characterCount = (value: string) => Array.from(value).length;
 
 /** Reject invalid copy instead of silently cutting off a sentence or CTA. */
-export function validatePublication(input: unknown): PublicationCopy {
+export function validatePublication(input: unknown, allowEmptyPurchase = false): PublicationCopy {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('发布文案格式无效');
   const raw = input as Record<string, unknown>;
   const result: Record<string, unknown> = {};
@@ -51,7 +51,7 @@ export function validatePublication(input: unknown): PublicationCopy {
   if (new Set(coverOptions.map(option => `${option.title}\n${option.subtitle}`)).size !== 3 || new Set(publishTitles).size !== 3) throw new Error('3个标题方案须有区别，不能完全重复');
   for (const field of PUBLICATION_FIELDS) {
     const value = typeof raw[field.key] === 'string' ? (raw[field.key] as string).trim() : '';
-    if (!value || characterCount(value) > field.max) throw new Error(`${field.label}须为1至${field.max}字`);
+    if ((!value && !(allowEmptyPurchase && field.key==='purchase_comment')) || characterCount(value) > field.max) throw new Error(`${field.label}须为1至${field.max}字`);
     if (field.rows === 1 && /[\r\n]/.test(value)) throw new Error(`${field.label}请使用单行文字`);
     result[field.key] = value;
   }

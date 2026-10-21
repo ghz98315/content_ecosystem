@@ -787,6 +787,9 @@ def _concat_intro(intro: str, content: str, out_mp4: str, tmpdir: str) -> None:
 def run(stage: dict) -> tuple[str, str | None]:
     validate_template(stage.get('params') or {}, 'render')
     validate_task_template(stage)
+    if (stage.get('params') or {}).get('production_template') == 'scene-v1':
+        from scene_render import run as run_scene
+        return run_scene(stage)
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
     render_started = time.monotonic()

@@ -213,6 +213,13 @@ def _sync_book_signal(task_id: str, info: dict, confirmed: bool) -> None:
 def run(stage: dict) -> tuple[str, str | None]:
     task_id = stage["task_id"]
     params = stage.get("params") or {}
+    if db.get_task_prompt_context(task_id).get('content_category') == 'scene':
+        info = {'book_name':'','author':'','cta_text':'','skipped':True,'metadata_source':'scene_no_book',
+                **_publication_metadata(task_id,{})}
+        sp = f'{task_id}/scene-publication.json'
+        storage.upload_bytes(sp,json.dumps(info,ensure_ascii=False).encode(),'application/json')
+        storage.add_artifact(task_id,'book','book',sp,meta={'skipped':True,'metadata_source':'scene_no_book'})
+        return 'done',sp
 
     # New tasks carry book metadata in rewrite.json; retain a compatibility
     # artifact without making an additional model call.

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import db
 
 GRID_TYPES = ('image_grid',)
-IMAGE_TYPES = ('image', 'image_replacement', 'cover_image')
+IMAGE_TYPES = ('image', 'image_replacement', 'cover_image', 'publication_cover')
 VIDEO_TYPES = ('final',)
 TERMINAL = {'done', 'failed', 'cancelled'}
 UUID = re.compile(r'^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$', re.I)

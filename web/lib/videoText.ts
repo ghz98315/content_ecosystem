@@ -2,7 +2,7 @@ export type VideoText = {title:string;subtitle:string;footnote:string};
 export function resolveVideoText(params:Record<string,any>,rewrite:Record<string,any>={}):VideoText {
  const saved=params.video_text;
  if(saved&&typeof saved==='object')return {title:String(saved.title??''),subtitle:String(saved.subtitle??''),footnote:String(saved.footnote??'')};
- return {title:String(params.main_title??rewrite.cover_title??''),subtitle:String(params.subtitle??rewrite.cover_subtitle??''),footnote:String(params.footnote??'读书分享')};
+ return {title:String(params.main_title??rewrite.cover_title??''),subtitle:String(params.subtitle??rewrite.cover_subtitle??''),footnote:String(params.footnote??(params.production_template==='scene-v1'?'图片由AI生成':'读书分享'))};
 }
 export function validateVideoText(value:VideoText,requireHistoryCover=false):VideoText {
  const text={title:value.title.trim(),subtitle:value.subtitle.trim(),footnote:value.footnote.trim()};

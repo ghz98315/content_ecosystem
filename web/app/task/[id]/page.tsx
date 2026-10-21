@@ -194,8 +194,10 @@ export default function TaskDetail() {
   if (loadError && !task) return <AppShell><div className="state-panel error-state" role="alert"><strong>任务加载失败</strong><span>{loadError}</span><button className="secondary-action" onClick={load}>重试</button></div></AppShell>;
   if (!task) return <AppShell><div className="state-panel"><strong>任务不存在</strong><span>该任务可能已被删除，或当前工作区无权访问。</span><button className="secondary-action" onClick={() => router.push("/video-collection")}>返回采集工作台</button></div></AppShell>;
 
+  const sceneLine = stages.some(stage=>stage.params.production_template==='scene-v1');
+  const stageLabel = (kind: StageKind) => sceneLine && kind==='book' ? '发布信息' : STAGES.find(item=>item.kind===kind)?.label;
   const activeStage = stages.find(stage => stage.status === 'processing') || stages.find(stage => stage.status === 'needs_review');
-  return <AppShell tasks={tasks} currentTaskId={id} activity={activeStage ? <><span className={`task-signal signal-${activeStage.status}`}/>{STAGES.find(item => item.kind === activeStage.kind)?.label} · {nodeClock(activeStage, clock.records, clock.now).label}</> : undefined}>
+  return <AppShell tasks={tasks} currentTaskId={id} activity={activeStage ? <><span className={`task-signal signal-${activeStage.status}`}/>{stageLabel(activeStage.kind)} · {nodeClock(activeStage, clock.records, clock.now).label}</> : undefined}>
     <div className="task-workspace">
       <div className="task-header">
         <div className="task-header-copy"><span className="task-header-kicker">任务 {task.id.slice(0, 8)}</span><button type="button" className="task-title-copy" title={`${sourceTitle.title || task.source_url || task.id}\n点击复制完整标题`} onClick={() => navigator.clipboard.writeText(sourceTitle.title || task.source_url || task.id)}>{compactTitle(sourceTitle.title || task.source_url || task.id)}</button></div>
@@ -219,7 +221,7 @@ export default function TaskDetail() {
       {workspaceView === "flow" ? <>
         <PipelineBar stages={stages} selected={selected} onSelect={selectStage} clock={clock} />
         {stages.length === 0 && <div className="task-stage-empty" role="status">当前任务还没有阶段记录，稍后会自动刷新。</div>}
-        <div className="task-stage-context"><span>当前阶段</span><strong>{STAGES.find(item => item.kind === selected)?.label}</strong><span className={`status-badge status-${currentStage?.status || "pending"}`}>{STATUS_LABEL[currentStage?.status || 'pending']}</span><small>{nodeClock(currentStage, clock.records, clock.now).label}</small></div>
+        <div className="task-stage-context"><span>当前阶段</span><strong>{stageLabel(selected)}</strong><span className={`status-badge status-${currentStage?.status || "pending"}`}>{STATUS_LABEL[currentStage?.status || 'pending']}</span><small>{nodeClock(currentStage, clock.records, clock.now).label}</small></div>
       </> : null}
       <div hidden={workspaceView !== 'flow'} className="stage-views">{Array.from(new Set([...visited, selected])).map(kind => <div key={`${id}-${kind}`} hidden={kind !== selected} className="task-stage-content stage-view"><StageDetail kind={kind} stage={stages.find(stage => stage.kind === kind)} stages={stages} taskId={id} task={task} onRerun={rerun} onApprove={approve}/></div>)}</div>
       {workspaceView === 'preflight' && <div className="task-stage-content stage-view"><PreflightPanel task={task} stages={stages} onOpenStage={openStage}/></div>}

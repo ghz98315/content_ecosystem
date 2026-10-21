@@ -131,8 +131,13 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
     </TextBtn>
   ) : undefined;
 
+  if (stage?.params?.content_line === 'scene') return <DetailShell title="发布信息" stage={stage} onRerun={onRerun}>
+    <p>山河人文使用场景文案、独立创意封面和全片脚注。此节点不追加购书口播。</p>
+    <VideoTextSettings taskId={taskId} />
+  </DetailShell>;
+
   return (
-    <DetailShell title="书籍信息" stage={stage} onRerun={onRerun} actions={actions}>
+    <DetailShell title={stage?.params?.content_line==='scene'?'发布信息':'书籍信息'} stage={stage} onRerun={onRerun} actions={actions}>
       <VideoTextSettings taskId={taskId} />
       {(isReview || isDone) && data && (
         <>

@@ -23,6 +23,9 @@ async function context(request: NextRequest, taskId: string) {
   const { data: task, error } = await db.from('tasks').select('id,title,source_tags,content_category').eq('id', taskId).eq('owner', auth.user.id).maybeSingle();
   if (error) throw new RequestError('读取任务失败', 503);
   if (!task) throw new RequestError('无权访问该任务', 403);
+  const {data: line, error: lineError} = await db.from('stages').select('params').eq('task_id',taskId).eq('kind','rewrite').single();
+  if (lineError) throw new RequestError('读取生产线设置失败',503);
+  if (line?.params?.content_line === 'scene') task.content_category = 'scene';
   return { db, task };
 }
 
@@ -76,7 +79,7 @@ export async function POST(request: NextRequest) {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         signal: AbortSignal.timeout(45_000),
         body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.6, max_tokens: 2200, response_format: { type: 'json_object' }, messages: [
-          { role: 'system', content: PUBLICATION_PROMPT },
+          { role: 'system', content: PUBLICATION_PROMPT + (task.content_category==='scene' ? '\n本次为山河人文：围绕校园、风景、城市和旅行文化选题，三组封面角度采用视觉吸引、人文价值和问题悬念；若正文没有商品转化，purchase_comment 留空，不增加橱窗购书话术，replies 围绕地点、旅行体验和下一期选题。此场景专项规则覆盖通用购书要求。' : '') },
           { role: 'user', content: JSON.stringify({ content_category: task.content_category, source_title: source.title, source_tags: task.source_tags || source.tags, confirmed_script: script.text }) },
         ] }),
       });
@@ -85,7 +88,7 @@ export async function POST(request: NextRequest) {
       const raw = payload.choices?.[0]?.message?.content;
       if (typeof raw !== 'string') throw new RequestError('文案服务返回空内容，请重试', 502);
       let copy;
-      try { copy = validatePublication(JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))); }
+      try { copy = validatePublication(JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')), task.content_category==='scene'); }
       catch (error) { throw new RequestError(`生成结果未满足要求：${error instanceof Error ? error.message : '格式错误'}。请重新生成`, 502); }
       // Recheck after the external request; an old draft must never masquerade as current.
       const current = await scriptContext(db, task.id);
@@ -94,7 +97,7 @@ export async function POST(request: NextRequest) {
     }
     if (body.sourceHash !== script.hash) throw new RequestError('缺少有效的文案版本，请刷新后重试', 409);
     let copy;
-    try { copy = validatePublication(body.copy); }
+    try { copy = validatePublication(body.copy, task.content_category==='scene'); }
     catch (error) { throw new RequestError(error instanceof Error ? error.message : '发布文案格式无效'); }
     const previous = await latest(db, task.id);
     if ((previous?.id || null) !== (body.baseId || null)) throw new RequestError('发布文案已有新版本，请刷新并保留需要的修改', 409);

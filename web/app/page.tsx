@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks } from "@/lib/productionTemplates";
+import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks, databaseCategory } from "@/lib/productionTemplates";
 import { supabase } from "@/lib/supabase";
 import { useAnonAuth } from "@/lib/useAnonAuth";
 import { STATUS_COLOR, Task } from "@/lib/types";
@@ -63,7 +63,7 @@ export default function HomePage() {
       owner: userId,
       source_url: url.trim(),
       status: "configuring",
-      content_category: productionTemplate(templateId).category,
+      content_category: databaseCategory(templateId),
       tts_source: ttsSource,
       tts_provider: "indextts25",
       tts_model: "index-tts-2.5",

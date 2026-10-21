@@ -46,6 +46,7 @@ const QUALITY_COLOR = { passed: "var(--status-done)", warning: "var(--status-rev
 
 export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: DetailCommon) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [videoMotion, setVideoMotion] = useState<{ motion?: string; zoom_amount?: number }>({});
   const [isPreviousVideo, setIsPreviousVideo] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
@@ -66,6 +67,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   useEffect(() => {
     let active = true;
     setVideoUrl(null);
+    setCoverUrl(null);
     setIsPreviousVideo(false);
     setVideoMotion({});
     setLoading(true);
@@ -93,6 +95,10 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
         setVideoUrl(signedUrl);
         setIsPreviousVideo(previous);
         setVideoMotion(artifact?.storage_path === path ? artifact.meta || {} : {});
+        if (artifact?.meta?.publication_cover) {
+          const cover = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(artifact.meta.publication_cover)}`).then(response=>response.json());
+          if (active && cover.signedUrl) setCoverUrl(cover.signedUrl);
+        }
       }
     };
     loadVideo().catch(() => {}).finally(() => active && setLoading(false));
@@ -299,7 +305,8 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       )}
 
       <VideoTextSettings taskId={taskId} showRerender renderStatus={stage?.status} />
-      <PublicationPanel taskId={taskId} />
+      {coverUrl && <section className="book-info-panel" style={{padding:16,marginBottom:16}}><h3>发布封面</h3><a href={coverUrl} target="_blank" rel="noreferrer">打开并下载静态封面</a><img src={coverUrl} alt="当前成片独立发布封面" style={{display:'block',width:216,maxWidth:'100%',marginTop:12}} /></section>}
+      <PublicationPanel taskId={taskId} scene={stage?.params?.production_template==='scene-v1'} />
 
       {(qualityLoading || quality || qualityUnavailable) && (
         <section className="quality-panel" style={{ marginBottom: 24 }}>

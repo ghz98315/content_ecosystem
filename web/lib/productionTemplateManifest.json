@@ -1,5 +1,19 @@
 [
   {
+    "id": "scene-v1",
+    "label": "山河人文 · 写实风光 · 9:16四宫格（2K）",
+    "category": "scene",
+    "databaseCategory": "education",
+    "style": "scene_documentary",
+    "preset": "scene-documentary",
+    "aspect": "9:16",
+    "frameMode": "scene_fullscreen",
+    "gridCells": 2,
+    "gridResolution": "2k",
+    "font": "Microsoft YaHei",
+    "color": "#FFEB00"
+  },
+  {
     "id": "guoxue-v1",
     "label": "国学 · 工笔淡墨 · 4:3四宫格（2K）",
     "category": "guoxue",

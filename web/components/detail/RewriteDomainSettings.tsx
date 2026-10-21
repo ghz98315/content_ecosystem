@@ -9,7 +9,7 @@ export interface RewriteSkillInfo {
  rewrite_outline?: Array<{purpose:string;fact_ids:string[];target_quote:string}>;
  fact_semantics_status?:string;
 }
-const choices = [['auto','自动判断，冲突时确认'],['guoxue','国学'],['health','健康'],['mixed','国学与健康混合'],['general','通用']] as const;
+const choices = [['auto','自动判断，冲突时确认'],['guoxue','国学'],['health','健康'],['mixed','国学与健康混合'],['general','通用'],['scene','山河人文']] as const;
 export function RewriteDomainSettings({taskId,stage,applied}:{taskId:string;stage?:Stage;applied?:RewriteSkillInfo}) {
  const [domain,setDomain]=useState('auto');const [busy,setBusy]=useState(false);const [message,setMessage]=useState('');
  const saved=String(stage?.params?.rewrite_domain || 'auto');
@@ -27,7 +27,7 @@ export function RewriteDomainSettings({taskId,stage,applied}:{taskId:string;stag
  }
  return <section className="book-info-panel" aria-label="二创内容领域" style={{padding:16,marginBottom:16}}>
   <h3>二创内容领域</h3><p>领域决定文字规则，与图片模板独立；国学养生等内容可选混合。自动判断遇到主题与模板冲突时会停在此处等待确认。</p>
-  <div className="external-actions"><select aria-label="选择二创领域" value={domain} disabled={busy||stage?.status==='processing'} onChange={e=>setDomain(e.target.value)}>{choices.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><button type="button" className="secondary-action" onClick={()=>void save()} disabled={busy||!stage||stage.status==='processing'}>{busy?'保存中…':'保存领域设置'}</button></div>
+  <div className="external-actions"><select aria-label="选择二创领域" value={domain} disabled={busy||stage?.status==='processing'} onChange={e=>setDomain(e.target.value)}>{choices.filter(([value])=>stage?.params?.content_line==='scene'?value==='scene':value!=='scene').map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><button type="button" className="secondary-action" onClick={()=>void save()} disabled={busy||!stage||stage.status==='processing'}>{busy?'保存中…':'保存领域设置'}</button></div>
   {message&&<p role="status">{message}</p>}
   {applied&&<><p>本稿实际采用：<strong>{applied.label}</strong> · skill {applied.version} · {applied.reason}</p>
    {!!applied.information_card?.length&&<details><summary>查看信息卡与实际提纲</summary><p>{applied.fact_semantics_status}</p><ol>{applied.information_card.map(f=><li key={f.id}><strong>{f.id} · {f.summary}</strong><blockquote>原稿依据：{f.source_quote}</blockquote></li>)}</ol><h4>提纲落点</h4><ol>{applied.rewrite_outline?.map((part,index)=><li key={index}>{part.purpose}（{part.fact_ids.join('、')}）<blockquote>成稿锚点：{part.target_quote}</blockquote></li>)}</ol></details>}</>}

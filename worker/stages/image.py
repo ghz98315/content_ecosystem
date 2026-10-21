@@ -535,15 +535,17 @@ def _trim_cell_edges(piece, inset_ratio: float = _CELL_EDGE_INSET_RATIO):
     return piece.crop((inset_x, inset_y, width - inset_x, height - inset_y))
 
 
-def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None, cell_ratio: float = _CELL_RATIO) -> list[bytes]:
+def _split_grid(img_bytes: bytes, n: int, grid_cells: int | None = None, cell_ratio: float = _CELL_RATIO, source_ratio: float | None = None) -> list[bytes]:
     """按明确指定的 cell_ratio 切成 n 张小图；边界使用同一组精确像素坐标，避免累计误差。"""
     from PIL import Image
     cells = max(1, int(grid_cells or _GRID))
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     w, h = img.size
-    if cell_ratio != _CELL_RATIO:
+    if source_ratio is not None:
+        _validate_grid_source(w, h, expected_ratio=source_ratio)
+    elif cell_ratio != _CELL_RATIO:
         _validate_grid_source(w, h, expected_ratio=cell_ratio)
-    if abs((w / h) - (int(_GRID_SIZE.split("x")[0]) / int(_GRID_SIZE.split("x")[1]))) > 0.02 and cell_ratio == _CELL_RATIO:
+    elif abs((w / h) - (int(_GRID_SIZE.split("x")[0]) / int(_GRID_SIZE.split("x")[1]))) > 0.02:
         _validate_grid_source(w, h)
     x_bounds = [(round(i * w / cells), round((i + 1) * w / cells)) for i in range(cells)]
     y_bounds = [(round(i * h / cells), round((i + 1) * h / cells)) for i in range(cells)]
@@ -903,6 +905,9 @@ def process_replacement_request(request: dict) -> str:
         lambda: db.get_client().table("stages").select("params")
         .eq("id", request["stage_id"]).single().execute()
     )
+    if ((stage_row.data or {}).get('params') or {}).get('production_template') == 'scene-v1':
+        from scene_image import replace_image
+        return replace_image(request, entry, stage_row.data['params'])
     provider = str(((stage_row.data or {}).get("params") or {}).get("image_provider") or config.IMAGE_PROVIDER)
     visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings({"params": (stage_row.data or {}).get("params") or {}})
     client, image_model = config.image_client(provider)
@@ -1044,6 +1049,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     """Idempotent image stage: resume completed grids after an interruption."""
     validate_template(stage.get('params') or {}, 'image')
     validate_task_template(stage)
+    if (stage.get('params') or {}).get('production_template') == 'scene-v1':
+        from scene_image import run as run_scene
+        return run_scene(stage)
     task_id = stage["task_id"]
     text = clean_tts_text(_find_chosen_text(task_id, stage) or "")
     if not text:

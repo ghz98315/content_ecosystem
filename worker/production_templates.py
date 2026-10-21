@@ -13,7 +13,7 @@ def inherit_template(current: dict, source: dict, kind: str) -> dict:
     """Copy only the template contract, never old jobs, pictures or titles."""
     if current.get('production_template') or not source.get('production_template'):
         return current
-    keys = {'production_template', 'template_version'}
+    keys = {'production_template', 'template_version', 'content_line'}
     keys |= ({'visual_style','visual_preset_id','image_aspect_ratio','image_provider','image_model','grid_resolution'}
              if kind == 'image' else {'frame_mode','title_font','title_color'})
     result = {**current, **{key: source[key] for key in keys if key in source}}
@@ -57,9 +57,10 @@ def validate_task_template(stage: dict) -> None:
         if snapshots['render'].get('content_line') != line or snapshots.get('rewrite',{}).get('content_line') != line:
             raise ValueError('文案、图片与成片内容类型不一致，请重新配置任务')
         selected = snapshots['rewrite'].get('rewrite_domain')
-        if line in ('guoxue','health') and selected not in (line,'mixed'):
+        if (line in ('guoxue','health') and selected not in (line,'mixed')) or (line == 'scene' and selected != 'scene'):
             raise ValueError('二创规则与任务内容类型不一致，请检查二创领域')
         task = db.retry(lambda: db.get_client().table('tasks').select('content_category')
                         .eq('id',stage['task_id']).single().execute()).data or {}
-        if task.get('content_category') != line:
+        database_category = DEFINITIONS[snapshots['image']['production_template']].get('databaseCategory',line)
+        if task.get('content_category') not in {line,database_category}:
             raise ValueError('任务内容类型与画面模板不一致，请重新配置任务')
