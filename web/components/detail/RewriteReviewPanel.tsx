@@ -19,6 +19,8 @@ export interface RewriteReview {
   length_deviation: number;
   min_chars?: number;
   max_chars?: number;
+  planned_min_chars?: number;
+  planning_warnings?: string[];
   revisions_used?: number;
   max_revisions?: number;
   selected_attempt?: number;
@@ -47,7 +49,8 @@ export function RewriteReviewPanel({ report, source, text, evaluatedText }: {
       <div><span>目标</span><strong>低于 {pct(report.threshold)}</strong></div>
       <div><span>开头逐字保留</span><strong>{report.hook_preserved ? '已保留' : '需核对'}</strong></div>
     </div>
-    {report.min_chars != null && <p>字数底线：至少 {report.min_chars} 字（原稿的85%）；生成稿字数偏差 {(report.length_deviation * 100).toFixed(1)}%。人工编辑后以页面当前字数和确认校验为准。</p>}
+    {report.min_chars != null && <p>生成目标：{report.planned_min_chars != null ? `至少 ${report.planned_min_chars} 字（原稿的95%）` : '原稿的95%'}；执行下限：至少 {report.min_chars} 字（原稿的85%）。生成稿字数偏差 {(report.length_deviation * 100).toFixed(1)}%。人工编辑后以页面当前字数和确认校验为准。</p>}
+    {!!report.planning_warnings?.length && <p className="rewrite-review-warning">本稿未达到95%生成目标，但已按85%执行下限保留供确认：{report.planning_warnings.join('；')}</p>}
     {report.locked_floor >= report.threshold && <p className="rewrite-review-warning">锁定钩子本身带来的5字片段复用约为 {pct(report.locked_floor)}，已超过全文目标；此因素不会触发无效返工，正文仍单独检查，全文交由人工评估。</p>}
     {report.stop_reason === 'limit_reached' && <p className="rewrite-review-warning">已达到自动修改上限，已停止返工并保留稿件。请结合下方问题、重构策略和原稿对照确认。</p>}
     {report.stop_reason === 'service_error' && <p className="rewrite-review-warning">后续修改请求失败，已保留此前可用稿件，请人工确认或稍后重跑。</p>}

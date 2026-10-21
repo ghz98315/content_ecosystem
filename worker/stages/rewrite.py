@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import os
 import re
 import time
@@ -13,7 +14,7 @@ import config
 import compliance
 import db
 import storage
-from rewrite_review import MAX_REVISIONS, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length, attempt_rank, length_bounds
+from rewrite_review import MAX_REVISIONS, PLANNED_MIN_LENGTH_RATIO, PLANNED_TARGET_LENGTH_RATIO, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length, attempt_rank, length_bounds
 from rewrite_skill import resolve_domain, prompt_extension, audit_output, DomainConflict
 from prompt_profiles import (
     author_name,
@@ -270,6 +271,41 @@ def _rewrite_prompt_kind(category: str, mode: str, narration_mode: str) -> str:
     return prompt_kind
 
 
+def _length_budget(source: str, hook: str) -> str:
+    """Give the model a concrete coverage budget before it starts drafting."""
+    minimum, maximum = length_bounds(source)
+    target = math.ceil(effective_length(source) * PLANNED_TARGET_LENGTH_RATIO)
+    planned_minimum = math.ceil(effective_length(source) * PLANNED_MIN_LENGTH_RATIO)
+    hook_chars = effective_length(hook)
+    body = remainder(source, hook)
+    paragraphs = [part.strip() for part in format_for_reading(body).split('\n\n') if part.strip()]
+    if not paragraphs:
+        return f'正文目标约{max(0, target - hook_chars)}字；全文硬性范围{minimum}-{maximum}字。'
+    groups: list[list[str]] = []
+    ideal = max(180, math.ceil(effective_length(body) / 10))
+    for paragraph in paragraphs:
+        if not groups or effective_length(''.join(groups[-1])) >= ideal:
+            groups.append([])
+        groups[-1].append(paragraph)
+    sizes = [effective_length(''.join(group)) for group in groups]
+    body_target = max(0, target - hook_chars)
+    total = max(1, sum(sizes))
+    allocations = [body_target * size // total for size in sizes]
+    for index in range(body_target - sum(allocations)):
+        allocations[index % len(allocations)] += 1
+    lines = [
+        f'全文写作目标约{target}字（含已锁定钩子{hook_chars}字），'
+        f'正文目标约{body_target}字；自动改写的目标下限{planned_minimum}字，'
+        f'仅在返工次数用尽时可按执行下限{minimum}字交付，上限{maximum}字。',
+        '以下按原稿信息块预留篇幅，顺序可以重组；每块的事实与限定必须有去处，不能用空话凑字：',
+    ]
+    for index, (group, size, allocation) in enumerate(zip(groups, sizes, allocations), 1):
+        anchor = group[0].replace('\n', ' ')[:24]
+        lines.append(f'{index}. 原稿约{size}字，改写预留约{allocation}字；识别线索：{anchor}…')
+    lines.append('先在 information_card 和 rewrite_outline 中分配所有信息块，再写 rewritten_remainder。提交前自行按有效字口径核算；若不足，补足遗漏的事实、场景或论证，不重复钩子和套话。')
+    return '\n'.join(lines)
+
+
 def _generate_single_candidates(source: str, context: dict, notes: str, mode: str) -> tuple[list[str], list[int], dict]:
     """Initial generation plus at most three content revisions, then human review."""
     hook = opening_hook(source)
@@ -280,7 +316,9 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         prompt += '\n\n' + extension
     source_body = remainder(source, hook)
     minimum, maximum = length_bounds(source)
+    planned_minimum = math.ceil(effective_length(source) * PLANNED_MIN_LENGTH_RATIO)
     hook_chars = effective_length(hook)
+    budget = _length_budget(source, hook)
     history: list[dict] = list(context.get('rewrite_resume') or [])
     checkpoint = context.get('rewrite_checkpoint')
     last: tuple[list[str], list[int], dict] | None = None
@@ -300,9 +338,14 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     for attempt in range(MAX_REVISIONS + 1 if already_passed else len(history), MAX_REVISIONS + 1):
         feedback = ''
         if history:
-            previous = history[-1]
+            previous = next((item for item in reversed(history) if item.get('text')), history[-1])
             feedback = '\n\n【上一轮稿件】\n' + previous.get('text', '')
-            feedback += '\n【必须处理的问题】\n' + '\n'.join(last_issues)
+            feedback += '\n【必须处理的问题】\n' + '\n'.join(previous.get('issues', last_issues))
+            if previous.get('text'):
+                previous_chars = effective_length(previous['text'])
+                if previous_chars < planned_minimum:
+                    feedback += (f'\n上稿有效字数{previous_chars}，距95%写作目标下限还差{planned_minimum - previous_chars}字；'
+                                 f'本轮请按上方信息块预算补全，全文目标约{math.ceil(effective_length(source) * PLANNED_TARGET_LENGTH_RATIO)}字。')
             feedback += '\n【可改写区重复片段】\n' + '\n'.join(
                 previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
         history.append({'attempt':attempt+1,'revision':attempt,'text':'','issues':['请求已预留，未收到完整结果'],'complete':False,'state':'reserved'})
@@ -316,23 +359,29 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                     f"内容分类：{context['category']}；模式：{mode}\n主题：{context.get('keyword', '')}\n"
                     f"原视频标题：{context.get('title', '')}\n补充要求：{notes or '无'}\n"
                     f"必须保留的书名与数字：{'、'.join(protected_terms(source)) or '无'}\n"
-                    f"原稿有效字数{effective_length(source)}字；全文必须为{minimum}-{maximum}字。"
-                    f"程序拼接的钩子有{hook_chars}字，你输出的 rewritten_remainder 必须为{max(0, minimum-hook_chars)}-{max(0, maximum-hook_chars)}字。\n"
+                    f"原稿有效字数{effective_length(source)}字；本轮写作须达到{planned_minimum}-{maximum}字，"
+                    f"仅在自动返工次数用尽后可按{minimum}字执行下限交付。"
+                    f"程序拼接的钩子有{hook_chars}字，本轮 rewritten_remainder 应为{max(0, planned_minimum-hook_chars)}-{max(0, maximum-hook_chars)}字。\n"
+                    f'【写作前字数与信息覆盖规划】\n{budget}\n'
                     '字数偏差仅指长度，表达需要深度重构。不要重复输出锁定钩子。\n'
                     f'【锁定钩子，程序逐字拼接】\n{hook}\n\n【可改写正文，包含结尾】\n{source_body}'
                     + feedback
                 )}], temperature=0.7, max_tokens=config.REWRITE_MAX_TOKENS,
                 response_format={'type': 'json_object'},
             )
-        except Exception:
+        except Exception as exc:
             history[-1]['state'] = 'service_error'
             history[-1]['issues'] = ['改写请求失败，保留已有稿及已使用次数']
             if checkpoint:
                 checkpoint(history)
             if last is None:
-                raise
+                if attempt == MAX_REVISIONS or 'model_not_found' in str(exc).lower():
+                    raise
+                continue
             stop_reason = 'service_error'
-            break
+            if attempt == MAX_REVISIONS or 'model_not_found' in str(exc).lower():
+                break
+            continue
         choice = response.choices[0]
         raw = (choice.message.content or '').strip()
         try:
@@ -358,6 +407,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         similarity = review_rewrite(source, text, hook)
         issues = _candidate_issues(candidates, source, getattr(choice, 'finish_reason', None),
                                    mode, context['category'], 'single') + similarity['retry_issues']
+        if effective_length(text) < planned_minimum:
+            issues.append(f'未达到95%写作目标：当前{effective_length(text)}字，至少{planned_minimum}字')
         missing_terms = [term for term in protected_terms(source) if term not in text]
         if missing_terms:
             issues.append('未原样保留书名或数字：' + '、'.join(missing_terms))
@@ -403,13 +454,16 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     candidates, lengths, structure = last
     selected = next(entry for entry in history if entry['attempt'] == selected_attempt)
     final_report = dict(selected['similarity'])
-    if stop_reason not in {'passed', 'locked_hook_floor'} or selected['issues']:
+    planning_warnings = [issue for issue in selected['issues'] if issue.startswith('未达到95%写作目标')]
+    delivery_issues = [issue for issue in selected['issues'] if issue not in planning_warnings]
+    if delivery_issues:
         final_report['status'] = 'manual_review'
     structure['rewrite_review'] = {
         **final_report, 'max_revisions': MAX_REVISIONS,
+        'planned_min_chars': planned_minimum, 'planning_warnings': planning_warnings,
         'revisions_used': len(history) - 1, 'selected_attempt': selected_attempt,
         'stop_reason': stop_reason, 'attempts': [{key:value for key,value in item.items() if key != 'structure'} for item in history],
-        'strategy': selected['strategy'], 'issues': selected['issues'],
+        'strategy': selected['strategy'], 'issues': delivery_issues,
         'rewrite_skill': structure.get('rewrite_skill'),
         'comparison_summary': [
             f"开头锁定 {effective_length(hook)} 个有效字符，生成稿由程序原样拼接。",

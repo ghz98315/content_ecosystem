@@ -11,6 +11,8 @@ TARGET = 0.10
 MAX_REVISIONS = 3
 MIN_LENGTH_RATIO = 0.85
 MAX_LENGTH_RATIO = 1.10
+PLANNED_MIN_LENGTH_RATIO = 0.95
+PLANNED_TARGET_LENGTH_RATIO = 0.97
 
 
 def length_bounds(source: str) -> tuple[int, int]:
