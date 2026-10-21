@@ -15,6 +15,8 @@ import storage
 
 W,H,FPS=1080,1920,30
 COVER_SECONDS=0.5
+SCENE_ZOOM_AMOUNT=0.20
+SCENE_ZOOM_WORK_SCALE=2
 
 
 def ass_time(seconds: float) -> str:
@@ -80,11 +82,16 @@ def make_clip(source: str, frames: int, output: str, index: int | None):
         graph=f'scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},setsar=1,format=yuv420p'
         args=[r.ff(),'-y','-loop','1','-framerate',str(FPS),'-i',source,'-vf',graph]
     else:
+        # A linear optical scale avoids the almost motionless ends of smoothstep.
+        # Keep a fixed 2x work canvas for half-pixel output positioning.
+        # A larger/full-chroma canvas slowed long-form rendering substantially.
         progress=f'on/{max(1,frames-1)}'
-        easing=f'(3*pow({progress},2)-2*pow({progress},3))'
-        amount=easing if index%2==0 else f'(1-{easing})'
-        graph=(f'scale={W*2}:{H*2}:force_original_aspect_ratio=increase:flags=lanczos,crop={W*2}:{H*2},'
-               f"zoompan=z='1+0.12*{amount}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d={frames}:s={W}x{H}:fps={FPS},setsar=1,format=yuv420p")
+        amount=progress if index%2==0 else f'(1-{progress})'
+        work_w,work_h=W*SCENE_ZOOM_WORK_SCALE,H*SCENE_ZOOM_WORK_SCALE
+        graph=(f'scale={work_w}:{work_h}:force_original_aspect_ratio=increase:flags=lanczos,'
+               f'crop={work_w}:{work_h},'
+               f"zoompan=z='1+{SCENE_ZOOM_AMOUNT}*{amount}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
+               f'd={frames}:s={W}x{H}:fps={FPS},setsar=1,format=yuv420p')
         args=[r.ff(),'-y','-i',source,'-vf',graph]
     r._run_ffmpeg([*args,'-frames:v',str(frames),*r._encoder_args(intermediate=True),'-r',str(FPS),'-an',output],check=True,capture_output=True)
 
@@ -189,7 +196,8 @@ def run(stage: dict):
                 'cover_frames':15,'cover_duration':0.5,'intro_duration':0,'audio_offset_seconds':0,
                 'cover':'independent_cover','publication_cover':cover_path,'title_visibility':'cover_only',
                 'footnote_visibility':'full_video','text_layout':{'title':title,'subtitle':subtitle,'footnote':footnote},
-                'motion':'alternating_zoom_in_out','zoom_amount':0.12,'layout':'scene_fullscreen',
+                'motion':'alternating_zoom_in_out','zoom_amount':SCENE_ZOOM_AMOUNT,
+                'motion_curve':'linear','motion_work_scale':SCENE_ZOOM_WORK_SCALE,'layout':'scene_fullscreen',
                 'quality_status':quality['status'],'quality_report':quality_path,'phase_seconds':phase,
                 'processing_seconds':round(time.monotonic()-started,3),'file_size_bytes':(temp/'final.mp4').stat().st_size,
                 'bgm_enabled':bool(bgm),'bgm_volume':bgm_volume if bgm else None,'narration_volume':narration_volume})
