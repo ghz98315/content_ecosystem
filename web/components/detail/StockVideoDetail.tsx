@@ -1,9 +1,15 @@
 "use client";
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {authenticatedFetch} from '@/lib/authenticatedFetch';
 import {defaultStockSelection,validateStockSelection,type StockPlan,type StockSelection} from '@/lib/stockSelection';
 import {Stage} from '@/lib/types';
 import {DetailCommon} from './_shell';
+
+function StockPreview({url,offset,duration}:{url:string;offset:number;duration:number}){
+ const video=useRef<HTMLVideoElement>(null);
+ useEffect(()=>{if(video.current&&video.current.readyState>0)video.current.currentTime=offset;},[offset]);
+ return <video ref={video} controls preload="none" src={url} onLoadedMetadata={e=>{e.currentTarget.currentTime=offset;}} onTimeUpdate={e=>{if(e.currentTarget.currentTime>offset+duration)e.currentTarget.pause();}}/>;
+}
 
 export function StockVideoDetail({stage,onRerun}:DetailCommon){
  const [current,setCurrent]=useState<Stage|undefined>(stage),[selection,setSelection]=useState<StockSelection[]>([]),[queries,setQueries]=useState<string[]>([]);
@@ -38,7 +44,7 @@ export function StockVideoDetail({stage,onRerun}:DetailCommon){
       <label>选用视频<select disabled={!reviewing||busy} value={chosen?.asset_id||''} onChange={e=>setSelection(v=>v.map((s,i)=>i===index?{asset_id:e.target.value,offset:0}:s))}><option value="">请选择足够长的视频</option>{entry.candidates.map(a=><option key={a.id} value={a.id}>{a.title} · {a.duration.toFixed(1)}秒{a.duration<entry.duration?'（时长不足）':''}</option>)}</select></label>
       {asset&&<><label>从第几秒开始截取<input type="number" min="0" max={Math.max(0,asset.duration-entry.duration)} step="0.1" disabled={!reviewing||busy} value={chosen?.offset??0} onChange={e=>setSelection(v=>v.map((s,i)=>i===index?{...s,offset:Number(e.target.value)}:s))}/></label>
       <p>截取 {Number(chosen?.offset||0).toFixed(1)}–{(Number(chosen?.offset||0)+entry.duration).toFixed(1)}秒 · {asset.width}×{asset.height}</p><p><a href={asset.page} target="_blank" rel="noreferrer">查看来源</a> · {asset.author} · <a href={asset.license_url} target="_blank" rel="noreferrer">{asset.license}</a></p></>}
-     </div><div className="stock-material-preview">{asset?<video key={asset.id} controls preload="none" src={asset.url} onLoadedMetadata={e=>{e.currentTarget.currentTime=chosen?.offset||0;}} onTimeUpdate={e=>{if(e.currentTarget.currentTime>(chosen?.offset||0)+entry.duration)e.currentTarget.pause();}}/>:<p>请选择视频，可修改关键词后重新检索。</p>}</div>
+     </div><div className="stock-material-preview">{asset?<StockPreview key={asset.id} url={asset.url} offset={chosen?.offset||0} duration={entry.duration}/>:<p>请选择视频，可修改关键词后重新检索。</p>}</div>
     </article>;
    })}</div>
    {reviewing&&<div className="stock-material-actions"><button type="button" className="secondary-action" disabled={busy} onClick={()=>void action('search')}>按检索词重新找视频</button><button type="button" className="primary-action" disabled={busy} onClick={()=>void action('confirm')}>确认全部选片并开始拼接</button></div>}

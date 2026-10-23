@@ -196,9 +196,17 @@ def run(stage):
         return 'needs_review',None
     entries=selection_entries(plan,params.get('stock_selection'))
     for entry in entries:
-        local=fetch_source(entry['asset'])
-        actual=r._video_duration(str(local))
-        if actual-entry['source_start']<entry['duration']-.05: raise ValueError('源视频实际时长不足，请重新选择素材')
+        try:
+            local=fetch_source(entry['asset'])
+            actual=r._video_duration(str(local))
+            if actual-entry['source_start']<entry['duration']-.05: raise ValueError('源视频实际时长不足')
+        except (httpx.HTTPStatusError,ValueError):
+            # Failed sources return to the selection gate so users can replace
+            # just the choice; do not trap them in retrying a bad URL forever.
+            saved={**params,'stock_plan':plan,'stock_confirmed_revision':None}
+            db.retry(lambda:db.get_client().table('stages').update({'params':saved,'status':'needs_review',
+                'error':f"第{entry['index']+1}段视频暂不可用或实际时长不足，请换片后重新确认"}).eq('id',stage['id']).execute())
+            return 'needs_review',None
         thumb=CACHE/(digest([entry['asset']['url'],entry['source_start']])+'.jpg')
         width,height={'1:1':(720,720),'4:3':(960,720),'9:16':(540,960)}.get(params.get('image_aspect_ratio'),(720,720))
         r._run_ffmpeg([r.ff(),'-y','-ss',str(entry['source_start']),'-i',str(local),'-frames:v','1','-vf',f'scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}',str(thumb)],check=True,capture_output=True)

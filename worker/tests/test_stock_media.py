@@ -44,6 +44,13 @@ class StockMediaTests(unittest.TestCase):
   with patch.object(image,'validate_template'),patch.object(image,'validate_task_template'),patch.object(stock,'run',return_value=('needs_review',None)) as handler,patch.object(image.config,'image_client') as paid:
    self.assertEqual(('needs_review',None),image.run(stage));handler.assert_called_once();paid.assert_not_called()
 
+ def test_unavailable_confirmed_source_returns_to_selection(self):
+  p=self.plan();client=MagicMock();stage={'id':'s','task_id':'t','params':{'visual_mode':'stock_video','stock_plan':p,'stock_confirmed_revision':'r1','stock_selection':[{'asset_id':stock.CATALOG[0]['id'],'offset':0}]}}
+  with patch('stages.image._find_chosen_text',return_value='示例文案'),patch.object(stock,'load_audio_timeline',return_value={'duration':10}),patch.object(stock.db,'get_client',return_value=client),patch.object(stock,'fetch_source',side_effect=ValueError('invalid source')):
+   self.assertEqual(('needs_review',None),stock.run(stage))
+   saved=client.table.return_value.update.call_args[0][0]
+   self.assertIsNone(saved['params']['stock_confirmed_revision']);self.assertEqual('needs_review',saved['status'])
+
  def test_sources_credit_is_deduplicated(self):
   a={'asset':stock.CATALOG[0]};text=stock.credit_text([a,a]);self.assertEqual(1,text.count('已截取'))
 
