@@ -9,7 +9,7 @@ import { MUSIC_PRESETS, musicPresetByPath, type MusicCategory } from '@/lib/musi
 export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
   const [path,setPath]=useState('');
   const [url,setUrl]=useState('');
-  const [volume,setVolume]=useState(0.08);
+  const [volume,setVolume]=useState(0.15);
   const [narration,setNarration]=useState(1);
   const [authorized,setAuthorized]=useState(false);
   const [ready,setReady]=useState(false);

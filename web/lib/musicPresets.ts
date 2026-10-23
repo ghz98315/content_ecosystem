@@ -20,10 +20,10 @@ const preset = (id: string, category: MusicCategory, label: string, mood: string
 };
 
 export const MUSIC_PRESETS: readonly MusicPreset[] = [
-  preset('guoxue-ripples', 'guoxue', 'Ripples', '古筝独奏感 · 沉静', 'USUAN1100691', 0.08),
+  preset('guoxue-ripples', 'guoxue', 'Ripples', '古筝独奏感 · 沉静', 'USUAN1100691', 0.15),
   preset('guoxue-ishikari-lore', 'guoxue', 'Ishikari Lore', '弹拨与笛声 · 叙事', 'USUAN1100192', 0.07),
   preset('guoxue-finding-movement', 'guoxue', 'Finding Movement', '弹拨与弦乐 · 温和', 'USUAN1100693', 0.07),
-  preset('health-morning', 'health', 'Morning', '木吉他、竖琴与长笛 · 明朗', 'USUAN2300003', 0.08),
+  preset('health-morning', 'health', 'Morning', '木吉他、竖琴与长笛 · 明朗', 'USUAN2300003', 0.15),
   preset('health-evening', 'health', 'Evening', '吉他、大提琴与双簧管 · 温暖', 'USUAN2300002', 0.08),
   preset('health-midsummer-sky', 'health', 'Midsummer Sky', '舒缓明亮 · 陪伴', 'USUAN1100158', 0.07),
 ];
