@@ -6,7 +6,7 @@ import re
 import subprocess
 from datetime import datetime, timezone
 
-from narration import has_disallowed_subtitle_punctuation, visible_len
+from narration import SUBTITLE_MAX_CHARS, has_disallowed_subtitle_punctuation, visible_len
 
 
 EXPECTED_STAGES = (
@@ -117,7 +117,7 @@ def evaluate_render_quality(
     reversed_cues = sum(float(cue.get("end", 0)) < float(cue.get("start", 0)) for cue in cues)
     forced_cues = sum(str(cue.get("boundary", "")) == "forced" for cue in cues)
     subtitle_ok = (
-        bool(cues) and max_subtitle_chars <= 14 and punctuated == 0
+        bool(cues) and max_subtitle_chars <= SUBTITLE_MAX_CHARS and punctuated == 0
         and reversed_cues == 0 and forced_cues == 0
     )
     checks.append(_check(
@@ -127,7 +127,7 @@ def evaluate_render_quality(
             "count": len(cues), "max_chars": max_subtitle_chars,
             "punctuated": punctuated, "forced_word_cuts": forced_cues,
         },
-        expected="字幕非空、每条不超过14字、仅允许成对书名号、无拆词、时间正序",
+        expected=f"字幕非空、每条不超过{SUBTITLE_MAX_CHARS}字、仅允许成对书名号、无拆词、时间正序",
     ))
 
     timeline_continuous = bool(timeline)

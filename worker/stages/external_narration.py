@@ -14,6 +14,7 @@ import storage
 import imageio_ffmpeg
 from external_pause import POLICY as PAUSE_POLICY, cap_internal_pauses
 from external_alignment import align, comparable, differences, validate_cues
+from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit
 
 
 def _finish(stage: dict, state: str, review: dict, audio: str | None = None, subtitle: str | None = None):
@@ -92,7 +93,7 @@ def run(stage: dict) -> tuple[str, None]:
             cues,coverage=align(text,words,duration,repair=True)
             manual=previous.get('requested_cues') if (previous.get('pause_optimization') or {}).get('policy') == PAUSE_POLICY else None
             if manual is not None:
-                cues=validate_cues(text,manual,duration)
+                cues=validate_cues(text,enforce_subtitle_limit(manual),duration)
             ready=False
             if not any(c.get('needs_timing_review') for c in cues):
                 try:
@@ -109,7 +110,7 @@ def run(stage: dict) -> tuple[str, None]:
             subtitle_path=job_path+'/subtitles.json'
             payload={'provider':'external','external_id':row['id'],'duration':duration,'text':text,
                      'narration_text':text,'segments':cues,'sentence_segments':words,'batches':[],
-                     'input_format':'timeline_v3','subtitle_max_chars':14,'segment_count':len(cues),
+                     'input_format':'timeline_v3','subtitle_max_chars':SUBTITLE_MAX_CHARS,'segment_count':len(cues),
                      'audio_path':audio_path,'alignment_ready':ready,'pause_optimization':pause_report}
             storage.upload_bytes(subtitle_path,json.dumps(payload,ensure_ascii=False).encode(),'application/json')
         script_differences = differences(row['script_text'],recognized,words)

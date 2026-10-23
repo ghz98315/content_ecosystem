@@ -7,7 +7,7 @@ import re
 
 from opencc import OpenCC
 
-from narration import normalize_tts_numbers, split_semantic_units, strip_subtitle_punctuation
+from narration import SUBTITLE_MAX_CHARS, normalize_tts_numbers, split_semantic_units, strip_subtitle_punctuation, visible_len
 
 _SIMPLIFIED_CONVERTER = OpenCC('t2s')
 
@@ -100,7 +100,7 @@ def differences(expected: str, recognized: str, words: list[dict] | None = None)
 
 
 def align(text: str, words: list[dict], duration: float, *, repair: bool = False) -> tuple[list[dict], float]:
-    units = split_semantic_units(text, max_chars=14)
+    units = split_semantic_units(text, max_chars=SUBTITLE_MAX_CHARS)
     normalized = [comparable(unit['text']) for unit in units]
     source = ''.join(normalized)
     transcript = ''
@@ -187,8 +187,8 @@ def validate_cues(text: str, cues: list[dict], duration: float) -> list[dict]:
     for cue in cues:
         caption = str(cue.get('text') or '')
         start, end = float(cue['start']), float(cue['end'])
-        if not caption or len(caption)>14 or not math.isfinite(start+end) or start<previous or end<=start or end>duration+.001:
-            raise ValueError('字幕时间须递增、不重叠、不超过音频末尾，每条最多14字')
+        if not caption or visible_len(caption.replace('《','').replace('》',''))>SUBTITLE_MAX_CHARS or not math.isfinite(start+end) or start<previous or end<=start or end>duration+.001:
+            raise ValueError(f'字幕时间须递增、不重叠、不超过音频末尾，每条最多{SUBTITLE_MAX_CHARS}字')
         # Preserve original punctuation offsets for the existing image timeline.
         while char_cursor<len(compact) and not strip_subtitle_punctuation(compact[char_cursor]):
             char_cursor+=1

@@ -1,5 +1,8 @@
 """Canonical narration cleanup and semantic subtitle splitting."""
+
 from __future__ import annotations
+
+SUBTITLE_MAX_CHARS = 12
 
 import html
 import json
@@ -338,7 +341,7 @@ def _semantic_cuts(
 
 def split_semantic_units(
     text: str,
-    max_chars: int = 14,
+    max_chars: int = SUBTITLE_MAX_CHARS,
     protected_terms: tuple[str, ...] = (),
 ) -> list[dict]:
     """Split at punctuation or Chinese word boundaries, never raw width first."""
@@ -370,3 +373,46 @@ def split_semantic_units(
             })
         start = cut
     return units
+
+
+def enforce_subtitle_limit(cues: list[dict], max_chars: int = SUBTITLE_MAX_CHARS) -> list[dict]:
+    """Reflow saved or manually adjusted cues without changing their total span."""
+    result: list[dict] = []
+    for cue in cues:
+        caption = str(cue.get("text") or "")
+        if visible_len(caption.replace("《", "").replace("》", "")) <= max_chars:
+            result.append(cue)
+            continue
+        try:
+            units = split_semantic_units(caption, max_chars=max_chars)
+        except ValueError:
+            # An indivisible long name still must not overflow the screen.
+            units = []
+            start = 0
+            while start < len(caption):
+                end = start
+                while end < len(caption) and visible_len(caption[start:end + 1].replace("《", "").replace("》", "")) <= max_chars:
+                    end += 1
+                end = max(start + 1, end)
+                part = caption[start:end]
+                units.append({"text": part, "char_start": start, "char_end": end,
+                              "char_count": visible_len(part.replace("《", "").replace("》", "")),
+                              "boundary": "forced"})
+                start = end
+        total = sum(max(1, int(unit["char_count"])) for unit in units)
+        elapsed = 0
+        start_time = float(cue["start"])
+        end_time = float(cue["end"])
+        source_start = cue.get("char_start")
+        for unit in units:
+            next_elapsed = elapsed + max(1, int(unit["char_count"]))
+            fragment = {**cue, "text": unit["text"], "char_count": unit["char_count"],
+                        "boundary": unit["boundary"],
+                        "start": round(start_time + (end_time - start_time) * elapsed / total, 3),
+                        "end": round(start_time + (end_time - start_time) * next_elapsed / total, 3)}
+            if isinstance(source_start, int):
+                fragment["char_start"] = source_start + unit["char_start"]
+                fragment["char_end"] = source_start + unit["char_end"]
+            result.append(fragment)
+            elapsed = next_elapsed
+    return result

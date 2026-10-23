@@ -701,7 +701,7 @@ class StoryboardTests(unittest.TestCase):
         )
 
         subtitles = next(check for check in report["checks"] if check["id"] == "subtitles")
-        self.assertEqual("passed", subtitles["status"])
+        self.assertEqual("warning", subtitles["status"])
         self.assertEqual(13, subtitles["actual"]["max_chars"])
 
     def test_render_quality_reports_subtitle_defects_without_blocking(self):

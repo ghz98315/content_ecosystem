@@ -15,7 +15,7 @@ import db
 import storage
 import imageio_ffmpeg
 import jieba
-from narration import clean_tts_text, normalize_tts_numbers, split_semantic_units, visible_len
+from narration import SUBTITLE_MAX_CHARS, clean_tts_text, normalize_tts_numbers, split_semantic_units, visible_len
 from tts_providers import get_tts_provider
 
 # 默认音色，可通过 env 覆盖
@@ -430,7 +430,7 @@ def _build_subtitle_cues(
     text: str,
     anchors: list[dict],
     duration: float,
-    max_chars: int = 12,
+    max_chars: int = SUBTITLE_MAX_CHARS,
     book_name: str = "",
 ) -> list[dict]:
     title = _book_title(book_name)
@@ -908,7 +908,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         text,
         sentence_segments,
         duration,
-        max_chars=14,
+        max_chars=SUBTITLE_MAX_CHARS,
         book_name=book_name,
     )
 
@@ -967,7 +967,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cta_text": cta,
             "input_format": "timeline_v3",
             "synthesis_batches": len(batch_data),
-            "subtitle_max_chars": 14,
+            "subtitle_max_chars": SUBTITLE_MAX_CHARS,
             "subtitle_format": "semantic_words_v2",
             "subtitle_segmenter": "jieba_compound_dp_v1",
             "pause_profile": "promote_tts_pause_v1",
@@ -984,7 +984,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "segment_count": len(cues),
         "synthesis_batches": len(batch_data),
         "input_format": "timeline_v3",
-        "subtitle_max_chars": 14,
+        "subtitle_max_chars": SUBTITLE_MAX_CHARS,
         "subtitle_format": "semantic_words_v2",
         "subtitle_segmenter": "jieba_compound_dp_v1",
         "pause_profile": "promote_tts_pause_v1",

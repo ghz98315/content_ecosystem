@@ -22,6 +22,7 @@ import storage
 import config
 from production_templates import validate_template, validate_task_template
 from quality import inspect_render_quality
+from narration import enforce_subtitle_limit
 
 W, H = 1080, 1920
 # Source images are portrait 9:16 and must fill the final portrait canvas.
@@ -834,7 +835,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     picture_ratio = 1.0 if picture_aspect == '1:1' else 4/3
     if expected_template == 'guoxue-v1' and any(image.get('cell_ratio') not in (None,picture_aspect) for image in images):
         raise ValueError(f'已有图片比例与国学{picture_aspect}模板不一致，请重新生图；旧成片已保留')
-    segments: list[dict] = subs_data.get("segments", []) if isinstance(subs_data, dict) else []
+    segments: list[dict] = enforce_subtitle_limit(subs_data.get("segments", [])) if isinstance(subs_data, dict) else []
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
     is_history = str(task_context.get("content_category") or "health") == "social_science"
