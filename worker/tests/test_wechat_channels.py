@@ -12,6 +12,11 @@ MEDIA='https://finder.video.qq.com/test.mp4?key=signed-test-key'
 def response(value,status=200):return httpx.Response(status,json=value)
 
 class ChannelsTests(unittest.TestCase):
+ def test_engagement_keeps_exact_and_estimated_counts_distinct(self):
+  display,exact,estimated=wx._engagement({'likeCountFmt':'1.5万','commentCountFmt':'1008','forwardCount':1839,'favCountFmt':'0'})
+  self.assertEqual(display,{'likes':'1.5万','comments':'1008','shares':'1839','saves':'0'})
+  self.assertEqual(exact,{'comments':1008,'shares':1839,'saves':0})
+  self.assertEqual(estimated,{'likes':15000})
  def test_supported_link_and_share_text(self):
   self.assertEqual(wx.normalize_url('分享 '+URL),URL)
   self.assertEqual(wx.normalize_url('['+URL+']('+URL+')'),URL)

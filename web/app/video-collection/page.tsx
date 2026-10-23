@@ -25,9 +25,18 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function numberText(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
   const number = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(number)) return "—";
   return number >= 10000 ? `${(number / 10000).toFixed(1)}万` : number.toLocaleString("zh-CN");
+}
+
+function engagementText(meta: Record<string, unknown>, key: "likes" | "comments" | "shares" | "saves", fallback: unknown, author?: Record<string, unknown>) {
+  const saved = author?.source_engagement as {display?:Record<string,unknown>;exact?:Record<string,unknown>} | undefined;
+  const display = (meta.stats_display as Record<string, unknown> | undefined) || saved?.display;
+  const exact = (meta.stats_exact as Record<string, unknown> | undefined) || saved?.exact;
+  const value = display?.[key];
+  return typeof value === "string" && value.trim() ? value : numberText(exact?.[key] ?? fallback);
 }
 
 function durationText(value: unknown) {
@@ -458,7 +467,7 @@ function VideoCollectionContent() {
           const fullTitle = parsedSource.title || "未取得标题";
           const source = sourcePresentation(task);
           const action = task.status === "needs_review" ? "去确认" : task.status === "done" ? "查看成片" : task.status === "failed" ? "查看异常" : "查看任务";
-          return <tr key={task.id}><td><input type="checkbox" checked={selectedIds.includes(task.id)} onChange={() => toggleSelected(task.id)} aria-label={`选择 ${task.title || task.id}`} /></td><td>{String((currentPage - 1) * pageSize + index + 1).padStart(2, "0")}</td><td className="collection-title"><button type="button" className="collection-title-copy" title={`${fullTitle}\n点击复制完整标题`} aria-label={`复制完整标题：${fullTitle}`} onClick={() => void copyText(fullTitle, "标题")}>{compactTitle(fullTitle)}</button>{sourceTags.length > 0 && <div className="collection-tags" aria-label="来源标签">{sourceTags.map(tag => <span key={tag}>#{tag}</span>)}</div>}</td><td>{bookTitle ? <><strong>《{bookTitle.replace(/^《|》$/g, "")}》</strong><small>{signal?.confirmed_title ? "已确认书名" : finalBookTitle ? "书籍阶段识别" : "逐字稿识别"}</small></> : <span className="muted">等待书籍阶段</span>}</td><td className="collection-source"><strong>{source.platform}</strong>{source.url ? <a href={source.url} target="_blank" rel="noreferrer" title={source.detail}>{source.detail}</a> : <small>{source.detail}</small>}</td><td>{author.name ? `@${String(author.name)}` : "—"}</td><td>{numberText(author.fans_count || author.follower_count)}</td><td>{durationText(meta.duration)}</td><td>{dateText(task.created_at)}</td><td>{numberText(meta.digg_count ?? task.play_count)}</td><td>{numberText(meta.comment_count)}</td><td>{numberText(meta.share_count)}</td><td>{numberText(meta.collect_count)}</td><td><span className={`status-badge status-${task.status}`}><i style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] }} />{STATUS_LABEL[task.status] || task.status}</span><small className="collection-stage">{currentStage(taskStages)}</small></td><td><Link className="collection-action" href={`/task/${task.id}`}>{action}</Link><button className="collection-copy" onClick={() => task.source_url && void copyText(task.source_url, "来源链接")}>复制链接</button></td></tr>;
+          return <tr key={task.id}><td><input type="checkbox" checked={selectedIds.includes(task.id)} onChange={() => toggleSelected(task.id)} aria-label={`选择 ${task.title || task.id}`} /></td><td>{String((currentPage - 1) * pageSize + index + 1).padStart(2, "0")}</td><td className="collection-title"><button type="button" className="collection-title-copy" title={`${fullTitle}\n点击复制完整标题`} aria-label={`复制完整标题：${fullTitle}`} onClick={() => void copyText(fullTitle, "标题")}>{compactTitle(fullTitle)}</button>{sourceTags.length > 0 && <div className="collection-tags" aria-label="来源标签">{sourceTags.map(tag => <span key={tag}>#{tag}</span>)}</div>}</td><td>{bookTitle ? <><strong>《{bookTitle.replace(/^《|》$/g, "")}》</strong><small>{signal?.confirmed_title ? "已确认书名" : finalBookTitle ? "书籍阶段识别" : "逐字稿识别"}</small></> : <span className="muted">等待书籍阶段</span>}</td><td className="collection-source"><strong>{source.platform}</strong>{source.url ? <a href={source.url} target="_blank" rel="noreferrer" title={source.detail}>{source.detail}</a> : <small>{source.detail}</small>}</td><td>{author.name ? `@${String(author.name)}` : "—"}</td><td>{numberText(author.fans_count || author.follower_count)}</td><td>{durationText(meta.duration)}</td><td>{dateText(task.created_at)}</td><td>{engagementText(meta,"likes",meta.digg_count ?? task.play_count,author)}</td><td>{engagementText(meta,"comments",meta.comment_count,author)}</td><td>{engagementText(meta,"shares",meta.share_count,author)}</td><td>{engagementText(meta,"saves",meta.collect_count,author)}</td><td><span className={`status-badge status-${task.status}`}><i style={{ background: STATUS_COLOR[task.status as keyof typeof STATUS_COLOR] }} />{STATUS_LABEL[task.status] || task.status}</span><small className="collection-stage">{currentStage(taskStages)}</small></td><td><Link className="collection-action" href={`/task/${task.id}`}>{action}</Link><button className="collection-copy" onClick={() => task.source_url && void copyText(task.source_url, "来源链接")}>复制链接</button></td></tr>;
         })}</tbody></table>{!totalTasks && <div className="state-panel compact"><strong>没有匹配的采集任务</strong><span>调整筛选条件，或从上方导入新的视频链接。</span></div>}</div>
         <div className="collection-mobile-list">{pagedVisible.map(task => {
           const meta = artifactByTask.get(task.id)?.meta || {};
@@ -477,7 +486,7 @@ function VideoCollectionContent() {
             {sourceTags.length > 0 && <div className="collection-tags">{sourceTags.map(tag => <span key={tag}>#{tag}</span>)}</div>}
             <a className="collection-mobile-source" href={task.source_url || undefined} target="_blank" rel="noreferrer">{task.source_url || "—"}</a>
             <p className="collection-mobile-book">书籍信号：{bookTitle ? `《${bookTitle}》（${signal?.confirmed_title ? "已确认" : signal?.confidence === "medium" ? "中置信度" : "低置信度"}）` : "待逐字稿识别"}</p>
-            <dl><div><dt>粉丝</dt><dd>{numberText(author.fans_count || author.follower_count)}</dd></div><div><dt>时长</dt><dd>{durationText(meta.duration)}</dd></div><div><dt>点赞</dt><dd>{numberText(meta.digg_count ?? task.play_count)}</dd></div><div><dt>评论</dt><dd>{numberText(meta.comment_count)}</dd></div><div><dt>分享</dt><dd>{numberText(meta.share_count)}</dd></div><div><dt>收藏</dt><dd>{numberText(meta.collect_count)}</dd></div></dl>
+            <dl><div><dt>粉丝</dt><dd>{numberText(author.fans_count || author.follower_count)}</dd></div><div><dt>时长</dt><dd>{durationText(meta.duration)}</dd></div><div><dt>点赞</dt><dd>{engagementText(meta,"likes",meta.digg_count ?? task.play_count,author)}</dd></div><div><dt>评论</dt><dd>{engagementText(meta,"comments",meta.comment_count,author)}</dd></div><div><dt>分享</dt><dd>{engagementText(meta,"shares",meta.share_count,author)}</dd></div><div><dt>收藏</dt><dd>{engagementText(meta,"saves",meta.collect_count,author)}</dd></div></dl>
             <footer><span>阶段 {currentStage(taskStages)} · 采集 {dateText(task.created_at)}</span><Link className="collection-action" href={`/task/${task.id}`}>{action}</Link></footer>
           </article>;
         })}</div>

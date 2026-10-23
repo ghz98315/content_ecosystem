@@ -53,6 +53,34 @@ def _post(client,url,**kwargs):
     except (httpx.HTTPError,ValueError):
         raise ChannelsError('视频号解析连接或响应异常，请稍后重试；登录态无效时更新 YUANBAO_COOKIE。') from None
 
+def _engagement(feed):
+    """Preserve platform display counts and exact integer counts separately."""
+    fields={
+        'likes':('likeCountFmt','likeCount','like_count'),
+        'comments':('commentCountFmt','commentCount','comment_count'),
+        'shares':('forwardCountFmt','forwardCount','shareCount','share_count'),
+        'saves':('favCountFmt','favCount','favoriteCount','collectCount'),
+    }
+    display={};exact={};estimated={}
+    for name,keys in fields.items():
+        for key in keys:
+            value=feed.get(key)
+            if value is None or value=='':continue
+            if isinstance(value,int) and not isinstance(value,bool) and value>=0:
+                exact[name]=value
+                display.setdefault(name,str(value))
+                continue
+            if isinstance(value,str):
+                value=value.strip()
+                approximate=re.fullmatch(r'(\d+(?:\.\d+)?)万',value)
+                if approximate:
+                    display.setdefault(name,value)
+                    estimated[name]=round(float(approximate.group(1))*10000)
+                elif '\ufffd' not in value:
+                    display.setdefault(name,value)
+                    if value.isdigit():exact[name]=int(value)
+    return display,exact,estimated
+
 def resolve(source_url):
     url=normalize_url(source_url);cookie=cookie_value()
     if not cookie or '\r' in cookie or '\n' in cookie:
@@ -84,10 +112,12 @@ def resolve(source_url):
     if not isinstance(h264,dict):h264={}
     media=_media_url(h264.get('videoUrl') or feed.get('videoUrl'))
     # Persist only descriptive metadata. Session cookie, playback tokens and signed URLs stay in memory.
-    stats={key:feed.get(source) for key,source in [('likes','likeCountFmt'),('comments','commentCountFmt'),('shares','forwardCountFmt'),('saves','favCountFmt')] if feed.get(source) is not None}
+    stats,exact,estimated=_engagement(feed)
     return ResolveResult(ok=True,title=str(profile.get('desc') or feed.get('description') or ''),
         author={'name':str(profile.get('author') or '')},video_url=media,
-        raw={'resolver':'wechat_channels_yuanbao','source_platform':'wechat_channels','stats_display':stats})
+        raw={'resolver':'wechat_channels_yuanbao','source_platform':'wechat_channels',
+             'stats_display':stats,'stats_exact':exact,'stats_estimated':estimated,
+             'stats_collected_at':int(time.time())})
 
 def download(url):
     """Bounded download with each redirect validated; never attaches Yuanbao cookies."""

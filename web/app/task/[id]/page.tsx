@@ -115,12 +115,14 @@ export default function TaskDetail() {
   const sourceSummary = useMemo(() => {
     if (!task) return [] as Array<[string, string]>;
     const author = task.author as Record<string, unknown> | null;
+    const engagement = author?.source_engagement as {display?:Record<string,string>;exact?:Record<string,number>} | undefined;
+    const shown = (key:string, fallback:number | null | undefined) => engagement?.display?.[key] ?? formatCount(engagement?.exact?.[key] ?? fallback);
     const voice = task.tts_voice_label || task.tts_voice;
     return [
       ["作者", author?.name ? `@${String(author.name)}` : "-"],
       ["时长", formatDuration(sourceMeta?.duration)],
       ["采集时间", sourceCapturedAt ? new Date(sourceCapturedAt).toLocaleString("zh-CN", { hour12: false }) : "-"],
-      ["互动数据", `${formatCount(sourceMeta?.digg_count ?? task.play_count)} 赞 / ${formatCount(sourceMeta?.comment_count)} 评 / ${formatCount(sourceMeta?.share_count)} 转 / ${formatCount(sourceMeta?.collect_count)} 藏`],
+      ["互动数据", `${shown('likes',sourceMeta?.digg_count ?? task.play_count)} 赞 / ${shown('comments',sourceMeta?.comment_count)} 评 / ${shown('shares',sourceMeta?.share_count)} 转 / ${shown('saves',sourceMeta?.collect_count)} 藏`],
       ["配音快照", task.tts_source === 'external' ? '外部配音 · 上传后核对字幕' : voice ? `${voice} / ${task.tts_provider || "edge"}` : "Edge · 晓晓（zh-CN-XiaoxiaoNeural）"],
     ];
   }, [sourceCapturedAt, sourceMeta, task]);

@@ -27,7 +27,12 @@ def _write_task_meta(task_id: str, res) -> None:
     if res.play_count is not None:
         patch["play_count"] = res.play_count
     if res.author:
-        patch["author"] = res.author
+        patch["author"] = {**res.author, **({'source_engagement': {
+            'display': res.raw.get('stats_display', {}),
+            'exact': res.raw.get('stats_exact', {}),
+            'estimated': res.raw.get('stats_estimated', {}),
+            'collected_at': res.raw.get('stats_collected_at'),
+        }} if res.raw.get('source_platform') == 'wechat_channels' else {})}
     if patch:
         try:
             db.get_client().table("tasks").update(dict(patch)).eq("id", task_id).execute()

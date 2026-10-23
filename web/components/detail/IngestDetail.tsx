@@ -8,6 +8,7 @@ import { ManualUpload } from "@/components/ManualUpload";
 interface Meta {
   resolver?: string;
   stats_display?: {likes?:string;comments?:string;shares?:string;saves?:string};
+  stats_exact?: {likes?:number;comments?:number;shares?:number;saves?:number};
   digg_count?: number;
   comment_count?: number;
   share_count?: number;
@@ -61,6 +62,9 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   }, [stage?.output_ref, taskId]);
 
   const author = task.author as Record<string, string> | null;
+  const savedEngagement = (task.author as Record<string, unknown> | null)?.source_engagement as {display?:Record<string,string>;exact?:Record<string,number>} | undefined;
+  const metric = (key: "likes" | "comments" | "shares" | "saves", fallback?: number) =>
+    meta?.stats_display?.[key] ?? savedEngagement?.display?.[key] ?? fmt(meta?.stats_exact?.[key] ?? savedEngagement?.exact?.[key] ?? fallback);
   const purchaseComments = meta?.purchase_intent_comments || [];
   const purchaseTexts = new Set(purchaseComments.map(c => c.text.trim()));
   const hotComments = (meta?.hot_comments || []).filter(c => !purchaseTexts.has(c.text.trim()));
@@ -87,10 +91,10 @@ export function IngestDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       <section style={{ marginBottom: 24 }}>
         <Label>数据指标</Label>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <StatCard label="点赞数" value={meta?.stats_display?.likes ?? fmt(meta?.digg_count ?? task.play_count ?? undefined)} />
-          <StatCard label="评论数" value={meta?.stats_display?.comments ?? fmt(meta?.comment_count)} />
-          <StatCard label="分享数" value={meta?.stats_display?.shares ?? fmt(meta?.share_count)} />
-          <StatCard label="收藏数" value={meta?.stats_display?.saves ?? fmt(meta?.collect_count)} />
+          <StatCard label="点赞数" value={metric("likes",meta?.digg_count ?? task.play_count ?? undefined)} />
+          <StatCard label="评论数" value={metric("comments",meta?.comment_count)} />
+          <StatCard label="分享数" value={metric("shares",meta?.share_count)} />
+          <StatCard label="收藏数" value={metric("saves",meta?.collect_count)} />
         </div>
       </section>
 
