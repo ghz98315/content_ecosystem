@@ -89,7 +89,8 @@ def run(stage: dict) -> tuple[str, None]:
                 recognized=''.join(recognized_parts).strip()
             if not comparable(recognized):
                 raise ValueError('未识别到可对齐的人声，请检查音频')
-            recognition_cache={'source_sha256':source_hash,'recognized_text':recognized,'words':words}
+            recognition_cache={'source_sha256':source_hash,'recognized_text':recognized,'words':words,
+                               'pause_optimization':pause_report}
             cues,coverage=align(text,words,duration,repair=True)
             manual=previous.get('requested_cues') if (previous.get('pause_optimization') or {}).get('policy') == PAUSE_POLICY else None
             if manual is not None:

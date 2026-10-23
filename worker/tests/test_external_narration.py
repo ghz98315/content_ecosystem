@@ -45,7 +45,7 @@ class ExternalNarrationWorkerTests(unittest.TestCase):
             source_hash=hashlib.sha256(source.read_bytes()).hexdigest()
             row={'id':'version','original_path':'t/external/version/original.wav',
                  'size_bytes':source.stat().st_size,'script_text':'读经典。','subtitle_text':'读经典。',
-                 'review':{'source_sha256':source_hash,'recognized_text':'读经典',
+                 'review':{'source_sha256':source_hash,'pause_optimization':{'policy':'cap_internal_silence_1s_v1'},'recognized_text':'读经典',
                            'words':[{'word':'读经典','start':.5,'end':2.5}]}}
             client=MagicMock()
             client.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data=row
@@ -92,7 +92,7 @@ class ExternalNarrationWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             source=Path(tmp)/'original.mp3'
             subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-y','-v','error','-f','lavfi','-i','anullsrc=r=48000:cl=stereo','-t','4','-c:a','libmp3lame',str(source)],check=True,capture_output=True)
-            row={'id':'v','original_path':'t/external/v/original.mp3','size_bytes':source.stat().st_size,'script_text':'读经典。','subtitle_text':'读经典。','review':{'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'recognized_text':'读经典','words':[{'word':'读经典','start':.5,'end':2.5}]}}
+            row={'id':'v','original_path':'t/external/v/original.mp3','size_bytes':source.stat().st_size,'script_text':'读经典。','subtitle_text':'读经典。','review':{'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'pause_optimization':{'policy':'cap_internal_silence_1s_v1'},'recognized_text':'读经典','words':[{'word':'读经典','start':.5,'end':2.5}]}}
             client=MagicMock();client.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data=row
             with patch.object(external_narration.db,'get_client',return_value=client),patch.object(external_narration.storage,'download_artifact',return_value=str(source)),patch.object(external_narration,'_finish') as finish,patch.object(external_narration.storage,'upload') as upload,patch.object(external_narration.storage,'upload_bytes'):
                 external_narration.run({'id':'s','task_id':'t','params':{'external_id':'v','external_job':'j'}})

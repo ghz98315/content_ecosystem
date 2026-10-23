@@ -33,6 +33,16 @@ class SubtitleLimitTests(unittest.TestCase):
         self.assertEqual((2, 5), (repaired[0]["start"], repaired[-1]["end"]))
         self.assertTrue(all(visible_len(c["text"]) <= SUBTITLE_MAX_CHARS for c in repaired))
 
+    def test_zero_duration_asr_word_is_repaired_between_neighbours(self):
+        text = "甲乙丙丁戊己庚辛壬癸"
+        words = [{"word": char, "start": i * .3, "end": (i + 1) * .3} for i, char in enumerate(text)]
+        words[4] = {"word": "午", "start": 1.35, "end": 1.35}
+        cues, coverage = align(text, words, 3.2, repair=True)
+        self.assertGreater(coverage, .8)
+        self.assertEqual(text, "".join(c["text"] for c in cues))
+        self.assertTrue(all(c["end"] > c["start"] for c in cues))
+        validate_cues(text, cues, 3.2)
+
 
 if __name__ == "__main__":
     unittest.main()

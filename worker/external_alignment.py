@@ -152,7 +152,18 @@ def align(text: str, words: list[dict], duration: float, *, repair: bool = False
                     left = left + (right-left-span)/2
                     right = left + span
             if right <= left:
-                raise ValueError('音频缺少可用时间范围，无法自动定位字幕')
+                # Whisper occasionally assigns one syllable a zero-length
+                # timestamp. Keep it between its neighbours instead of
+                # failing an otherwise well-matched recording.
+                previous_end = times[c-1][1] if c else 0.0
+                next_start = times[d][0] if d < len(times) else duration
+                if next_start - previous_end <= .02:
+                    raise ValueError('音频缺少可用时间范围，无法自动定位字幕')
+                center = min(max(left, previous_end + .01), next_start - .01)
+                half_width = min(.08, (center - previous_end) / 2, (next_start - center) / 2)
+                if half_width <= 0:
+                    raise ValueError('音频缺少可用时间范围，无法自动定位字幕')
+                left, right = center - half_width, center + half_width
             step = (right-left)/(b-a)
             for i in range(a,b):
                 char_times[i] = (left+(i-a)*step, left+(i-a+1)*step)

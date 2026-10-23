@@ -83,3 +83,40 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '更新配音失败' }, { status: 409 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json();
+    const { user, admin, stage } = await context(request, String(body.stageId || ''));
+    const id = String(body.id || '');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error('无效配音版本');
+    if (stage.params?.external_id === id) throw new Error('当前使用的配音不可删除；请先上传新版本');
+    const { data: active, error: activeError } = await user.from('stages').select('id')
+      .eq('task_id', stage.task_id).in('kind', ['tts', 'render']).eq('status', 'processing').limit(1);
+    if (activeError) throw new Error(activeError.message);
+    if (active?.length) throw new Error('配音或成片正在处理，请完成后再删除');
+    const { data: version, error: versionError } = await user.from('external_narrations')
+      .select('id,original_path,audio_path,subtitle_path').eq('id', id).eq('stage_id', stage.id).single();
+    if (versionError || !version) throw new Error('配音版本不存在或无权删除');
+    const prefix = `${stage.task_id}/external/${id}/`;
+    const paths = [...new Set([version.original_path, version.audio_path, version.subtitle_path]
+      .filter((value): value is string => typeof value === 'string' && !!value))];
+    if (paths.some(path => !path.startsWith(prefix) || path.includes('\\') || path.split('/').some(part => part === '.' || part === '..'))) {
+      throw new Error('配音文件路径异常，已停止删除');
+    }
+    const { data: latestStage, error: latestError } = await admin.from('stages').select('params')
+      .eq('id', stage.id).single();
+    if (latestError || latestStage?.params?.external_id === id) throw new Error('配音版本正在使用，请刷新后重试');
+    const { error: deleteError } = await admin.from('external_narrations').delete().eq('id', id).eq('stage_id', stage.id);
+    if (deleteError) throw new Error(deleteError.message);
+    if (paths.length) {
+      const { error: artifactError } = await admin.from('artifacts').delete()
+        .eq('task_id', stage.task_id).in('storage_path', paths);
+      if (artifactError) throw new Error(`版本已删除，产物索引清理待重试：${artifactError.message}`);
+    }
+    const { error: storageError } = paths.length ? await admin.storage.from('artifacts').remove(paths) : { error: null };
+    return NextResponse.json({ ok: true, cleanupPending: Boolean(storageError) });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '删除配音版本失败' }, { status: 409 });
+  }
+}

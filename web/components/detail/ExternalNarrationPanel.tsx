@@ -88,6 +88,16 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       setUploadStatus('上传完成，等待识别与字幕对齐。');
     });
   };
+  const removeVersion = async (id: string) => {
+    if (!stage) return;
+    await perform(async () => {
+      const res = await fetch('/api/narration', { method: 'DELETE', headers: await authHeaders(), body: JSON.stringify({ stageId: stage.id, id }) });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || '删除配音版本失败');
+      await load();
+      setNotice(result.cleanupPending ? '版本记录已删除，文件清理由系统继续完成。' : '多余配音版本已删除。');
+    });
+  };
   const downloadScript = () => {
     const url = URL.createObjectURL(new Blob([payload?.script || ''], { type: 'text/plain;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = '确认朗读稿.txt'; link.click();
@@ -121,6 +131,9 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       {busy && <progress aria-label="配音文件上传或提交中" />}
       {(current?.state === 'queued' || stage?.status === 'processing') && <p role="status">正在识别人声、自动校正识别偏差并对齐字幕，完成后自动继续。</p>}
       {review?.error && <p role="alert">处理失败：{review.error}。可以重新上传或重新对齐。</p>}
+      {review?.error && current && <button type="button" className="secondary-action" disabled={!canEdit} onClick={() => void perform(async () => {
+        await action('realign', { id: current.id, text: draft.trim() }); setNotice('已复用当前录音重新自动对齐，无需再次上传。');
+      })}>复用当前录音重试对齐</button>}
       {review?.audio_expired_at && <p role="status">配音文件已按 48 小时保留规则清理；如需重新成片，请重新上传配音。</p>}
       {review?.pause_optimization?.applied && <p role="status">已自动缩短 {review.pause_optimization.shortened_count} 处超过 1 秒的静音停顿，共缩短约 {review.pause_optimization.removed_seconds?.toFixed(1)} 秒；字幕与成片使用处理后的配音。</p>}
       {review?.pause_optimization?.note && <p role="status">{review.pause_optimization.note}</p>}
@@ -136,14 +149,14 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
           await action('realign', { id: current!.id, text: draft.trim() }); setNotice('已提交自动校正，对齐完成后将直接继续。');
         })}>旧版记录：自动校正并继续</button>}
         <details><summary>可选：查看识别差异与微调字幕</summary>
-        <NarrationDifferencesPanel differences={review.subtitle_differences || review.differences || []}
+        {!review.error && <NarrationDifferencesPanel differences={review.subtitle_differences || review.differences || []}
           baseText={current!.subtitle_text} draft={draft} canEdit={canEdit} suggestionsReady={suggestionsReady}
           onApply={text => setDraft(text)}
           onSave={text => perform(async () => {
             await action('realign', { id: current!.id, text }); setNotice('字幕修改已保存，正在复用识别结果重新对齐。');
           })}
-          onPreview={(start, end) => preview({ text: '', start, end: Math.min(end, review.duration ?? end) })} />
-        {!suggestionsReady && <button type="button" className="secondary-action" disabled={!canEdit || !draft.trim()} onClick={() => void perform(async () => {
+          onPreview={(start, end) => preview({ text: '', start, end: Math.min(end, review.duration ?? end) })} />}
+        {!review.error && !suggestionsReady && <button type="button" className="secondary-action" disabled={!canEdit || !draft.trim()} onClick={() => void perform(async () => {
           await action('realign', { id: current!.id, text: draft.trim() }); setNotice('正在复用识别结果生成批量修改建议。');
         })}>生成批量修改建议</button>}
         <details><summary>查看完整识别文字及原确认稿差异</summary><pre>{review.recognized_text}</pre>
@@ -167,8 +180,9 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
         {dirtyTimes && <button type="button" className="secondary-action" disabled={!canEdit || changedText} onClick={() => void perform(() => action('realign', { id: current!.id, text: draft.trim(), cues }))}>校验并保存字幕时间</button>}
         </details>
       </>}
-      {!!payload?.versions?.length && <details><summary>配音版本记录</summary>{payload.versions.map(version => <p key={version.id}>{version.original_name} · {new Date(version.created_at).toLocaleString()} · {({ uploading: '尚未提交', queued: '等待处理', review: '待核对', approved: '已确认', failed: '处理失败' } as Record<string, string>)[version.state] || version.state}
+      {!!payload?.versions?.length && <details><summary>配音版本记录（{payload.versions.length}）</summary>{payload.versions.map(version => <p key={version.id}>{version.original_name} · {new Date(version.created_at).toLocaleString()} · {({ uploading: '尚未提交', queued: '等待处理', review: '待核对', approved: '已确认', failed: '处理失败' } as Record<string, string>)[version.state] || version.state}
         {version.state === 'uploading' && <button type="button" disabled={busy} onClick={() => void perform(() => action('submit', { id: version.id }))}>继续提交已上传文件</button>}
+        {version.id === current?.id ? <small> · 当前使用</small> : <button type="button" className="secondary-action" disabled={busy || stage?.status === 'processing'} onClick={() => void removeVersion(version.id)}>删除多余版本</button>}
       </p>)}</details>}
       {notice && <p role="status">{notice}</p>}
     </>}
