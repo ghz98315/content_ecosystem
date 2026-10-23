@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+const module={exports:{}};
+new Function('module','exports',ts.transpileModule(fs.readFileSync('lib/stockSelection.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(module,module.exports);
+const {defaultStockSelection,validateStockSelection}=module.exports;
+const asset={id:'a',duration:50};
+const plan={revision:'r',entries:[{duration:20,candidates:[asset]},{duration:20,candidates:[asset]},{duration:20,candidates:[asset]}]};
+const defaults=defaultStockSelection(plan);
+assert.equal(defaults[0].offset,0);assert.equal(defaults[1].offset,20.2);assert.equal(defaults[2].asset_id,'');
+assert.throws(()=>validateStockSelection(plan,defaults));
+assert.throws(()=>validateStockSelection({revision:'r',entries:[plan.entries[0]]},[{asset_id:'a',offset:NaN}]));
+assert.throws(()=>validateStockSelection({revision:'r',entries:[plan.entries[0]]},[{asset_id:'a',offset:40}]));
+assert.equal(validateStockSelection({revision:'r',entries:[plan.entries[0]]},[{asset_id:'a',offset:10}])[0].offset,10);
+console.log('PASS: review selection completeness, duration bounds, nonoverlapping defaults and insufficient coverage');

@@ -17,7 +17,8 @@ export function PipelineBar({ stages, selected, onSelect, clock }: { stages: Sta
   }, [selected]);
   const external = stages.find(stage => stage.kind === 'tts')?.params.audio_source === 'external';
   const scene = stages.some(stage=>stage.params.production_template==='scene-v1');
-  const definitions = (external ? [...STAGES.slice(0, 4), STAGES[6], STAGES[4], STAGES[5], STAGES[7]] : STAGES).map(item=>scene&&item.kind==='book'?{...item,label:'发布信息'}:item);
+  const stock = stages.some(stage=>stage.params.visual_mode==='stock_video');
+  const definitions = (external||stock ? [...STAGES.slice(0, 4), STAGES[6], STAGES[4], STAGES[5], STAGES[7]] : STAGES).map(item=>stock&&item.kind==='image'?{...item,label:'视频素材'}:scene&&item.kind==='book'?{...item,label:'发布信息'}:item);
   return <nav ref={navigation} className="pipeline-bar studio-pipeline" aria-label="处理流程节点">{definitions.map((def, index) => {
     const stage = stages.find(item => item.kind === def.kind);
     const status = stage?.status || 'pending';

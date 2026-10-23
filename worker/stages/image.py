@@ -1053,6 +1053,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     """Idempotent image stage: resume completed grids after an interruption."""
     validate_template(stage.get('params') or {}, 'image')
     validate_task_template(stage)
+    if (stage.get('params') or {}).get('visual_mode') == 'stock_video':
+        from stock_media import run as run_stock
+        return run_stock(stage)
     if (stage.get('params') or {}).get('production_template') == 'scene-v1':
         from scene_image import run as run_scene
         return run_scene(stage)

@@ -163,6 +163,8 @@ def claim_next_stage(task_id: str = "", allowed_kinds: tuple[str, ...] = ()) -> 
             audio_stage = sb.table('stages').select('status,params').eq('task_id',stage_task_id).eq('kind','tts').single().execute().data or {}
             if (audio_stage.get('params') or {}).get('audio_source') == 'external' and audio_stage.get('status') != 'done':
                 continue
+            if (stage.get('params') or {}).get('visual_mode') == 'stock_video' and audio_stage.get('status') != 'done':
+                continue
         task = (
             sb.table("tasks")
             .select("status,content_category,source_task_id")

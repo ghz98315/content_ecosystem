@@ -794,12 +794,13 @@ def run(stage: dict) -> tuple[str, str | None]:
         return run_scene(stage)
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
+    stock = (stage.get('params') or {}).get('visual_mode') == 'stock_video'
     render_started = time.monotonic()
     phase_seconds = {}
     _ACTIVE_DEADLINE = time.monotonic() + max(1.0, float(config.RENDER_TIMEOUT))
     print(f"  [render] 编码器：{'NVIDIA NVENC' if _nvenc_available() else 'CPU x264'}", flush=True)
     print("  [render] 读取图片索引", flush=True)
-    images_data = _load_json_artifact(task_id, "image_index")
+    images_data = _load_json_artifact(task_id, 'video_index' if stock else 'image_index')
     print("  [render] 读取字幕时间轴", flush=True)
     subs_data = _load_json_artifact(task_id, "subtitle")
     print("  [render] 读取书籍信息", flush=True)
@@ -829,7 +830,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error="缺少图片或音频产物（请确认 image/tts 阶段已完成）")
         return "failed", None
 
-    images: list[dict] = _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
+    images: list[dict] = (images_data if isinstance(images_data, list) else []) if stock else _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
     expected_template = (stage.get('params') or {}).get('production_template')
     picture_aspect = ('1:1' if (stage.get('params') or {}).get('template_version') == 2 else '4:3') if expected_template == 'guoxue-v1' else '4:3'
     picture_ratio = 1.0 if picture_aspect == '1:1' else 4/3
@@ -884,11 +885,11 @@ def run(stage: dict) -> tuple[str, str | None]:
             except OSError:
                 pass
         print(f"  [render] 布局就绪，开始编码 {len(images)} 个镜头", flush=True)
-        is_timeline_v3 = isinstance(subs_data, dict) and subs_data.get("input_format") == "timeline_v3"
+        is_timeline_v3 = stock or (isinstance(subs_data, dict) and subs_data.get("input_format") == "timeline_v3")
         timeline = _build_timeline(images, segments, tts_duration) if is_timeline_v3 else []
         if timeline:
             _validate_timeline(timeline, segments, tts_duration)
-            durations = _select_timeline_clip_durations(timeline, tts_duration)
+            durations = [item['duration'] for item in timeline] if stock else _select_timeline_clip_durations(timeline, tts_duration)
         else:
             durations = _allocate_durations(images, tts_duration)
             timeline = [
@@ -900,10 +901,10 @@ def run(stage: dict) -> tuple[str, str | None]:
         video_only = os.path.join(tmpdir, "video_only.mp4")
         cached = None
         try:
-            revision = db.get_client().table('artifacts').select('created_at').eq('task_id',task_id).eq('type','image_index').order('created_at',desc=True).limit(1).execute().data
+            revision = db.get_client().table('artifacts').select('created_at').eq('task_id',task_id).eq('type','video_index' if stock else 'image_index').order('created_at',desc=True).limit(1).execute().data
             if revision:
                 cached = picture_cache.cache_path(task_id, {
-                    'version':'subpixel-linear-zoom-16-v3', 'index_revision':revision[0]['created_at'],
+                    'version':'stock-source-motion-v1' if stock else 'subpixel-linear-zoom-16-v3', 'index_revision':revision[0]['created_at'],
                     'images':images, 'timeline':timeline, 'durations':durations,
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
                     'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
@@ -922,7 +923,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             except Exception:
                 cache_hit = False
         if cache_hit:
-            transition_mode = 'dissolve' if _use_dissolve(len(images), tts_duration) else 'hard_cut_long_timeline'
+            transition_mode = 'hard_cut_stock' if stock else ('dissolve' if _use_dissolve(len(images), tts_duration) else 'hard_cut_long_timeline')
             phase_seconds.update(image_clips_seconds=0, transitions_seconds=0, intro_join_seconds=0)
             print('  [render] 复用已校验的画面轨，只重新合成文字与配乐', flush=True)
         else:
@@ -930,6 +931,12 @@ def run(stage: dict) -> tuple[str, str | None]:
             clip_paths: list[str] = []
             for i, (item, duration) in enumerate(zip(images, durations)):
                 _check_deadline()
+                if stock:
+                    from stock_media import make_video_clip
+                    clip = os.path.join(tmpdir, f'clip_{i:03d}.mp4')
+                    make_video_clip(item, duration, clip, frame_mode=frame_mode, picture_ratio=picture_ratio)
+                    clip_paths.append(clip)
+                    continue
                 image_local = storage.download_artifact(item["path"], ".png")
                 clip = os.path.join(tmpdir, f"clip_{i:03d}.mp4")
                 try:
@@ -948,7 +955,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             content_mp4 = os.path.join(tmpdir, "content.mp4")
             transition_mode = "dissolve"
             if is_timeline_v3:
-                if _use_dissolve(len(clip_paths), tts_duration):
+                if not stock and _use_dissolve(len(clip_paths), tts_duration):
                     # Merge transitions in a balanced tree. This keeps the measured
                     # timeline exact without the truncation seen in one large xfade chain.
                     _compose_with_dissolve(clip_paths, durations, content_mp4)
@@ -1113,12 +1120,13 @@ def run(stage: dict) -> tuple[str, str | None]:
             "intro_duration": INTRO_DUR,
             "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
             "cover_frames": COVER_FRAMES,
-            "motion": "alternating_zoom_in_out" if landscape_layout else "zoom_in",
-            "zoom_amount": LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT,
+            "visual_mode": 'stock_video' if stock else 'ai_images',
+            "motion": 'source_motion' if stock else ("alternating_zoom_in_out" if landscape_layout else "zoom_in"),
+            "zoom_amount": 0 if stock else (LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT),
             "zoom_oversample": LANDSCAPE_WORK_SCALE if landscape_layout else ZOOM_OVERSAMPLE,
             "motion_render_scale": LANDSCAPE_RENDER_SCALE if landscape_layout else 1,
             "transition": transition_mode,
-            "transition_duration": TRANSITION_DUR,
+            "transition_duration": 0 if stock else TRANSITION_DUR,
             "timeline_version": 3 if is_timeline_v3 else 2,
             "layout": "guoxue_landscape_blur" if landscape_layout else "book_header_photo_subtitles_disclaimer",
             "text_layout": {**text_settings, 'requested_font': requested_font, 'font_fallback': font_fallback,

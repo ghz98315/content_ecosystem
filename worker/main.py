@@ -233,6 +233,8 @@ def main() -> None:
                         if result['removed'] or result['failures']:
                             print(f"  [retention] removed={result['removed']} bytes={result['removed_bytes']} failures={len(result['failures'])}", flush=True)
                         audio_result = cleanup_expired_external_audio(limit=50)
+                        from stock_media import cleanup_cache
+                        cleanup_cache()
                         if audio_result['removed'] or audio_result['failures']:
                             print(f"  [retention audio] removed={audio_result['removed']} bytes={audio_result['removed_bytes']} failures={len(audio_result['failures'])}", flush=True)
                     except Exception as exc:

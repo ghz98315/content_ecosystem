@@ -3,6 +3,7 @@ import { Stage, StageKind, Task } from "@/lib/types";
 import { IngestDetail }     from "./detail/IngestDetail";
 import { RewriteDetail }    from "./detail/RewriteDetail";
 import { ImageDetail }      from "./detail/ImageDetail";
+import { StockVideoDetail } from './detail/StockVideoDetail';
 import { BookDetail }       from "./detail/BookDetail";
 import { TtsDetail }        from "./detail/TtsDetail";
 import { RenderDetail }     from "./detail/RenderDetail";
@@ -26,7 +27,7 @@ export function StageDetail({ kind, stage, stages, taskId, task, onRerun, onAppr
       {kind === "ingest"     && <IngestDetail     {...common} />}
       {(kind === "transcribe" || kind === "clean") && <TranscriptCleanWorkbench stages={stages} onRerun={onRerun} />}
       {kind === "rewrite"    && <RewriteDetail    {...common} />}
-      {kind === "image"      && <ImageDetail      {...common} />}
+      {kind === "image"      && (stage?.params.visual_mode === 'stock_video' ? <StockVideoDetail {...common}/> : <ImageDetail {...common}/>)}
       {kind === "book"       && <BookDetail       {...common} />}
       {kind === "tts"        && <TtsDetail        {...common} />}
       {kind === "render"     && <RenderDetail     {...common} />}

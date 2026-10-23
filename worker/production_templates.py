@@ -13,7 +13,7 @@ def inherit_template(current: dict, source: dict, kind: str) -> dict:
     """Copy only the template contract, never old jobs, pictures or titles."""
     if current.get('production_template') or not source.get('production_template'):
         return current
-    keys = {'production_template', 'template_version', 'content_line'}
+    keys = {'production_template', 'template_version', 'content_line', 'visual_mode'}
     keys |= ({'visual_style','visual_preset_id','image_aspect_ratio','image_provider','image_model','grid_resolution'}
              if kind == 'image' else {'frame_mode','title_font','title_color'})
     result = {**current, **{key: source[key] for key in keys if key in source}}
@@ -53,6 +53,9 @@ def validate_task_template(stage: dict) -> None:
         raise ValueError('画面模板快照不完整，请重新保存任务模板')
     for kind in ('image','render'):
         validate_template(snapshots[kind],kind)
+    modes=[snapshots[kind].get('visual_mode','ai_images') for kind in ('image','render')]
+    if modes[0]!=modes[1] or modes[0] not in {'ai_images','stock_video'}:
+        raise ValueError('素材与成片的画面来源不一致，请重新保存任务配置')
     if snapshots['image'].get('production_template') != snapshots['render'].get('production_template'):
         raise ValueError('生图与成片模板不一致，请统一后重试；已有产物已保留')
     if snapshots['image'].get('template_version') != snapshots['render'].get('template_version'):

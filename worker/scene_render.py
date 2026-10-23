@@ -100,12 +100,13 @@ def run(stage: dict):
     from stages import render as r
     task_id=stage['task_id']
     params=stage.get('params') or {}
+    stock=params.get('visual_mode')=='stock_video'
     started=time.monotonic()
     previous_deadline=r._ACTIVE_DEADLINE
     r._ACTIVE_DEADLINE=started+config.RENDER_TIMEOUT
     audio=None
     try:
-        images=r._apply_image_replacements(task_id,r._load_json_artifact(task_id,'image_index') or [])
+        images=(r._load_json_artifact(task_id,'video_index') or []) if stock else r._apply_image_replacements(task_id,r._load_json_artifact(task_id,'image_index') or [])
         subs=r._load_json_artifact(task_id,'subtitle') or {}
         audio_stage=db.get_client().table('stages').select('status,params,output_ref').eq('task_id',task_id).eq('kind','tts').single().execute().data or {}
         if (audio_stage.get('params') or {}).get('audio_source')=='external':
@@ -133,11 +134,11 @@ def run(stage: dict):
         saved=params.get('video_text') or {}
         title=str(saved.get('title',params.get('main_title') or defaults['title'])).strip()
         subtitle=str(saved.get('subtitle',params.get('subtitle') or defaults['subtitle'])).strip()
-        footnote=str(saved.get('footnote',params.get('footnote','图片由AI生成'))).strip()
+        footnote=str(saved.get('footnote',params.get('footnote','视频素材经剪辑配音' if stock else '图片由AI生成'))).strip()
         phase={}
         with tempfile.TemporaryDirectory(prefix='scene-render-') as temp:
             temp=Path(temp)
-            cover=storage.download_artifact(images[0]['cover_path'],'.png')
+            cover=storage.download_artifact(images[0].get('cover_path') or images[0]['path'],'.png')
             try:
                 make_cover(cover,str(temp/'cover.png'),title,subtitle)
                 make_cover(cover,str(temp/'publication-cover.png'),title,subtitle,footnote)
@@ -150,6 +151,12 @@ def run(stage: dict):
                 frame_end=total_frames if index==len(timeline)-1 else round(item['end']*FPS)
                 frames=frame_end-frame_start
                 if frames<=0:
+                    continue
+                if stock:
+                    from stock_media import make_video_clip
+                    clip=temp/f'body_{index:03d}.mp4'
+                    make_video_clip(images[index],frames/FPS,str(clip),frame_mode='scene_fullscreen',source_offset=COVER_SECONDS if index==0 else 0)
+                    clips.append(clip)
                     continue
                 source=storage.download_artifact(item['path'],'.png')
                 clip=temp/f'body_{index:03d}.mp4'
@@ -196,7 +203,8 @@ def run(stage: dict):
                 'cover_frames':15,'cover_duration':0.5,'intro_duration':0,'audio_offset_seconds':0,
                 'cover':'independent_cover','publication_cover':cover_path,'title_visibility':'cover_only',
                 'footnote_visibility':'full_video','text_layout':{'title':title,'subtitle':subtitle,'footnote':footnote},
-                'motion':'alternating_zoom_in_out','zoom_amount':SCENE_ZOOM_AMOUNT,
+                'visual_mode':'stock_video' if stock else 'ai_images',
+                'motion':'source_motion' if stock else 'alternating_zoom_in_out','zoom_amount':0 if stock else SCENE_ZOOM_AMOUNT,
                 'motion_curve':'linear','motion_work_scale':SCENE_ZOOM_WORK_SCALE,'layout':'scene_fullscreen',
                 'quality_status':quality['status'],'quality_report':quality_path,'phase_seconds':phase,
                 'processing_seconds':round(time.monotonic()-started,3),'file_size_bytes':(temp/'final.mp4').stat().st_size,

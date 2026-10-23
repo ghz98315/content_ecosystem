@@ -15,7 +15,8 @@ export async function configureProductionTasks(client: any, taskIds: string[], t
   const template = productionTemplate(templateId);
   const version = template.category === 'guoxue' ? 2 : 1;
   const imageParams = { ...image, production_template: template.id, template_version: version, content_line: template.category, visual_style: template.style, visual_preset_id: template.preset, image_aspect_ratio: template.aspect, ...(template.gridResolution ? { grid_resolution: template.gridResolution } : {}) };
-  const renderParams = { production_template: template.id, template_version: version, content_line: template.category, title_font: template.font, title_color: template.color, frame_mode: template.frameMode, ...(template.category === 'scene' ? {footnote:'图片由AI生成', cover_duration:0.5} : {}) };
+  const stock = image.visual_mode === 'stock_video';
+  const renderParams = { production_template: template.id, template_version: version, content_line: template.category, title_font: template.font, title_color: template.color, frame_mode: template.frameMode, visual_mode: stock ? 'stock_video' : 'ai_images', ...(template.category === 'scene' ? {footnote:stock?'':'图片由AI生成', cover_duration:0.5} : {}) };
   const { data: rewriteStages, error: rewriteError } = await client.from('stages').select('id,task_id,params').in('task_id', taskIds).eq('kind', 'rewrite');
   if (rewriteError || rewriteStages?.length !== taskIds.length) throw new Error(rewriteError?.message || '文案规则快照不完整，请重试');
   for (const stage of rewriteStages) {
