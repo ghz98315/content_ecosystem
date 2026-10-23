@@ -32,10 +32,10 @@ class GuoxueLayoutTests(unittest.TestCase):
             path=Path(temp)/'font.ass'
             _make_ass([],str(path),title='主标题',subtitle='副标题',title_font='PlayFont-ChenkunGBT',duration=2,landscape_layout=True)
             content=path.read_text(encoding='utf-8-sig')
-            self.assertIn('Style: Heading,PlayFont-ChenkunGBT,88,&H003B41BA,&H000000FF,&H00F1F3F5,',content)
-            self.assertIn('Style: Subheading,KaiTi,52,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
+            self.assertIn('Style: Heading,PlayFont-ChenkunGBT,92,&H003B41BA,&H000000FF,&H00F1F3F5,',content)
+            self.assertIn('Style: Subheading,KaiTi,56,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
             self.assertIn('Style: Default,PlayFont-ChenkunGBT,72,&H00FFFFFF,',content)
-            self.assertIn('Style: Footnote,KaiTi,28,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
+            self.assertIn('Style: Footnote,KaiTi,32,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
         with self.assertRaises(ValueError):
             _make_ass([], 'unused.ass', title_color='red,invalid')
 
@@ -50,10 +50,31 @@ class GuoxueLayoutTests(unittest.TestCase):
             path = Path(temp) / 'sample.ass'
             _make_ass([], str(path), title='长'*32, subtitle='副'*48, footnote='脚注', duration=2, landscape_layout=True)
             content = path.read_text(encoding='utf-8-sig')
-            self.assertIn(r'\an2\pos(540,427)', content)
-            self.assertIn(r'\an2\pos(540,503)', content)
+            self.assertIn(r'\an2\pos(540,419)', content)
+            self.assertIn(r'\an2\pos(540,499)', content)
             self.assertIn(r'\an9\pos(1010,1393)', content)
             self.assertIn(r'\fs26\q2', content)
+
+    def test_square_picture_moves_all_three_text_anchors(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'square.ass'
+            _make_ass([],str(path),title='主标题',subtitle='副标题',footnote='脚注',duration=2,landscape_layout=True,picture_ratio=1)
+            content=path.read_text(encoding='utf-8-sig')
+            self.assertIn(r'\an2\pos(540,284)',content)
+            self.assertIn(r'\an2\pos(540,364)',content)
+            self.assertIn(r'\an9\pos(1010,1528)',content)
+            self.assertIn('Style: Footnote,KaiTi,32,',content)
+        from PIL import Image
+        from stages.image import _split_grid
+        import io
+        source=io.BytesIO()
+        Image.new('RGB',(2048,2048),'#d8d0bd').save(source,format='PNG')
+        cells=_split_grid(source.getvalue(),4,grid_cells=2,cell_ratio=1.0)
+        self.assertEqual(len(cells),4)
+        for cell in cells:
+            with Image.open(io.BytesIO(cell)) as image:
+                self.assertEqual(image.width,image.height)
+        self.assertIn('1:1',grid_prompt(['书房静读'],grid_cells=2,aspect='1:1'))
 
     def test_landscape_composition_keeps_full_foreground(self):
         from PIL import Image

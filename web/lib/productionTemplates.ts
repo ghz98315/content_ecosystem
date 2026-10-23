@@ -1,6 +1,6 @@
 import manifest from './productionTemplateManifest.json';
 export type ProductionTemplateId = 'guoxue-v1' | 'health-v1' | 'history-v1' | 'education-v1' | 'scene-v1';
-type TemplateDefinition = { id:ProductionTemplateId; label:string; category:'guoxue'|'health'|'social_science'|'education'|'scene'; databaseCategory?:'education'; style:string; preset:string; aspect:'4:3'|'9:16'; frameMode:'landscape_blur'|'portrait'|'scene_fullscreen'; gridCells:number; gridResolution?:'2k'; font:string; color:string };
+type TemplateDefinition = { id:ProductionTemplateId; label:string; category:'guoxue'|'health'|'social_science'|'education'|'scene'; databaseCategory?:'education'; style:string; preset:string; aspect:'1:1'|'4:3'|'9:16'; frameMode:'landscape_blur'|'portrait'|'scene_fullscreen'; gridCells:number; gridResolution?:'2k'; font:string; color:string };
 /** Shared by the website and Worker: one source for the visual contract. */
 export const PRODUCTION_TEMPLATES = manifest as readonly TemplateDefinition[];
 export function productionTemplate(id: string) {
@@ -13,8 +13,9 @@ export function productionTemplate(id: string) {
 export function databaseCategory(id: string) { const template=productionTemplate(id); return template.databaseCategory || template.category; }
 export async function configureProductionTasks(client: any, taskIds: string[], templateId: string, image: Record<string, unknown> = {}) {
   const template = productionTemplate(templateId);
-  const imageParams = { ...image, production_template: template.id, template_version: 1, content_line: template.category, visual_style: template.style, visual_preset_id: template.preset, image_aspect_ratio: template.aspect, ...(template.gridResolution ? { grid_resolution: template.gridResolution } : {}) };
-  const renderParams = { production_template: template.id, template_version: 1, content_line: template.category, title_font: template.font, title_color: template.color, frame_mode: template.frameMode, ...(template.category === 'scene' ? {footnote:'图片由AI生成', cover_duration:0.5} : {}) };
+  const version = template.category === 'guoxue' ? 2 : 1;
+  const imageParams = { ...image, production_template: template.id, template_version: version, content_line: template.category, visual_style: template.style, visual_preset_id: template.preset, image_aspect_ratio: template.aspect, ...(template.gridResolution ? { grid_resolution: template.gridResolution } : {}) };
+  const renderParams = { production_template: template.id, template_version: version, content_line: template.category, title_font: template.font, title_color: template.color, frame_mode: template.frameMode, ...(template.category === 'scene' ? {footnote:'图片由AI生成', cover_duration:0.5} : {}) };
   const { data: rewriteStages, error: rewriteError } = await client.from('stages').select('id,task_id,params').in('task_id', taskIds).eq('kind', 'rewrite');
   if (rewriteError || rewriteStages?.length !== taskIds.length) throw new Error(rewriteError?.message || '文案规则快照不完整，请重试');
   for (const stage of rewriteStages) {

@@ -231,6 +231,7 @@ def _make_ass(
     landscape_layout: bool = False,
     subtitle_font: str | None = None, title_color: str = "#BA413B",
     narration_font: str | None = None, footnote_font: str | None = None,
+    picture_ratio: float = 4/3,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
@@ -260,18 +261,18 @@ def _make_ass(
         "Encoding\n"
         f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,"
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
-        f"Style: Heading,{title_font},88,{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
-        f"Style: Subheading,{subtitle_font},52,{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
-        f"Style: Footnote,{footnote_font},28,{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{2 if landscape_layout else 1.5},0,3,70,70,110,1\n\n"
+        f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
+        f"Style: Subheading,{subtitle_font},{56 if landscape_layout else 52},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
+        f"Style: Footnote,{footnote_font},{32 if landscape_layout else 28},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{2 if landscape_layout else 1.5},0,3,70,70,110,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
-    # Anchor text to the actual 4:3 picture edges, rather than the video edges.
-    picture_top = (H - round(W * 3 / 4)) // 2
+    # Anchor text to the actual picture edges, rather than the video edges.
+    picture_top = (H - round(W / picture_ratio)) // 2
     picture_bottom = H - picture_top
     positions = {
-        'Heading': (2, W // 2, picture_top - 52 - 52 - 24),
-        'Subheading': (2, W // 2, picture_top - 52),
+        'Heading': (2, W // 2, picture_top - 56 - 56 - 24),
+        'Subheading': (2, W // 2, picture_top - 56),
         'Footnote': (9, W - 70, picture_bottom + 28),
     }
     overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
@@ -280,7 +281,7 @@ def _make_ass(
             placement = ''
             if landscape_layout:
                 alignment, x, y = positions[style]
-                base_size = {'Heading': 88, 'Subheading': 52, 'Footnote': 28}[style]
+                base_size = {'Heading': 92, 'Subheading': 56, 'Footnote': 32}[style]
                 units = sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in value)
                 spacing = 2 if style == 'Heading' else 0
                 size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
@@ -498,12 +499,12 @@ def _make_layout_frame(
 def _is_landscape_art(img_path: str) -> bool:
     from PIL import Image
     with Image.open(img_path) as source:
-        return abs(source.width / source.height - 4 / 3) < 0.02
+        return any(abs(source.width / source.height - ratio) < 0.02 for ratio in (1, 4 / 3))
 
 
-def _landscape_composition_graph() -> str:
+def _landscape_composition_graph(picture_ratio: float = 4/3) -> str:
     """Keep the complete landscape artwork; only the backdrop is cropped/blurred."""
-    foreground_h = round(W * 3 / 4)
+    foreground_h = round(W / picture_ratio)
     foreground_y = (H - foreground_h) // 2
     return (
         '[0:v]split=2[bgsource][fgsource];'
@@ -515,11 +516,11 @@ def _landscape_composition_graph() -> str:
     )
 
 
-def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion: str | None = None) -> None:
-    # Bake the blurred backdrop once; animate only the 4:3 foreground viewport.
+def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion: str | None = None, picture_ratio: float = 4/3) -> None:
+    # Bake the blurred backdrop once; animate only the foreground viewport.
     from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-    foreground_h = round(W * 3 / 4)
+    foreground_h = round(W / picture_ratio)
     foreground_y = (H - foreground_h) // 2
     still_path = str(Path(out_mp4).with_suffix('.png'))
     with Image.open(img_path) as source:
@@ -566,10 +567,10 @@ def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion
         Path(still_path).unlink(missing_ok=True)
 
 
-def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None) -> None:
+def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None, picture_ratio: float = 4/3) -> None:
     """Hold the first image frame as the short cover instead of a title card."""
     if frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(img_path)):
-        return _make_landscape_clip(img_path, duration, out_mp4)
+        return _make_landscape_clip(img_path, duration, out_mp4, picture_ratio=picture_ratio)
     graph = (
         f"[0:v]scale={W}:{PHOTO_H}:force_original_aspect_ratio=increase:flags=lanczos,"
         f"crop={W}:{PHOTO_H}[photo];"
@@ -584,9 +585,9 @@ def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: 
     ], check=True, capture_output=True)
 
 
-def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None, shot_index: int = 0) -> None:
+def _make_image_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None, shot_index: int = 0, picture_ratio: float = 4/3) -> None:
     if frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(img_path)):
-        return _make_landscape_clip(img_path, duration, out_mp4, motion='zoom_in' if shot_index % 2 == 0 else 'zoom_out')
+        return _make_landscape_clip(img_path, duration, out_mp4, motion='zoom_in' if shot_index % 2 == 0 else 'zoom_out', picture_ratio=picture_ratio)
     frames = max(2, round(duration * FPS))
     zoom_denominator = frames - 1
     zoom_easing = (
@@ -828,9 +829,11 @@ def run(stage: dict) -> tuple[str, str | None]:
         return "failed", None
 
     images: list[dict] = _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
-    expected_ratio = (stage.get('params') or {}).get('production_template')
-    if expected_ratio == 'guoxue-v1' and any(image.get('cell_ratio') not in (None,'4:3') for image in images):
-        raise ValueError('已有图片比例与国学4:3模板不一致，请重新生图；旧成片已保留')
+    expected_template = (stage.get('params') or {}).get('production_template')
+    picture_aspect = ('1:1' if (stage.get('params') or {}).get('template_version') == 2 else '4:3') if expected_template == 'guoxue-v1' else '4:3'
+    picture_ratio = 1.0 if picture_aspect == '1:1' else 4/3
+    if expected_template == 'guoxue-v1' and any(image.get('cell_ratio') not in (None,picture_aspect) for image in images):
+        raise ValueError(f'已有图片比例与国学{picture_aspect}模板不一致，请重新生图；旧成片已保留')
     segments: list[dict] = subs_data.get("segments", []) if isinstance(subs_data, dict) else []
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
@@ -873,7 +876,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         try:
             frame_mode = (stage.get('params') or {}).get('frame_mode')
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
-            _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode)
+            _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
         finally:
             try:
                 os.remove(cover_local)
@@ -929,7 +932,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 image_local = storage.download_artifact(item["path"], ".png")
                 clip = os.path.join(tmpdir, f"clip_{i:03d}.mp4")
                 try:
-                    _make_image_clip(image_local, layout_png, duration, clip, frame_mode=frame_mode, shot_index=i)
+                    _make_image_clip(image_local, layout_png, duration, clip, frame_mode=frame_mode, shot_index=i, picture_ratio=picture_ratio)
                 finally:
                     try:
                         os.remove(image_local)
@@ -993,7 +996,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
         text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
-        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, **text_settings)
+        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, picture_ratio=picture_ratio, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
         render_args = [
@@ -1118,7 +1121,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "timeline_version": 3 if is_timeline_v3 else 2,
             "layout": "guoxue_landscape_blur" if landscape_layout else "book_header_photo_subtitles_disclaimer",
             "text_layout": {**text_settings, 'requested_font': requested_font, 'font_fallback': font_fallback,
-                            'landscape_layout': landscape_layout, 'picture_text_gap': {'above': 52, 'below': 28} if landscape_layout else None},
+                            'landscape_layout': landscape_layout, 'picture_aspect_ratio': picture_aspect if landscape_layout else None,
+                            'picture_text_gap': {'above': 56, 'below': 28} if landscape_layout else None},
             "encoding_crf": config.RENDER_CRF,
             "encoding_video_bitrate_kbps": target_kbps,
             "file_size_bytes": os.path.getsize(final),

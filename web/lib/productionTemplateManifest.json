@@ -15,11 +15,11 @@
   },
   {
     "id": "guoxue-v1",
-    "label": "国学 · 工笔淡墨 · 4:3四宫格（2K）",
+    "label": "国学 · 工笔淡墨 · 1:1四宫格（2K）",
     "category": "guoxue",
     "style": "guoxue_gongbi_life",
     "preset": "guoxue-gongbi-life",
-    "aspect": "4:3",
+    "aspect": "1:1",
     "frameMode": "landscape_blur",
     "gridCells": 2,
     "gridResolution": "2k",

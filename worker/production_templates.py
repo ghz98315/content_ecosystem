@@ -25,9 +25,12 @@ def validate_template(params: dict, kind: str) -> None:
     template = params.get('production_template')
     if not template:  # Existing tasks retain their original snapshot.
         return
-    if template not in TEMPLATES or params.get('template_version') != 1:
+    version=params.get('template_version')
+    if template not in TEMPLATES or version not in ({1,2} if template == 'guoxue-v1' else {1}):
         raise ValueError('未支持的成片模板版本，请检查任务配置')
     style, aspect, frame_mode = TEMPLATES[template]
+    if template == 'guoxue-v1' and version == 1:
+        aspect='4:3'
     expected = {'visual_style': style, 'image_aspect_ratio': aspect} if kind == 'image' else {'frame_mode': frame_mode}
     if any(params.get(key) != value for key, value in expected.items()):
         raise ValueError('内容模板与画面配置不一致，已停止以避免不同内容类型混用')
@@ -52,6 +55,8 @@ def validate_task_template(stage: dict) -> None:
         validate_template(snapshots[kind],kind)
     if snapshots['image'].get('production_template') != snapshots['render'].get('production_template'):
         raise ValueError('生图与成片模板不一致，请统一后重试；已有产物已保留')
+    if snapshots['image'].get('template_version') != snapshots['render'].get('template_version'):
+        raise ValueError('生图与成片模板版本不一致，请统一后重试；已有产物已保留')
     line = snapshots['image'].get('content_line')
     if line:
         if snapshots['render'].get('content_line') != line or snapshots.get('rewrite',{}).get('content_line') != line:

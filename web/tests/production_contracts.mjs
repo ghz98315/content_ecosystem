@@ -1,16 +1,17 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
-function load(file,requireImpl) { const module={exports:{}};new Function('module','exports','require',ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(module,module.exports,requireImpl);return module.exports; }
+function load(file,requireImpl) { const module={exports:{}};const localRequire=requireImpl||((name)=>{if(name.endsWith('.json'))return {default:JSON.parse(fs.readFileSync(path.resolve(path.dirname(file),name),'utf8'))};throw new Error(`Unsupported import: ${name}`);});new Function('module','exports','require',ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(module,module.exports,localRequire);return module.exports; }
 const {productionTemplate,configureProductionTasks}=load('lib/productionTemplates.ts');
 const {workflowTiming,unionMilliseconds,nodeClock,clockLabel}=load('lib/workflowTiming.ts');
-assert.equal(productionTemplate('guoxue-v1').aspect,'4:3');
+assert.equal(productionTemplate('guoxue-v1').aspect,'1:1');
 assert.equal(productionTemplate('health-v1').aspect,'9:16');
 assert.throws(()=>productionTemplate('unknown'));
-function client(fail=false){const calls=[];return {calls,from(table){let payload;return {update(value){payload=value;return this;},in(){return this;},eq(){return this;},select(){calls.push({table,payload});return Promise.resolve(fail?{error:{message:'denied'}}:{data:[{id:'x'}]});}};}};}
+function client(fail=false){const calls=[];return {calls,from(table){let payload;return {update(value){payload=value;return this;},in(){return this;},eq(){return this;},select(){if(payload===undefined)return this;calls.push({table,payload});return Promise.resolve(fail?{error:{message:'denied'}}:{data:[{id:'x',task_id:'x',params:{}}]});},then(resolve,reject){return Promise.resolve(fail?{error:{message:'denied'}}:{data:[{id:'x',task_id:'x',params:{}}]}).then(resolve,reject);}};}};}
 let db=client();await configureProductionTasks(db,['x'],'guoxue-v1');
-assert.equal(db.calls.length,3);assert.equal(db.calls[0].payload.params.image_aspect_ratio,'4:3');assert.equal(db.calls[1].payload.params.production_template,'guoxue-v1');assert.equal(db.calls[2].payload.status,'pending');
-db=client(true);await assert.rejects(configureProductionTasks(db,['x'],'health-v1'));assert.equal(db.calls.length,1);
+assert.equal(db.calls.length,4);assert.equal(db.calls[1].payload.params.image_aspect_ratio,'1:1');assert.equal(db.calls[1].payload.params.template_version,2);assert.equal(db.calls[2].payload.params.production_template,'guoxue-v1');assert.equal(db.calls[3].payload.status,'pending');
+db=client(true);await assert.rejects(configureProductionTasks(db,['x'],'health-v1'));assert.equal(db.calls.length,0);
 assert.equal(unionMilliseconds([[0,100],[50,200],[300,400]]),300);
 const stages=[{id:'s',kind:'render',status:'done',updated_at:'2026-10-16T00:01:00Z',params:{}}];
 const records=[{type:'stage_timing',stage_kind:'render',meta:{stage_id:'s',started_at:'2026-10-16T00:00:10Z',ended_at:'2026-10-16T00:00:40Z',state:'finished'}},{type:'final',created_at:'2026-10-16T00:01:00Z',meta:{}}];

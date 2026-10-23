@@ -116,7 +116,7 @@ function VideoCollectionContent() {
   const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
   const [voiceSampleState, setVoiceSampleState] = useState<"idle" | "loading" | "missing" | "error">("idle");
   const historyVisualStyles = [
-    { id: "guoxue_gongbi_life", presetId: "guoxue-gongbi-life", label: "国学：参考图工笔淡墨", note: "4K四宫格、4:3横图、每镜约30秒，竖版同图模糊填充" },
+    { id: "guoxue_gongbi_life", presetId: "guoxue-gongbi-life", label: "国学：参考图工笔淡墨", note: "2K四宫格、1:1方图、竖版同图模糊填充" },
     { id: "history_heroic", presetId: "history-documentary", label: "正统帝王画卷·朝代考据", note: "工笔院体、朝代服化道考据、明朗庙堂构图" },
     { id: "history_ink_scroll", presetId: "history-ink-scroll", label: "工笔淡彩·古代世情", note: "熟宣淡彩、庭院人情、微表情与关系叙事" },
     { id: "history_gongbi_cinematic", presetId: "history-gongbi-cinematic", label: "工笔淡彩·民国近代", note: "青砖书房、长幼互动、民国服化道锁定" },
@@ -437,7 +437,7 @@ function VideoCollectionContent() {
         <div className="collection-import-footer">
           <div className="collection-voice-setting"><span>画面风格（由成片模板决定）</span><strong>{productionTemplate(productionTemplateId).label}</strong><small>构图比例与字体排版统一保存，不随文案规则切换。</small></div>
           <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
-      {(contentCategory === "social_science" || productionTemplateId === "guoxue-v1") && <section className="collection-import" aria-label="历史视觉风格预览"><div><h2>历史风格预览</h2><p>预览图用于确认整体画面方向，任务创建后随风格快照保存。</p></div><div className="collection-import-footer"><img src={`/history-style-previews/${visualStyle === "guoxue_gongbi_life" ? "guoxue-gongbi-life" : visualStyle === "history_ink_scroll" ? "history-ink-scroll" : visualStyle === "history_gongbi_cinematic" ? "history-gongbi-cinematic" : "history-heroic"}.png`} alt="历史类视觉风格预览" style={{ display: "block", width: "min(100%, 520px)", aspectRatio: visualStyle === "guoxue_gongbi_life" ? "4 / 3" : "3 / 2", objectFit: "cover", borderRadius: 6, border: "1px solid #d7d1c7" }} /></div></section>}
+      {(contentCategory === "social_science" || productionTemplateId === "guoxue-v1") && <section className="collection-import" aria-label="历史视觉风格预览"><div><h2>历史风格预览</h2><p>预览图用于确认整体画面方向，任务创建后随风格快照保存。</p></div><div className="collection-import-footer"><img src={`/history-style-previews/${visualStyle === "guoxue_gongbi_life" ? "guoxue-gongbi-life" : visualStyle === "history_ink_scroll" ? "history-ink-scroll" : visualStyle === "history_gongbi_cinematic" ? "history-gongbi-cinematic" : "history-heroic"}.png`} alt="历史类视觉风格预览" style={{ display: "block", width: "min(100%, 520px)", aspectRatio: visualStyle === "guoxue_gongbi_life" ? "1 / 1" : "3 / 2", objectFit: "cover", borderRadius: 6, border: "1px solid #d7d1c7" }} /></div></section>}
         <div className="collection-import-footer">
 
           <div className="collection-voice-setting"><span>生成方式</span><select value={generationMode} onChange={event => setGenerationMode(event.target.value as "prompt" | "reference_image" | "hybrid")} aria-label="视觉生成方式"><option value="prompt">提示词风格</option><option value="reference_image">参考图片</option><option value="hybrid">提示词 + 参考图片</option></select><small>{generationMode === "prompt" ? "仅使用镜头提示词与类别预设。" : "待绑定已授权素材；供应商不支持图片输入时自动降级为提示词。"}</small></div>

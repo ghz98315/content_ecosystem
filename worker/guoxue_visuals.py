@@ -12,7 +12,7 @@ BASE = (
     '人物面容写实温厚，古代文士束发髻、宽袖交领素色长袍，衣纹细线清晰，手部自然；'
     '服饰、木案、卷轴、笔砚、松竹与远山属于统一古代语境，不出现近现代服饰和器物。'
     '这是文案哲理的古代生活视觉演绎，不把现代生活事件伪装成史实，不在图中重现社保房贷等现代物件。'
-    '前景案头器物、中景文士动作、后景松竹月色或山水形成疏密纵深；横向构图完整交代人物和环境。'
+    '前景案头器物、中景文士动作、后景松竹月色或山水形成疏密纵深；完整交代人物和环境。'
 )
 NEGATIVE = (
     '严禁Nike、Swoosh、Adidas、品牌Logo、商标、运动鞋、球鞋、胶底鞋、背包、双肩包、斜挎包、'
@@ -52,21 +52,21 @@ def scene_direction(text: str, index: int) -> str:
     )
 
 
-def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 2) -> str:
+def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 2, aspect: str = '4:3') -> str:
     if grid_cells not in (2, 3):
         raise ValueError('国学宫格仅支持2x2或3x3')
     cell_count = grid_cells * grid_cells
     directions = [scene_direction(text, i) for i, text in enumerate(scenes)]
     if cover and directions:
         directions[0] = ('独立封面视觉：凝聚全文哲理共鸣，古代文士或长者通过自然动作与克制神态表现主题，'
-                         '前景笔砚卷轴、中景人物、后景松竹月色或古朴庭院，疏朗横向构图；不是正文第一个镜头的重复。'
+                         '前景笔砚卷轴、中景人物、后景松竹月色或古朴庭院，疏朗构图；不是正文第一个镜头的重复。'
                          + directions[0])
     while len(directions) < cell_count:
         directions.append('传统庭院与远山生活空镜，清朗自然天光，无文字、无现代物件。')
     grid_label = '四宫格' if grid_cells == 2 else '九宫格'
     return (
-        f'生成一张4:3横版源图，严格{grid_cells}行{grid_cells}列{grid_label}，{cell_count}个等大格子按行从左至右对应下列镜头。'
-        '每格都是完整的4:3横版构图，人物、手部、卷轴完整保留，不生成竖图，不在图内添加模糊填充。'
+        f'生成一张{aspect}源图，严格{grid_cells}行{grid_cells}列{grid_label}，{cell_count}个等大格子按行从左至右对应下列镜头。'
+        f'每格都是完整的{aspect}构图，人物、手部、卷轴完整保留，不生成竖图，不在图内添加模糊填充。'
         '不要分隔线、边框、间隙、编号；细节优先用于人物线条、衣料、手工布鞋和景深，不用模糊掩盖细节。'
         + BASE + '负面约束：' + NEGATIVE
         + '所有文字由后期合成：书皮、木招牌、中堂条幅一律不写字，避免乱码。'
@@ -74,13 +74,13 @@ def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 2) -> 
         + '\n'.join(f'{i+1}. {value}' for i, value in enumerate(directions[:cell_count]))
         + '\n参考图只决定笔触、宣纸肌理、设色和光影：灰米纸底、浓淡墨线、松树苍劲枝干、肤色温和、灰蓝远山。'
         '每格根据分镜重新构图；不要复制参考图的人物姿态、月亮位置、书中文字或单幅构图。'
-        '超高细节，古典工笔淡墨，细腻宣纸墨韵，低饱和淡彩，松竹山水与文人生活气韵，4:3横向构图。'
+        f'超高细节，古典工笔淡墨，细腻宣纸墨韵，低饱和淡彩，松竹山水与文人生活气韵，{aspect}构图。'
     )
 
 
-def single_prompt(scene: str) -> str:
+def single_prompt(scene: str, aspect: str = '4:3') -> str:
     return (
-        '生成一张完整的4:3横版独立画面，不要宫格、分隔线、边框或文字。'
+        f'生成一张完整的{aspect}独立画面，不要宫格、分隔线、边框或文字。'
         + BASE + '负面约束：' + NEGATIVE + scene_direction(scene, 0)
         + '参考图只决定笔触、宣纸肌理、设色和光影；依照本镜剧情重新构图，不复制参考图文字。'
     )
