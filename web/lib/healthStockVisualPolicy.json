@@ -37,5 +37,11 @@
     "countryside",
     "hiking",
     "park"
-  ]
+  ],
+  "playback_speeds": [
+    1,
+    0.5,
+    0.3
+  ],
+  "reuse_gap_shots": 1
 }

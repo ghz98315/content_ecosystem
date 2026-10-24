@@ -23,3 +23,6 @@ const photoPlan={revision:'photo',entries:[{duration:30,candidates:[{id:'photo',
 assert.equal(defaultStockSelection(photoPlan)[0].asset_id,'photo');
 assert.equal(validateStockSelection(photoPlan,[{asset_id:'photo',offset:0}])[0].offset,0);
 assert.throws(()=>validateStockSelection(photoPlan,[{asset_id:'photo',offset:1}]));
+const slowPlan={revision:'slow',allowed_speeds:[1,.5,.3],reuse_gap_shots:1,entries:Array.from({length:5},()=>({duration:10,candidates:[{id:'a',duration:4,provider:'coverr'},{id:'b',duration:4,provider:'coverr'}]}))};
+const slowSelection=defaultStockSelection(slowPlan);assert.ok(slowSelection.every(s=>s.asset_id&&s.playback_rate===.3));assert.equal(validateStockSelection(slowPlan,slowSelection).length,5);
+assert.throws(()=>validateStockSelection(slowPlan,slowSelection.map(s=>({...s,asset_id:'a'}))));

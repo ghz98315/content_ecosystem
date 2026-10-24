@@ -178,7 +178,8 @@ def build_plan(text,subs,category,queries=None,overrides=None,policy=None):
         if key not in search_cache:search_cache[key]=search_candidates(entry['query'],entry['entity'],category=category,role=entry['role'],allow_images=bool(policy.get('allow_images')) and not atmosphere)
         candidates,warnings=search_cache[key];notices.extend(warnings)
         live=[a for a in candidates if a.get('provider')!='commons_catalog' and a.get('media_type')!='image']
-        cap=min(60,max((float(a['duration'])-.3 for a in live),default=60))
+        min_rate=min(policy.get('playback_speeds') or [1])
+        cap=min(60,max(((float(a['duration'])-.3)/min_rate for a in live),default=60))
         parts=timed_blocks(entry['sentence'],subs,target=cap,minimum=cap*.8,maximum=cap,char_offset=entry['char_start']) if timed and cap>=3 and cap<entry['duration']-.05 else [entry['sentence']]
         if len(parts)>1:notices.append('部分在线源片短于40–60秒，已按实际可用时长缩短分镜；不循环、冻帧或强制慢放。')
         cursor=entry['char_start']
@@ -187,13 +188,14 @@ def build_plan(text,subs,category,queries=None,overrides=None,policy=None):
             start=entry['start'] if offset==0 else r._cue_time_at_char(cursor,subs['segments'],float(subs['duration']))
             end=entry['end'] if offset==len(parts)-1 else r._cue_time_at_char(end_char,subs['segments'],float(subs['duration']))
             shot={**entry,'index':len(final_entries),'sentence':part,'char_start':cursor,'char_end':end_char,'char_count':visible_len(part),'word_count':sum(c.isalnum() for c in part),'start':start,'end':end,'duration':round(end-start,3)};cursor=end_char
-            ranked=sorted(candidates,key=lambda v:float(v['duration'])<shot['duration']+.2 if v.get('media_type')!='image' else False)
+            ranked=sorted(candidates,key=lambda v:((float(v['duration'])/min_rate<shot['duration']+.2 if v.get('media_type')!='image' else False),v.get('provider')=='commons_catalog'))
             if policy.get('allow_images') and any(a.get('media_type')=='image' for a in ranked):
                 photos=[a for a in ranked if a.get('media_type')=='image'][:2];shot['candidates']=[a for a in ranked if a.get('media_type')!='image'][:8-len(photos)]+photos
             else:shot['candidates']=ranked[:8]
             shot.pop('path',None);final_entries.append(shot)
     return {'version':VERSION,'processing_defaults':settings((policy or {}).get('processing_defaults',LEGACY)),
             'visual_policy_version':(policy or {}).get('version','legacy'),'revision':uuid.uuid4().hex,'text_hash':digest(text),'audio_duration':subs['duration'],
+            'allowed_speeds':policy.get('playback_speeds',[1]),**({'reuse_gap_shots':policy['reuse_gap_shots']} if 'reuse_gap_shots' in policy else {}),
             'shot_target_seconds':[40,60] if timed else None,'entries':final_entries,'notices':list(dict.fromkeys(notices)),'created_at':time.time()}
 
 def selection_entries(plan,selections):
@@ -203,11 +205,15 @@ def selection_entries(plan,selections):
         asset=next((c for c in entry['candidates'] if c['id']==selection.get('asset_id')),None)
         if not asset or not allowed_url(asset['url']): raise ValueError('视频候选已变化，请重新确认')
         offset=float(selection.get('offset',0));needed=float(entry['duration'])
+        rate=float(selection.get('playback_rate',1))
+        if rate not in (plan.get('allowed_speeds') or [1]) or rate not in (1,.5,.3):raise ValueError('不支持的素材播放速度')
+        gap=plan.get('reuse_gap_shots')
+        if gap is not None and any(row['asset']['id']==asset['id'] for row in output[-int(gap):]):raise ValueError('重复素材之间至少间隔一个其他镜头')
         image=asset.get('media_type')=='image'
-        if not math.isfinite(offset) or offset<0 or (image and offset!=0) or (not image and float(asset['duration'])-offset < needed-.05):
+        if not math.isfinite(offset) or offset<0 or (image and (offset!=0 or rate!=1)) or (not image and float(asset['duration'])-offset < needed*rate-.05):
             raise ValueError(f"第 {entry['index']+1} 段素材时长不足，请换用更长视频")
         processing=settings({k:selection[k] for k in LEGACY if k in selection},plan.get('processing_defaults'))
-        output.append({**{k:v for k,v in entry.items() if k!='candidates'},'asset':asset,'processing':processing,'source_start':offset,'source_end':offset+needed})
+        output.append({**{k:v for k,v in entry.items() if k!='candidates'},'asset':asset,'processing':processing,'playback_rate':rate,'source_start':offset,'source_end':offset+needed*rate})
     if len({entry['processing']['color_style'] for entry in output})>1:raise ValueError('整条视频请使用同一种调色方案')
     return output
 
@@ -270,7 +276,7 @@ def run(stage):
                 with Image.open(local) as picture:picture.verify()
             else:
                 actual=r._video_duration(str(local))
-                if actual-entry['source_start']<entry['duration']-.05: raise ValueError('源视频实际时长不足')
+                if actual-entry['source_start']<entry['duration']*entry.get('playback_rate',1)-.05: raise ValueError('源视频实际时长不足')
         except (httpx.HTTPStatusError,ValueError):
             # Failed sources return to the selection gate so users can replace
             # just the choice; do not trap them in retrying a bad URL forever.
@@ -279,7 +285,7 @@ def run(stage):
                 'error':f"第{entry['index']+1}段视频暂不可用或实际时长不足，请换片后重新确认"}).eq('id',stage['id']).execute())
             return 'needs_review',None
         try:
-            entry['motion_check']={'state':'image'} if entry['asset'].get('media_type')=='image' else motion_probe(local,r.ff(),entry['source_start'],entry['duration'])
+            entry['motion_check']={'state':'image'} if entry['asset'].get('media_type')=='image' else motion_probe(local,r.ff(),entry['source_start'],entry['duration']*entry.get('playback_rate',1))
             if entry['source_start']==0:
                 (CACHE/('motion-'+digest(entry['asset']['url'])+'.json')).write_text(json.dumps(entry['motion_check']),encoding='utf-8')
         except subprocess.TimeoutExpired:entry['motion_check']={'state':'unknown'}
@@ -301,12 +307,14 @@ def run(stage):
 
 def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio=1,source_offset=0):
     from stages import render as r
-    local=fetch_source(entry['asset']);start=float(entry['source_start'])+source_offset
+    rate=float(entry.get('playback_rate',1))
+    if rate not in (1,.5,.3):raise ValueError('不支持的素材播放速度')
+    local=fetch_source(entry['asset']);start=float(entry['source_start'])+source_offset*rate
     # Do not freeze or loop a short source. Updated narration can require re-selection.
     photo=entry['asset'].get('media_type')=='image'
-    if not photo and start+duration>r._video_duration(str(local))+.08: raise ValueError('新配音所需时长超过已选视频，请返回素材节点换片')
+    if not photo and start+duration*rate>r._video_duration(str(local))+.08: raise ValueError('新配音所需时长超过已选视频，请返回素材节点换片')
     options=settings(entry.get('processing'));pre=source_filters(options)
-    initial=f'[0:v]{pre+"," if pre else ""}fps={r.FPS}'
+    initial=f'[0:v]setpts=(PTS-STARTPTS)/{rate},{pre+"," if pre else ""}fps={r.FPS}'
     mask=None;extra=[]
     if frame_mode=='landscape_blur':
         h=round(r.W/picture_ratio);y=(r.H-h)//2
