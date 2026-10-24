@@ -432,6 +432,7 @@ def _build_grid_prompt(
     category: str = "health",
     visual_style: str = "warm_editorial",
     reference_mode: str = "none",
+    aspect: str = "9:16",
 ) -> str:
     """构建9宫格提示词：1张图包含3×3=9个独立场景，从左到右从上到下编号。"""
     if visual_style == GUOXUE_STYLE:
@@ -459,6 +460,10 @@ def _build_grid_prompt(
         "请生成一张竖版九宫格总图，将画面平均分为3×3共9个等大的竖版格子，从左到右从上到下对应1-9。"
         "每格按9:16竖版画面构图，主体完整并保持在格子中央安全区域。"
     )
+    if aspect == '4:3':
+        grid_direction = "生成一张4:3横版九宫格总图，平均分为3×3九格，每格均为4:3横版构图，主体完整居中。"
+    if category == 'health':
+        category_direction += " 与文案主题强相关，优先阳光、活力、舒适日常；避开临终关怀、重症病床、血腥手术及恐惧画面；原理解说允许非血腥人体结构示意，不能暗示人物患病或效果。"
     reference_direction = {
         "none": "Keep a consistent palette, lighting, lens language and era across all cells.",
         "book_cover": "Use the confirmed book cover only as a visual reference for palette, material and era; never reproduce its text or layout.",
@@ -836,22 +841,22 @@ def _run_dialogue_visual(stage: dict, text: str, category: str, client, image_mo
     visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings(stage)
     aspect = (stage.get('params') or {}).get('image_aspect_ratio','4:3')
     prompt = (guoxue_single_prompt(_dialogue_visual_scene(category), aspect=aspect) if visual_style == GUOXUE_STYLE else
-              _build_grid_prompt([_dialogue_visual_scene(category)], category, visual_style, reference_mode))
+              _build_grid_prompt([_dialogue_visual_scene(category)], category, visual_style, reference_mode, aspect=aspect))
     if path not in existing:
         raw = _generate_grid_bytes(
             client, image_model, prompt, stage_id=stage["id"], batch_key=f"{(stage.get('params') or {}).get('generation_id', 'baseline')}_dialogue_key_visual",
-            size=aspect if visual_style == GUOXUE_STYLE else None,
+            size=aspect if visual_style == GUOXUE_STYLE or aspect == '4:3' else None,
             resolution='4k' if visual_style == GUOXUE_STYLE else None,
             image_urls=[_guoxue_reference_data_url()] if visual_style == GUOXUE_STYLE else None,
         )
         piece = _split_grid(raw, 1, grid_cells=1 if visual_style == GUOXUE_STYLE else None,
-                            cell_ratio=1.0 if visual_style == GUOXUE_STYLE and aspect == '1:1' else 4/3 if visual_style == GUOXUE_STYLE else _CELL_RATIO)[0]
+                            cell_ratio={'1:1':1.0,'4:3':4/3,'9:16':9/16}.get(aspect,_CELL_RATIO))[0]
         storage.upload_bytes(path, piece, "image/png")
         storage.add_artifact(task_id, "image", "image", path, meta={
             "index": 0, "sentence": "双人对谈主视觉", "char_count": max(1, _char_count(text)),
             "char_start": 0, "char_end": max(1, _char_count(text)), "motion": "zoom_in",
             "narration_mode": "dual_dialogue", "visual_mode": "dialogue_key_visual",
-            "cell_ratio": aspect if visual_style == GUOXUE_STYLE else '9:16',
+            "cell_ratio": aspect,
             "prompt": prompt, "prompt_scene": _dialogue_visual_scene(category), "image_model": image_model,
         })
     entry = {
@@ -859,7 +864,7 @@ def _run_dialogue_visual(stage: dict, text: str, category: str, client, image_mo
         "char_count": max(1, _char_count(text)), "char_start": 0,
         "char_end": max(1, _char_count(text)), "motion": "zoom_in",
         "narration_mode": "dual_dialogue", "visual_mode": "dialogue_key_visual",
-        "cell_ratio": aspect if visual_style == GUOXUE_STYLE else '9:16',
+        "cell_ratio": aspect,
         "prompt": prompt, "prompt_scene": _dialogue_visual_scene(category), "image_model": image_model,
     }
     storage.upload_bytes(index_path, json.dumps([entry], ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
@@ -917,13 +922,13 @@ def process_replacement_request(request: dict) -> str:
     client, image_model = config.image_client(provider)
     prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
     prompt = (guoxue_single_prompt(prompt_scene, aspect=aspect) if visual_style == GUOXUE_STYLE else
-              _build_grid_prompt([prompt_scene], visual_style=visual_style, reference_mode=reference_mode))
+              _build_grid_prompt([prompt_scene], visual_style=visual_style, reference_mode=reference_mode, aspect=aspect))
     raw = _generate_grid_bytes(client, image_model, prompt, stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}",
-                               size=aspect if visual_style == GUOXUE_STYLE else None,
+                               size=aspect if visual_style == GUOXUE_STYLE or aspect == '4:3' else None,
                                resolution='4k' if visual_style == GUOXUE_STYLE else None,
                                image_urls=[_guoxue_reference_data_url()] if visual_style == GUOXUE_STYLE else None)
     piece = _split_grid(raw, 1, grid_cells=1 if visual_style == GUOXUE_STYLE else None,
-                        cell_ratio=1.0 if visual_style == GUOXUE_STYLE and aspect == '1:1' else 4/3 if visual_style == GUOXUE_STYLE else _CELL_RATIO)[0]
+                        cell_ratio={'1:1':1.0,'4:3':4/3,'9:16':9/16}.get(aspect,_CELL_RATIO))[0]
     path = _replacement_path(task_id, image_index)
     storage.upload_bytes(path, piece, "image/png")
     storage.add_artifact(task_id, "image", "image_replacement", path, meta={"index": image_index, "source_image": entry.get("path"), "sentence": scene, "prompt_scene": prompt_scene, "prompt": prompt, "image_model": image_model, "replacement_request_id": request["id"], "note": note, "split_version": _IMAGE_SPLIT_VERSION})
@@ -1114,6 +1119,10 @@ def run(stage: dict) -> tuple[str, str | None]:
     grid_cells = _GUOXUE_GRID if visual_style == GUOXUE_STYLE else _GRID
     grid_resolution = _guoxue_grid_resolution(stage) if visual_style == GUOXUE_STYLE else config.APIMART_IMAGE_RESOLUTION
     guoxue_aspect = (stage.get('params') or {}).get('image_aspect_ratio', '4:3') if visual_style == GUOXUE_STYLE else None
+    output_aspect = guoxue_aspect or (stage.get('params') or {}).get('image_aspect_ratio', '9:16')
+    output_ratio = {'1:1':1.0,'4:3':4/3,'9:16':9/16}[output_aspect]
+    if visual_style != GUOXUE_STYLE and output_aspect == '4:3':
+        asset_root += '/styles/health_4x3_v2'
     guoxue_cell_ratio = 1.0 if guoxue_aspect == '1:1' else 4/3
     guoxue_reference = _guoxue_reference_data_url() if visual_style == GUOXUE_STYLE else None
     if visual_style == GUOXUE_STYLE:
@@ -1187,7 +1196,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             for shot, path in zip(batch, expected_paths):
                 image_paths.append(path)
                 artifact_meta = existing_artifacts[path]
-                meta_list.append({**shot, "cell_ratio": guoxue_aspect if visual_style == GUOXUE_STYLE else "9:16", "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model"), "resolution_warning": artifact_meta.get("resolution_warning"), "source_size": artifact_meta.get("source_size")})
+                meta_list.append({**shot, "cell_ratio": output_aspect, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model"), "resolution_warning": artifact_meta.get("resolution_warning"), "source_size": artifact_meta.get("source_size")})
             continue
 
         raw: bytes | None = None
@@ -1214,13 +1223,13 @@ def run(stage: dict) -> tuple[str, str | None]:
             if with_cover:
                 scenes = [text] + scenes
             grid_prompt = (guoxue_grid_prompt([_visual_scene(s) for s in scenes], cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
-                           if visual_style == GUOXUE_STYLE else _build_grid_prompt(scenes, content_category, visual_style, reference_mode))
+                           if visual_style == GUOXUE_STYLE else _build_grid_prompt(scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
             batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}" if visual_text or generation_id or visual_style == GUOXUE_STYLE
                          else f"grid_{batch_number:03d}")
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
-                    size=guoxue_aspect if visual_style == GUOXUE_STYLE else _GRID_SIZE,
+                    size=guoxue_aspect if visual_style == GUOXUE_STYLE else ('4:3' if output_aspect == '4:3' else _GRID_SIZE),
                     resolution=grid_resolution if visual_style == GUOXUE_STYLE else None,
                     image_urls=[guoxue_reference] if guoxue_reference else None,
                 )
@@ -1230,10 +1239,10 @@ def run(stage: dict) -> tuple[str, str | None]:
                 fallback_scenes = _safe_fallback_scenes(len(batch) + int(with_cover), content_category)
                 grid_prompt = (guoxue_grid_prompt(fallback_scenes, cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
                                if visual_style == GUOXUE_STYLE else
-                               _build_grid_prompt(fallback_scenes, content_category, visual_style, reference_mode))
+                               _build_grid_prompt(fallback_scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
-                    size=guoxue_aspect if visual_style == GUOXUE_STYLE else _GRID_SIZE,
+                    size=guoxue_aspect if visual_style == GUOXUE_STYLE else ('4:3' if output_aspect == '4:3' else _GRID_SIZE),
                     resolution=grid_resolution if visual_style == GUOXUE_STYLE else None,
                     image_urls=[guoxue_reference] if guoxue_reference else None,
                 )
@@ -1250,7 +1259,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         from PIL import Image
         with Image.open(io.BytesIO(raw)) as grid_image:
             grid_size = grid_image.size
-        _validate_grid_source(*grid_size, expected_ratio=guoxue_cell_ratio if visual_style == GUOXUE_STYLE else None)
+        _validate_grid_source(*grid_size, expected_ratio=output_ratio if output_aspect != '9:16' else None)
         resolution_warning = (_validate_guoxue_resolution(*grid_size, cells=grid_cells, resolution=grid_resolution)
                               if visual_style == GUOXUE_STYLE else None)
         if resolution_warning:
@@ -1262,7 +1271,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "resolution_warning": resolution_warning,
             "quality_status": "warning" if resolution_warning else "passed",
             "grid": f"{grid_cells}x{grid_cells}",
-            "cell_ratio": guoxue_aspect if visual_style == GUOXUE_STYLE else "9:16",
+            "cell_ratio": output_aspect,
             "cell_bounds_x": _grid_bounds(grid_size[0], grid_cells),
             "cell_bounds_y": _grid_bounds(grid_size[1], grid_cells),
             "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
@@ -1275,7 +1284,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "history_director_analysis": is_history,
         })
         source_cells = grid_cells
-        pieces = _split_grid(raw, len(batch) + int(with_cover), source_cells, guoxue_cell_ratio if visual_style == GUOXUE_STYLE else _CELL_RATIO)
+        pieces = _split_grid(raw, len(batch) + int(with_cover), source_cells, output_ratio)
         if with_cover:
             storage.upload_bytes(cover_path, pieces.pop(0), 'image/png')
             storage.add_artifact(task_id, 'image', 'cover_image', cover_path, meta={
@@ -1294,7 +1303,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "char_end": shot["char_end"], "estimated_duration": shot["estimated_duration"],
                 "motion": shot["motion"], "source_grid": grid_path,
                 "source_size": list(grid_size), "resolution_warning": resolution_warning,
-                "cell_ratio": guoxue_aspect if visual_style == GUOXUE_STYLE else "9:16",
+                "cell_ratio": output_aspect,
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
                 "prompt": actual_prompt,
@@ -1305,7 +1314,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
             })
             image_paths.append(path)
-            meta_list.append({**shot, "cell_ratio": guoxue_aspect if visual_style == GUOXUE_STYLE else "9:16", "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
+            meta_list.append({**shot, "cell_ratio": output_aspect, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")

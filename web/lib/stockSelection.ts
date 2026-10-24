@@ -1,4 +1,4 @@
-export type StockAsset = {id:string;title:string;url:string;page:string;author:string;license:string;license_url:string;duration:number;width:number;height:number;provider?:string;match_note?:string;motion_check?:{state:string}};
+export type StockAsset = {id:string;media_type?:'video'|'image';title:string;url:string;page:string;author:string;license:string;license_url:string;duration:number;width:number;height:number;provider?:string;match_note?:string;motion_check?:{state:string}};
 export type StockEntry = {index:number;sentence:string;char_count:number;word_count?:number;start:number;end:number;duration:number;query:string;reason:string;entity?:string;candidates:StockAsset[]};
 export type StockProcessing = {crop_top:number;crop_bottom:number;color_style:'none'|'natural_warm_v1';feather:number};
 export const LEGACY_STOCK_PROCESSING:StockProcessing={crop_top:0,crop_bottom:0,color_style:'none',feather:0};
@@ -10,7 +10,7 @@ export function validateStockSelection(plan:StockPlan,selected:StockSelection[])
     const value=selected[index];const asset=entry.candidates.find(item=>item.id===value?.asset_id);
     if(!asset)throw new Error(`请选择第${index+1}段视频`);
     const offset=Number(value.offset);
-    if(!Number.isFinite(offset)||offset<0||!Number.isFinite(asset.duration)||asset.duration-offset<entry.duration-.05)throw new Error(`第${index+1}段视频可用时长不足，请换片或调整截取位置`);
+    if(!Number.isFinite(offset)||offset<0||(asset.media_type==='image'?offset!==0:!Number.isFinite(asset.duration)||asset.duration-offset<entry.duration-.05))throw new Error(`第${index+1}段素材可用时长不足，请换片或调整截取位置`);
     const options={...LEGACY_STOCK_PROCESSING,...plan.processing_defaults,...value};
     for(const [key,max] of [['crop_top',.25],['crop_bottom',.25],['feather',72]] as const){
       if(!Number.isFinite(options[key])||options[key]<0||options[key]>max)throw new Error('裁切或羽化参数超出范围');
@@ -25,10 +25,10 @@ export function validateStockSelection(plan:StockPlan,selected:StockSelection[])
 export function defaultStockSelection(plan:StockPlan):StockSelection[] {
   const used=new Map<string,number>();
   return plan.entries.map(entry=>{
-    const asset=entry.candidates.find(a=>a.duration-(used.get(a.id)||0)>=entry.duration+.15);
+    const asset=entry.candidates.find(a=>a.media_type==='image'||a.duration-(used.get(a.id)||0)>=entry.duration+.15);
     const options={...LEGACY_STOCK_PROCESSING,...plan.processing_defaults};
     if(!asset)return {...options,asset_id:'',offset:0};
-    const offset=used.get(asset.id)||0;used.set(asset.id,offset+entry.duration+.2);
+    const offset=asset.media_type==='image'?0:used.get(asset.id)||0;if(asset.media_type!=='image')used.set(asset.id,offset+entry.duration+.2);
     return {...options,asset_id:asset.id,offset:Math.round(offset*100)/100};
   });
 }

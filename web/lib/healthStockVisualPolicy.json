@@ -1,0 +1,28 @@
+{
+  "version": "health-stock-v1",
+  "processing_defaults": {
+    "crop_top": 0,
+    "crop_bottom": 0,
+    "color_style": "natural_warm_v1",
+    "feather": 36
+  },
+  "preferred_scenes": [
+    "与文案相关的饮食与食材",
+    "阳光下散步和适度运动",
+    "舒适睡眠和规律作息",
+    "家庭户外活动",
+    "明亮日常生活与积极人物慢镜头",
+    "非血腥人体结构和原理解说示意"
+  ],
+  "motion_preference": "优先真实缓慢运镜或人物活动，减少固定机位且主体几乎不动的自然风景",
+  "subtitle_policy": "优先无原字幕视频，或选择无字幕时段；需要时裁掉边缘字幕，裁切损伤主体则换片",
+  "content_line": "health",
+  "allow_images": true,
+  "avoid_scenes": [
+    "临终关怀、病危、重症监护、葬礼",
+    "血腥手术、痛苦病床、伤口特写",
+    "压抑阴暗或制造疾病恐惧的场景"
+  ],
+  "explanation_policy": "原理解说可以使用非血腥的结构、机制示意；不能暗示素材人物患病、疗效或诊断。人物慢镜头优先原生素材，不强制慢放。",
+  "selection_priority": "文案主题相关性优先，其次阳光活力与人物自然活动；无相关素材时自然画面补位并在清单提示。"
+}

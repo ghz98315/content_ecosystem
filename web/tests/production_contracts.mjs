@@ -6,7 +6,7 @@ function load(file,requireImpl) { const module={exports:{}};const localRequire=r
 const {productionTemplate,configureProductionTasks}=load('lib/productionTemplates.ts');
 const {workflowTiming,unionMilliseconds,nodeClock,clockLabel}=load('lib/workflowTiming.ts');
 assert.equal(productionTemplate('guoxue-v1').aspect,'1:1');
-assert.equal(productionTemplate('health-v1').aspect,'9:16');
+assert.equal(productionTemplate('health-v1').aspect,'4:3');
 assert.throws(()=>productionTemplate('unknown'));
 function client(fail=false){const calls=[];return {calls,from(table){let payload;return {update(value){payload=value;return this;},in(){return this;},eq(){return this;},select(){if(payload===undefined)return this;calls.push({table,payload});return Promise.resolve(fail?{error:{message:'denied'}}:{data:[{id:'x',task_id:'x',params:{}}]});},then(resolve,reject){return Promise.resolve(fail?{error:{message:'denied'}}:{data:[{id:'x',task_id:'x',params:{}}]}).then(resolve,reject);}};}};}
 let db=client();await configureProductionTasks(db,['x'],'guoxue-v1');
@@ -35,3 +35,10 @@ try {
   await assert.rejects(authenticatedFetch('/api/\\external'));
 } finally {globalThis.fetch=originalFetch;}
 console.log('PASS: template isolation, queue activation order, failure fencing, timing union and historical gaps');
+
+db=client();await configureProductionTasks(db,['x'],'health-v1',{visual_mode:'stock_video'});
+assert.equal(db.calls[1].payload.params.template_version,2);
+assert.equal(db.calls[1].payload.params.image_aspect_ratio,'4:3');
+assert.equal(db.calls[1].payload.params.stock_visual_policy.content_line,'health');
+assert.equal(db.calls[1].payload.params.stock_visual_policy.allow_images,true);
+assert.equal(db.calls[2].payload.params.frame_mode,'landscape_blur');

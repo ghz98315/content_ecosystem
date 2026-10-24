@@ -19,3 +19,7 @@ const newPlan={revision:'new',processing_defaults:{crop_top:0,crop_bottom:0,colo
 assert.equal(defaultStockSelection(newPlan)[0].feather,36);
 assert.equal(validateStockSelection(newPlan,[{asset_id:'a',offset:0,crop_bottom:.12}])[0].color_style,'natural_warm_v1');
 console.log('PASS: review selection completeness, duration bounds, nonoverlapping defaults and insufficient coverage');
+const photoPlan={revision:'photo',entries:[{duration:30,candidates:[{id:'photo',media_type:'image',duration:0}]}]};
+assert.equal(defaultStockSelection(photoPlan)[0].asset_id,'photo');
+assert.equal(validateStockSelection(photoPlan,[{asset_id:'photo',offset:0}])[0].offset,0);
+assert.throws(()=>validateStockSelection(photoPlan,[{asset_id:'photo',offset:1}]));
