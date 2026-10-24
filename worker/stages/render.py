@@ -1027,6 +1027,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         phase_started = time.monotonic()
 
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
+        if text_settings.get('health_text_style'):
+            text_settings['title_color']='#FFFFFF'
         requested_font = text_settings['title_font']
         template_id = (stage.get('params') or {}).get('production_template')
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'), use_configured=template_id == 'guoxue-v1')
@@ -1165,7 +1167,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
             "cover_frames": COVER_FRAMES,
             "visual_mode": 'stock_video' if stock else 'ai_images',
-            "stock_processing": {"color_style":images[0].get('processing',{}).get('color_style','none'),"feather":images[0].get('processing',{}).get('feather',0)} if stock else None,
+            "stock_processing": {"color_style":images[0].get('processing',{}).get('color_style','none'),"feather":images[0].get('processing',{}).get('feather',0),"feather_edges":"vertical" if health_vertical_feather else "all"} if stock else None,
             "motion": 'source_motion' if stock else ("alternating_zoom_in_out" if landscape_layout else "zoom_in"),
             "zoom_amount": 0 if stock else (LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT),
             "zoom_oversample": LANDSCAPE_WORK_SCALE if landscape_layout else ZOOM_OVERSAMPLE,
@@ -1173,10 +1175,10 @@ def run(stage: dict) -> tuple[str, str | None]:
             "transition": transition_mode,
             "transition_duration": 0 if stock else TRANSITION_DUR,
             "timeline_version": 3 if is_timeline_v3 else 2,
-            "layout": "guoxue_landscape_blur" if landscape_layout else "book_header_photo_subtitles_disclaimer",
+            "layout": ("health_landscape_blur" if text_settings.get('health_text_style') else "guoxue_landscape_blur") if landscape_layout else "book_header_photo_subtitles_disclaimer",
             "text_layout": {**text_settings, 'requested_font': requested_font, 'font_fallback': font_fallback,
                             'landscape_layout': landscape_layout, 'picture_aspect_ratio': picture_aspect if landscape_layout else None,
-                            'picture_text_gap': {'above': 56, 'below': 28} if landscape_layout else None},
+                            'picture_text_gap': {'above': 28 if text_settings.get('health_text_style') else 56, 'below': 28} if landscape_layout else None},
             "encoding_crf": config.RENDER_CRF,
             "encoding_video_bitrate_kbps": target_kbps,
             "file_size_bytes": os.path.getsize(final),
