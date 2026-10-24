@@ -89,8 +89,12 @@ def run(stage: dict) -> tuple[str, None]:
                 recognized=''.join(recognized_parts).strip()
             if not comparable(recognized):
                 raise ValueError('未识别到可对齐的人声，请检查音频')
+            from external_asr_repair import repair_omissions
+            from stages.transcribe import _transcribe_media
+            words,local_repairs=repair_omissions(text,words,duration,decoded,tmp,imageio_ffmpeg.get_ffmpeg_exe(),_transcribe_media)
+            if any(item.get('accepted') for item in local_repairs):recognized=''.join(word['word'] for word in words).strip()
             recognition_cache={'source_sha256':source_hash,'recognized_text':recognized,'words':words,
-                               'pause_optimization':pause_report}
+                               'pause_optimization':pause_report,'local_asr_repairs':local_repairs or previous.get('local_asr_repairs',[])}
             cues,coverage=align(text,words,duration,repair=True)
             manual=previous.get('requested_cues') if (previous.get('pause_optimization') or {}).get('policy') == PAUSE_POLICY else None
             if manual is not None:
@@ -117,6 +121,7 @@ def run(stage: dict) -> tuple[str, None]:
         script_differences = differences(row['script_text'],recognized,words)
         subtitle_differences = script_differences if text == row['script_text'] else differences(text,recognized,words)
         review={**payload,'source_sha256':source_hash,'recognized_text':recognized,'words':words,
+                'local_asr_repairs':recognition_cache.get('local_asr_repairs',[]),
                 'script_text':row['script_text'],'subtitle_text':text,'coverage':coverage,
                 'differences':script_differences,
                 'subtitle_differences':subtitle_differences,

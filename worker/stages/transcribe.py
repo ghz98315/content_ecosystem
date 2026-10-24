@@ -85,7 +85,7 @@ def _model(device=None, compute=None):
     )
 
 
-def _transcribe_media(path: str):
+def _transcribe_media(path: str, *, vad_filter: bool = True):
     """Decode through the existing ffmpeg runtime, avoiding PyAV ABI conflicts."""
     import numpy as np
     import imageio_ffmpeg
@@ -106,7 +106,7 @@ def _transcribe_media(path: str):
         model = _model()
         model_seconds = time.monotonic() - loaded
         recognized = time.monotonic()
-        segments, info = model.transcribe(audio, language='zh', word_timestamps=True, vad_filter=True)
+        segments, info = model.transcribe(audio, language='zh', word_timestamps=True, vad_filter=vad_filter)
         segments = list(segments)  # Recognition is lazy; time it only after consumption.
     except RuntimeError as exc:
         if device != 'cuda' or not any(term in str(exc).lower() for term in ('cuda', 'cublas', 'cudnn', 'out of memory', 'gpu')):
@@ -119,7 +119,7 @@ def _transcribe_media(path: str):
         model = _model(device, compute)
         model_seconds = time.monotonic() - loaded
         recognized = time.monotonic()
-        segments, info = model.transcribe(audio, language='zh', word_timestamps=True, vad_filter=True)
+        segments, info = model.transcribe(audio, language='zh', word_timestamps=True, vad_filter=vad_filter)
         segments = list(segments)
     metrics = {'decode_seconds': round(decode_seconds, 3), 'model_seconds': round(model_seconds, 3),
                'recognition_seconds': round(time.monotonic() - recognized, 3),
