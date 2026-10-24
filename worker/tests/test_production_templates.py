@@ -133,10 +133,12 @@ class TemplateConsistencyTests(unittest.TestCase):
         from pathlib import Path
         source=(Path(__file__).resolve().parents[2]/'web/app/video-collection/page.tsx').read_text(encoding='utf-8')
         self.assertNotIn('setProductionTemplateId(category',source)
-        self.assertIn('setContentCategory(selected.category)',source)
-        self.assertIn('productionTemplate(productionTemplateId).category !== contentCategory',source)
-        self.assertIn('<option value="guoxue">国学类书籍</option>',source)
-        self.assertIn('<option value="health">健康类书籍</option>',source)
+        self.assertIn('const contentCategory=productionTemplate(productionTemplateId).category',source)
+        self.assertNotIn('setContentCategory',source)
+        self.assertIn('<ProductionSetup',source)
+        shared=(Path(__file__).resolve().parents[2]/'web/components/ProductionSetup.tsx').read_text(encoding='utf-8')
+        self.assertIn("guoxue:'国学文化'",shared)
+        self.assertIn("health:'健康生活'",shared)
 
 
 class RenderTransitionBudgetTests(unittest.TestCase):

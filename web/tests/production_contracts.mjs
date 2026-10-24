@@ -49,7 +49,7 @@ assert.equal(workerHealthStatus({status:'recovering',heartbeat_at:new Date(now).
 assert.equal(workerHealthStatus({status:'online',heartbeat_at:new Date(now-80_000).toISOString(),checked_at:(now-80_000)/1000},now).status,'unavailable');
 assert.equal(workerHealthStatus(null,now).autoRecoveryEnabled,false);
 const dashboard=fs.readFileSync('app/page.tsx','utf8');
-assert.ok(dashboard.includes('aria-label="画面来源"'));assert.ok(dashboard.includes('visual_mode:visualMode'));
+const sharedSetup=fs.readFileSync('components/ProductionSetup.tsx','utf8');assert.ok(sharedSetup.includes('aria-label="画面来源"'));assert.ok(dashboard.includes('<ProductionSetup'));assert.ok(dashboard.includes('visual_mode:visualMode'));
 db=client();let checkRequested=false;db.auth={getSession:()=>{checkRequested=true;return new Promise(()=>{});}};
 await configureProductionTasks(db,['x'],'health-v1',{visual_mode:'stock_video'});
 assert.equal(checkRequested,true);assert.equal(db.calls.at(-1).payload.status,'pending');
@@ -58,3 +58,9 @@ const {validateVideoText}=load('lib/videoText.ts');
 assert.equal(validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\r\n第二行'},false,true).footnote,'第一行\n第二行');
 assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\n第二行'}));
 assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'一\n二\n三\n四\n五'},false,true));
+
+const collection=fs.readFileSync('app/video-collection/page.tsx','utf8');
+assert.ok(collection.includes('<ProductionSetup'));assert.ok(!collection.includes('setContentCategory'));
+assert.ok(collection.includes("const generationMode=\"prompt\""));assert.ok(!collection.includes('<option value="reference_image">'));
+assert.ok(collection.includes("ttsSource==='automatic'&&"));assert.ok(collection.includes("visualMode==='ai_images'&&"));
+assert.ok(collection.includes('<details className="creation-advanced">'));assert.ok(!collection.includes('<details className="creation-advanced" open'));

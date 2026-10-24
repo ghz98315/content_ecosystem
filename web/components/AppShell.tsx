@@ -23,7 +23,7 @@ export function AppShell({ children, tasks, currentTaskId, onCreateTask, activit
         <nav className="topbar-breadcrumb" aria-label="当前位置"><Link href="/">工作台</Link><Icon name="chevron" size={12}/><span>{section}</span>{current && <><Icon name="chevron" size={12}/><strong title={current.title || current.id}>{current.title || current.id.slice(0, 8)}</strong></>}</nav>
         <div className="topbar-activity">{activity || <><span className={`status-dot${running.length ? ' anim-pulse' : ''}`} style={{ background: running.length ? 'var(--accent)' : 'var(--text-disabled)' }}/>{running.length ? `${running.length} 个任务正在运行` : '准备开始下一次创作'}</>}</div>
         <div className="topbar-actions"><span className={`connection-chip connection-${workspace.status}`} title={`数据库：${status}；${workspace.worker}`}><Icon name="signal" size={14}/><span>{status}</span></span>
-          {onCreateTask ? <button className="topbar-create" onClick={onCreateTask}><Icon name="plus" size={15}/><span>新建项目</span></button> : <Link className="topbar-create" href="/?new=1"><Icon name="plus" size={15}/><span>新建项目</span></Link>}
+          {!onCreateTask && <Link className="topbar-create" href="/?new=1"><Icon name="plus" size={15}/><span>新建项目</span></Link>}
         </div>
       </header>
       <main className="app-main"><div className="route-content" key={pathname}>{children}</div></main>

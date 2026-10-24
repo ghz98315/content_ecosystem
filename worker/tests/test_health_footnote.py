@@ -11,6 +11,9 @@ class HealthFootnoteTests(unittest.TestCase):
    value=path.read_text(encoding='utf-8')
    self.assertIn(r'\an8\pos(540,1393)',value)
    self.assertIn(r'第一行\N第二行',value)
+   self.assertIn('Style: Heading,KaiTi,92,&H00FFFFFF,&H000000FF,&H00000000',value)
+   self.assertIn('Style: Subheading,KaiTi,56,&H0000E6FF',value)
+   self.assertIn('Style: Footnote,KaiTi,31,&H331A1D20',value)
  def test_guoxue_keeps_right_alignment(self):
   with tempfile.TemporaryDirectory() as folder:
    path=Path(folder)/'sub.ass';settings=_render_text_settings({'params':{'production_template':'guoxue-v1','video_text':{'footnote':'第一行\n第二行'}}},{},{})

@@ -3,6 +3,7 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 
 
 import Link from "next/link";
+import { ProductionSetup } from "@/components/ProductionSetup";
 import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks, databaseCategory } from "@/lib/productionTemplates";
 import { MUSIC_PRESETS } from "@/lib/musicPresets";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -101,33 +102,19 @@ function VideoCollectionContent() {
   const [hoveredTitleId, setHoveredTitleId] = useState<string | null>(null);
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfile[]>([]);
   const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState("system-default");
-  const [contentCategory, setContentCategory] = useState<"guoxue" | "health" | "social_science" | "education" | "scene">("health");
   const [imageProvider, setImageProvider] = useState<"apimart" | "xcode">("apimart");
-  const [visualStyle, setVisualStyle] = useState("warm_editorial");
   const [referenceMode, setReferenceMode] = useState("scene_continuity");
-  const [generationMode, setGenerationMode] = useState<"prompt" | "reference_image" | "hybrid">("prompt");
+  const generationMode="prompt";
   const [visualMode, setVisualMode] = useState<'ai_images' | 'stock_video'>('ai_images');
-  const [visualPresetId, setVisualPresetId] = useState("health-warm-editorial");
   const [bgmVolume, setBgmVolume] = useState("0.15");
   const [ttsRate, setTtsRate] = useState("-8%");
   const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
   const [productionTemplateId, setProductionTemplateId] = useState<ProductionTemplateId>("health-v1");
-  const [imageAspectRatio] = useState("9:16");
+  const contentCategory=productionTemplate(productionTemplateId).category;
   const [narrationMode, setNarrationMode] = useState<"single" | "dual_dialogue">("single");
   const [secondaryVoiceProfileId, setSecondaryVoiceProfileId] = useState("");
   const [voiceSampleUrl, setVoiceSampleUrl] = useState<string | null>(null);
   const [voiceSampleState, setVoiceSampleState] = useState<"idle" | "loading" | "missing" | "error">("idle");
-  const historyVisualStyles = [
-    { id: "guoxue_gongbi_life", presetId: "guoxue-gongbi-life", label: "国学：参考图工笔淡墨", note: "2K四宫格、1:1方图、竖版同图模糊填充" },
-    { id: "history_heroic", presetId: "history-documentary", label: "正统帝王画卷·朝代考据", note: "工笔院体、朝代服化道考据、明朗庙堂构图" },
-    { id: "history_ink_scroll", presetId: "history-ink-scroll", label: "工笔淡彩·古代世情", note: "熟宣淡彩、庭院人情、微表情与关系叙事" },
-    { id: "history_gongbi_cinematic", presetId: "history-gongbi-cinematic", label: "工笔淡彩·民国近代", note: "青砖书房、长幼互动、民国服化道锁定" },
-  ];
-  useEffect(() => {
-    const template = productionTemplate(productionTemplateId);
-    setVisualStyle(template.style); setVisualPresetId(template.preset);
-    setGenerationMode("prompt");
-  }, [productionTemplateId]);
   const defaultEdgeProfile = useMemo(() => voiceProfiles.find(profile => profile.provider === "edge" && profile.voice_id === DEFAULT_EDGE_VOICE_ID), [voiceProfiles]);
   const defaultVoiceProfile = useMemo(() => voiceProfiles.find(profile => profile.is_default) || defaultEdgeProfile, [defaultEdgeProfile, voiceProfiles]);
   const defaultVoiceLabel = defaultVoiceProfile ? `${defaultVoiceProfile.display_name} · ${defaultVoiceProfile.model || defaultVoiceProfile.provider}` : DEFAULT_EDGE_LABEL;
@@ -202,6 +189,7 @@ function VideoCollectionContent() {
   }, [userId, query, status, minFollowers, minComments, bookQuery, page]);
 
   useEffect(() => {
+    if(ttsSource!=='automatic'){setVoiceSampleUrl(null);setVoiceSampleState('idle');return;}
     const profile = selectedVoiceProfileId === "system-default"
       ? defaultVoiceProfile
       : voiceProfiles.find(item => item.id === selectedVoiceProfileId);
@@ -225,7 +213,7 @@ function VideoCollectionContent() {
       })
       .catch(() => { if (active) setVoiceSampleState("error"); });
     return () => { active = false; };
-  }, [defaultVoiceProfile, selectedVoiceProfileId, voiceProfiles]);
+  }, [defaultVoiceProfile, selectedVoiceProfileId, voiceProfiles,ttsSource]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -264,10 +252,6 @@ function VideoCollectionContent() {
   const createTasks = async () => {
     const urls = Array.from(new Set((sourceText.match(/https?:\/\/[^\s]+/g) || []).map(url => url.replace(/[，。；！）】]+$/, ""))));
     if (!userId || !urls.length || creating) return;
-    if (productionTemplate(productionTemplateId).category !== contentCategory) {
-      setMessage("内容类型与成片模板不一致，请重新选择内容类型");
-      return;
-    }
     setCreating(true);
     let selectedProfile = selectedVoiceProfileId === "system-default"
       ? defaultVoiceProfile
@@ -316,12 +300,12 @@ function VideoCollectionContent() {
       bgm_volume: Number(bgmVolume),
       bgm_path: defaultPreset?.path || null,
       bgm_authorization_confirmed: Boolean(defaultPreset),
-      narration_mode: narrationMode,
-      tts_secondary_voice_profile_id: secondaryProfile?.id || null,
-      tts_secondary_provider: secondaryProfile?.provider || null,
-      tts_secondary_model: secondaryProfile?.model || null,
-      tts_secondary_voice: secondaryProfile?.voice_id || null,
-      tts_secondary_voice_label: secondaryProfile?.display_name || null,
+      narration_mode: ttsSource === 'automatic' ? narrationMode : 'single',
+      tts_secondary_voice_profile_id: ttsSource === 'automatic' && narrationMode === 'dual_dialogue' ? secondaryProfile?.id || null : null,
+      tts_secondary_provider: ttsSource === 'automatic' && narrationMode === 'dual_dialogue' ? secondaryProfile?.provider || null : null,
+      tts_secondary_model: ttsSource === 'automatic' && narrationMode === 'dual_dialogue' ? secondaryProfile?.model || null : null,
+      tts_secondary_voice: ttsSource === 'automatic' && narrationMode === 'dual_dialogue' ? secondaryProfile?.voice_id || null : null,
+      tts_secondary_voice_label: ttsSource === 'automatic' && narrationMode === 'dual_dialogue' ? secondaryProfile?.display_name || null : null,
       tts_rate: ttsRate,
       tts_source: ttsSource,
     }))).select("id");
@@ -421,16 +405,24 @@ function VideoCollectionContent() {
 
   return <AppShell tasks={tasks}>
     <div className="collection-page anim-fade-in">
-      <header className="collection-heading"><div><p className="eyebrow">素材运营台</p><h1>视频采集工作台</h1><p>批量导入来源视频，按采集结果、互动数据和任务进度统一查看。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
-      <section className="collection-import" aria-label="批量导入视频"><div><h2>导入视频来源</h2><p>支持多行 URL 或包含链接的分享文本，每个链接将创建一条独立任务。</p></div><textarea value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="粘贴视频链接或分享文本，一行一个" aria-label="视频链接或分享文本" /><div className="collection-import-footer"><button className="primary-action" disabled={creating || !/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating ? "导入中…" : "导入并创建任务"}</button></div></section>
-      <section className="collection-import" aria-label="配音来源"><h2>配音来源</h2><label>配音方式 <select value={ttsSource} onChange={event => setTtsSource(event.target.value as 'external' | 'automatic')}><option value="external">确认文案后上传外部配音</option><option value="automatic">自动配音</option></select></label><p>外部配音模式在确认文案后等待上传，字幕就绪后再{visualMode==='stock_video'?'检索视频素材':'生图'}；下方音色与语速仅用于自动配音。</p></section>
-      <section className="collection-import" aria-label="独立成片模板"><h2>成片模板</h2><select aria-label="成片模板" value={productionTemplateId} onChange={event => { const selected=productionTemplate(event.target.value); setProductionTemplateId(selected.id); setContentCategory(selected.category); if(selected.category === "scene") { setNarrationMode("single"); setSelectedVoiceProfileId("system-default"); } }}>{PRODUCTION_TEMPLATES.map(template => <option key={template.id} value={template.id}>{visualMode==='stock_video'?`${template.label.split(' · ')[0]} · ${template.aspect} · 视频素材`:template.label}</option>)}</select><p>{visualMode==='stock_video'?'画面比例和文字样式随内容模板保存；国学主画面1:1，健康主画面4:3；外层9:16并填充模糊背景。':'画面比例、宫格和文字样式随本模板保存；选择模板时同步确定内容类型；每条生产线保存独立的文案、画面和封面规则。'}</p></section>
-      <section className="collection-import" aria-label="内容生产设置"><div><h2>内容生产设置</h2><p>设置会随新任务保存；不影响已创建任务。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>内容类型（与画面模板同步）</span><select value={contentCategory} onChange={event => { const category = event.target.value as "guoxue" | "health" | "social_science" | "education" | "scene"; setContentCategory(category); if(category === "scene") { setNarrationMode("single"); setSelectedVoiceProfileId("system-default"); } setProductionTemplateId(({ guoxue: "guoxue-v1", health: "health-v1", social_science: "history-v1", education: "education-v1", scene: "scene-v1" } as const)[category]); }} aria-label="内容流程模板"><option value="guoxue">国学类书籍</option><option value="health">健康类书籍</option><option value="social_science">历史社科</option><option value="education">经管书籍</option><option value="scene">山河人文（高校／景点／城市）</option></select><small>{productionTemplateId === "guoxue-v1" ? "沿用已确认的国学二创流程，画面与文字使用独立模板" : contentCategory === "scene" ? "9:16写实摄影，四宫格2K，独立创意封面0.5秒，脚注全程显示" : contentCategory === "health" ? "4:3主画面与模糊填充；支持公共视频／图片，阳光生活与原理解说分开选材" : contentCategory === "social_science" ? "史实边界、克制叙事与史料感画面" : "数据边界、非投顾表达与现代商务画面"}</small></div><div className="collection-voice-setting"><span>任务配音快照</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色">{narrationMode !== "dual_dialogue" && <option value="system-default">{defaultVoiceLabel}（新任务默认）</option>}{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? `${defaultVoiceLabel}，当前未登记可试听样本。` : "该音色未登记样本，无法试听。"}</small>}</div><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => { const next = event.target.value as "single" | "dual_dialogue"; setNarrationMode(next); if (next === "dual_dialogue") { setSelectedVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_host_male")?.id || ""); setSecondaryVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_guest_female")?.id || ""); } else if (isDualDialogueProfile(voiceProfiles.find(profile => profile.id === selectedVoiceProfileId) || {} as VoiceProfile)) { setSelectedVoiceProfileId("system-default"); setSecondaryVoiceProfileId(""); } }} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue" disabled={contentCategory === "scene"}>双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "角色顺序：第一音色＝男主持人，第二音色＝女嘉宾。改写稿按主持人/嘉宾分段。" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{dialogueVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.model || profile.provider}</option>)}</select><small>角色顺序：第一音色为男主持人；此处第二音色为女嘉宾。两套音色分别快照保存。</small></div>}</div></section>
-      <section className="collection-import" aria-label="生图通道设置">
-        <div><h2>生图通道</h2><p>默认使用 APIMart；接口异常时可切换 xcode.best，新选择随任务快照保存。</p></div>
+      <header className="collection-heading"><div><p className="eyebrow">采集与创作</p><h1>把好选题，变成下一条内容。</h1><p>导入来源、确认文案，再制作成片。每一步都清楚可见。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
+      <section className="collection-create-card" aria-label="新建采集任务">
+        <div className="creation-card-heading"><div><p className="eyebrow">开始一条新内容</p><h2>选好方向，粘贴链接即可开始</h2><p>常用设置已准备好。文案、配音和素材会按步骤引导你确认。</p></div><span className="creation-badge">支持批量导入</span></div>
+        <ProductionSetup templateId={productionTemplateId} onTemplate={id=>{setProductionTemplateId(id);if(productionTemplate(id).category==='scene'){setNarrationMode('single');setSelectedVoiceProfileId('system-default');}}} visualMode={visualMode} onVisualMode={setVisualMode} ttsSource={ttsSource} onTtsSource={setTtsSource} disabled={creating}/>
+        <div className="creation-source"><label htmlFor="collection-source-input">视频链接或分享文本</label><textarea id="collection-source-input" value={sourceText} disabled={creating} onChange={event=>setSourceText(event.target.value)} placeholder="粘贴抖音或视频号分享内容；多个链接请换行" aria-label="视频链接或分享文本"/><small>每个链接创建一个独立任务。只导入一条也可以。</small></div>
+        <details className="creation-advanced"><summary><span>高级设置 <small>音色、配乐与备用服务，按需调整</small></span><span aria-hidden="true">⌄</span></summary><div className="creation-advanced-content">
+          {ttsSource==='automatic'&&<><section className="collection-import" aria-label="自动配音设置"><h3>自动配音</h3><div className="collection-import-footer"><div className="collection-voice-setting"><span>自动配音音色</span><select value={selectedVoiceProfileId} onChange={event => setSelectedVoiceProfileId(event.target.value)} aria-label="任务默认音色">{narrationMode !== "dual_dialogue" && <option value="system-default">{defaultVoiceLabel}（新任务默认）</option>}{selectableVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}</select>{voiceSampleState === "loading" ? <small>正在加载当前音色样本…</small> : voiceSampleUrl ? <div className="collection-voice-preview"><small>当前音色样本</small><audio controls preload="none" src={voiceSampleUrl} /></div> : <small>{voiceSampleState === "error" ? "样本加载失败，请到音色管理页检查。" : selectedVoiceProfileId === "system-default" ? `${defaultVoiceLabel}，当前未登记可试听样本。` : "该音色未登记样本，无法试听。"}</small>}</div><div className="collection-voice-setting"><span>口播方式</span><select value={narrationMode} onChange={event => { const next = event.target.value as "single" | "dual_dialogue"; setNarrationMode(next); if (next === "dual_dialogue") { setSelectedVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_host_male")?.id || ""); setSecondaryVoiceProfileId(dialogueVoiceProfiles.find(profile => profile.voice_id === "podcast_guest_female")?.id || ""); } else if (isDualDialogueProfile(voiceProfiles.find(profile => profile.id === selectedVoiceProfileId) || {} as VoiceProfile)) { setSelectedVoiceProfileId("system-default"); setSecondaryVoiceProfileId(""); } }} aria-label="口播方式"><option value="single">单人口播</option><option value="dual_dialogue" disabled={contentCategory === "scene"||dialogueVoiceProfiles.length<2}>双人口播</option></select><small>{narrationMode === "dual_dialogue" ? "角色顺序：第一音色＝男主持人，第二音色＝女嘉宾。改写稿按主持人/嘉宾分段。" : "一套音色完成整条口播"}</small></div>{narrationMode === "dual_dialogue" && <div className="collection-voice-setting"><span>第二音色</span><select value={secondaryVoiceProfileId} onChange={event => setSecondaryVoiceProfileId(event.target.value)} aria-label="第二音色"><option value="">选择第二音色</option>{dialogueVoiceProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}</select><small>角色顺序：第一音色为男主持人；此处第二音色为女嘉宾。两套音色分别快照保存。</small></div>}</div></section>      <section className="collection-import" aria-label="配音速度设置"><div><h2>配音速度</h2><p>速度会随新任务保存，也可在配音阶段调整后重跑。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>口播速度</span><select value={ttsRate} onChange={event => setTtsRate(event.target.value)} aria-label="默认配音速度"><option value="-5%">稍慢 5%</option><option value="-8%">舒缓 8%（推荐）</option><option value="-12%">慢速 12%</option><option value="0%">标准速度</option></select></div></div></section>
+</>}
+                <section className="collection-import" aria-label="背景音乐预设">
+        <div><h2>背景音乐预设</h2><p>国学和健康类新任务会自动保存对应类别的第一首音乐。预设曲目需要在发布简介中署名。</p></div>
+        <div className="collection-import-footer"><div className="collection-voice-setting"><span>配音下的背景音乐音量</span><select value={bgmVolume} onChange={event => setBgmVolume(event.target.value)} aria-label="默认背景音乐音量"><option value="0.05">轻柔 5%</option><option value="0.08">轻柔 8%</option><option value="0.12">清晰 12%</option><option value="0.15">标准 15%（推荐）</option><option value="0.20">明显 20%</option><option value="0.30">上限 30%</option></select><small>国学和健康任务自动选用对应类别的第一首预设音乐；可在任务中更换或移除。</small></div></div>
+      </section>
+
+          {visualMode==='ai_images'&&<>      <section className="collection-import" aria-label="生图通道设置">
+        <div><h3>备用图片服务</h3><p>正常使用无需修改；仅在默认服务异常时切换。</p></div>
         <div className="collection-import-footer">
           <div className="collection-voice-setting">
-            <span>Provider</span>
+            <span>服务通道</span>
             <select value={imageProvider} onChange={event => setImageProvider(event.target.value as "apimart" | "xcode")} aria-label="任务生图通道">
               <option value="apimart">APIMart（默认）</option>
               <option value="xcode">xcode.best（备用）</option>
@@ -439,28 +431,14 @@ function VideoCollectionContent() {
           </div>
         </div>
       </section>
-      <section className="collection-import" aria-label="画面来源"><h2>画面来源</h2><select aria-label="画面来源" value={visualMode} onChange={e=>setVisualMode(e.target.value as 'ai_images'|'stock_video')}><option value="ai_images">AI图片（原流程）</option><option value="stock_video">公共素材拼接（健康类支持视频／图片）</option></select><p>{visualMode==='stock_video'?'优先40–60秒连续公共视频，允许短素材；开阔舒展的氛围画面无需逐句匹配，先确认再拼接。保留所选内容模板的画面比例和文字布局。':'按当前内容模板生成分镜图片。'}</p></section>
-      <section hidden={visualMode==='stock_video'} className="collection-import" aria-label="画面生成设置">
-        <div><h2>画面生成设置</h2><p>风格、类别预设、生成方式和参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
-        <div className="collection-import-footer">
-          <div className="collection-voice-setting"><span>画面风格（由成片模板决定）</span><strong>{productionTemplate(productionTemplateId).label}</strong><small>构图比例与字体排版统一保存，不随文案规则切换。</small></div>
-          <div className="collection-voice-setting"><span>参考画面</span><select value={referenceMode} onChange={event => setReferenceMode(event.target.value)} aria-label="视频参考画面策略"><option value="scene_continuity">镜头连续性</option><option value="book_cover">书籍封面气质</option><option value="none">不指定</option></select><small>封面参考只借鉴色彩、材质和时代感，不复制文字</small></div>
-      {(contentCategory === "social_science" || productionTemplateId === "guoxue-v1") && <section className="collection-import" aria-label="历史视觉风格预览"><div><h2>历史风格预览</h2><p>预览图用于确认整体画面方向，任务创建后随风格快照保存。</p></div><div className="collection-import-footer"><img src={`/history-style-previews/${visualStyle === "guoxue_gongbi_life" ? "guoxue-gongbi-life" : visualStyle === "history_ink_scroll" ? "history-ink-scroll" : visualStyle === "history_gongbi_cinematic" ? "history-gongbi-cinematic" : "history-heroic"}.png`} alt="历史类视觉风格预览" style={{ display: "block", width: "min(100%, 520px)", aspectRatio: visualStyle === "guoxue_gongbi_life" ? "1 / 1" : "3 / 2", objectFit: "cover", borderRadius: 6, border: "1px solid #d7d1c7" }} /></div></section>}
-        <div className="collection-import-footer">
-
-          <div className="collection-voice-setting"><span>生成方式</span><select value={generationMode} onChange={event => setGenerationMode(event.target.value as "prompt" | "reference_image" | "hybrid")} aria-label="视觉生成方式"><option value="prompt">提示词风格</option><option value="reference_image">参考图片</option><option value="hybrid">提示词 + 参考图片</option></select><small>{generationMode === "prompt" ? "仅使用镜头提示词与类别预设。" : "待绑定已授权素材；供应商不支持图片输入时自动降级为提示词。"}</small></div>
-        </div>
-        </div>
+<section className="collection-import" aria-label="图片参考设置"><h3>图片参考</h3><label>参考方向<select value={referenceMode} onChange={e=>setReferenceMode(e.target.value)}><option value="scene_continuity">保持镜头风格连续 · 推荐</option><option value="book_cover">借鉴书籍气质</option><option value="none">使用类型默认风格</option></select></label><small>画面风格和比例已随内容类型确定，无需重复选择。</small></section></>}
+        </div></details>
+        <div className="creation-submit"><p><strong>下一步：确认改写文案</strong><span>{ttsSource==='external'?'确认后上传配音，系统继续处理字幕与画面。':'确认后自动处理配音与画面。'}{visualMode==='stock_video'?'公共素材会先列出清单供你预览。':''}</span></p><button className="primary-action" disabled={creating||!userId||!/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating?'正在创建…':'创建并开始采集'}<span aria-hidden="true"> →</span></button></div>
       </section>
-      <section className="collection-import" aria-label="背景音乐预设">
-        <div><h2>背景音乐预设</h2><p>国学和健康类新任务会自动保存对应类别的第一首音乐。预设曲目需要在发布简介中署名。</p></div>
-        <div className="collection-import-footer"><div className="collection-voice-setting"><span>配音下的背景音乐音量</span><select value={bgmVolume} onChange={event => setBgmVolume(event.target.value)} aria-label="默认背景音乐音量"><option value="0.05">轻柔 5%</option><option value="0.08">轻柔 8%</option><option value="0.12">清晰 12%</option><option value="0.15">标准 15%（推荐）</option><option value="0.20">明显 20%</option><option value="0.30">上限 30%</option></select><small>国学和健康任务自动选用对应类别的第一首预设音乐；可在任务中更换或移除。</small></div></div>
-      </section>
-      <section className="collection-import" aria-label="配音速度设置"><div><h2>配音速度</h2><p>速度会随新任务保存，也可在配音阶段调整后重跑。</p></div><div className="collection-import-footer"><div className="collection-voice-setting"><span>口播速度</span><select value={ttsRate} onChange={event => setTtsRate(event.target.value)} aria-label="默认配音速度"><option value="-5%">稍慢 5%</option><option value="-8%">舒缓 8%（推荐）</option><option value="-12%">慢速 12%</option><option value="0%">标准速度</option></select></div></div></section>
       {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
       <div className={`collection-loading${loading ? '' : ' is-idle'}`} role="status" aria-hidden={!loading}><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}
-      <section className="collection-results" aria-labelledby="collection-results-heading"><div className="collection-toolbar"><div><h2 id="collection-results-heading">采集结果 <span>{totalTasks}</span></h2><p>每页读取 25 条任务及其关联产物；缺失字段不会以示例数据替代。</p></div><div className="collection-filters"><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索标题、作者或链接" aria-label="搜索采集任务" /><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} aria-label="按任务状态筛选"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={minFollowers} onChange={event => { setMinFollowers(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低粉丝" aria-label="最低粉丝数" /><input value={minComments} onChange={event => { setMinComments(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低评论" aria-label="最低评论数" /></div></div>
+      <section className="collection-results" aria-labelledby="collection-results-heading"><div className="collection-toolbar"><div><h2 id="collection-results-heading">采集结果 <span>{totalTasks}</span></h2><p>查看来源表现、制作进度，找到值得继续创作的选题。</p></div><div className="collection-filters"><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索标题、作者或链接" aria-label="搜索采集任务" /><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} aria-label="按任务状态筛选"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={minFollowers} onChange={event => { setMinFollowers(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低粉丝" aria-label="最低粉丝数" /><input value={minComments} onChange={event => { setMinComments(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低评论" aria-label="最低评论数" /></div></div>
         {selectedIds.length > 0 && <div className="collection-bulk-bar"><span>已选 {selectedIds.length} 条</span><button className="secondary-action" onClick={copySelectedUrls}>复制来源链接</button><button className="secondary-action" onClick={cancelSelectedPending}>取消待处理任务</button><button className="collection-bulk-clear" onClick={() => setSelectedIds([])}>清除选择</button></div>}
         <div className="collection-table-wrap"><table className="collection-table"><thead><tr><th><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} aria-label="选择当前页任务" /></th><th>序号</th><th>标题</th><th>识别书籍</th><th>采集来源</th><th>作者</th><th>粉丝</th><th>时长</th><th>采集时间</th><th>点赞</th><th>评论</th><th>分享</th><th>收藏</th><th>任务状态</th><th>操作</th></tr></thead><tbody>{pagedVisible.map((task, index) => {
           const meta = artifactByTask.get(task.id)?.meta || {};

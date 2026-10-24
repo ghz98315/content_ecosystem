@@ -234,6 +234,7 @@ def _make_ass(
     narration_font: str | None = None, footnote_font: str | None = None,
     picture_ratio: float = 4/3,
     footnote_centered: bool = False,
+    health_text_style: bool = False,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
@@ -257,6 +258,15 @@ def _make_ass(
     sub_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
     foot_fill = '&H001A1D20' if landscape_layout else '&H00E9E9E9'
     foot_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
+    foot_size=32 if landscape_layout else 28
+    if health_text_style:
+        ass_title_color='&H00FFFFFF'
+        heading_outline='&H00000000'
+        sub_fill='&H0000E6FF'
+        sub_outline='&H00000000'
+        foot_size-=1
+        foot_fill='&H33'+foot_fill[4:]
+        foot_outline='&H33'+foot_outline[4:]
     narration_bold = 0 if landscape_layout else -1
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
@@ -268,7 +278,7 @@ def _make_ass(
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
         f"Style: Subheading,{subtitle_font},{56 if landscape_layout else 52},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
-        f"Style: Footnote,{footnote_font},{32 if landscape_layout else 28},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{2 if landscape_layout else 1.5},0,3,70,70,110,1\n\n"
+        f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{2 if landscape_layout else 1.5},0,3,70,70,110,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
@@ -287,7 +297,7 @@ def _make_ass(
             placement = ''
             if landscape_layout or (style=='Footnote' and footnote_centered):
                 alignment, x, y = positions[style]
-                base_size = {'Heading': 92, 'Subheading': 56, 'Footnote': 32 if landscape_layout else 28}[style]
+                base_size = {'Heading': 92, 'Subheading': 56, 'Footnote': foot_size}[style]
                 units = max(sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in line) for line in value.split('\n'))
                 spacing = 2 if style == 'Heading' else 0
                 size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
@@ -345,6 +355,7 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'title_color': str(params.get('title_color') or (os.environ.get('RENDER_TITLE_COLOR', '#BA413B') if is_guoxue else '#FFF4D9')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
         'footnote_centered': params.get('production_template')=='health-v1' or (not params.get('production_template') and params.get('content_line')=='health'),
+        'health_text_style': params.get('production_template')=='health-v1' or (not params.get('production_template') and params.get('content_line')=='health'),
     }
 
 
@@ -1014,6 +1025,12 @@ def run(stage: dict) -> tuple[str, str | None]:
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
+        if text_settings.get('health_text_style') and os.environ.get('HEALTH_SUBTITLE_FONT_FILE'):
+            from PIL import ImageFont
+            font_path=Path(os.environ['HEALTH_SUBTITLE_FONT_FILE'])
+            if not font_path.is_file():raise ValueError('健康类字幕字体文件不存在，请检查 HEALTH_SUBTITLE_FONT_FILE')
+            text_settings['narration_font']=ImageFont.truetype(str(font_path),SUBTITLE_FONT_SIZE).getname()[0]
+            shutil.copyfile(font_path,Path(tmpdir)/'fonts'/'health-subtitle.ttf')
         text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
         _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, picture_ratio=picture_ratio, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
