@@ -878,7 +878,11 @@ def run(stage: dict) -> tuple[str, str | None]:
         try:
             frame_mode = (stage.get('params') or {}).get('frame_mode')
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
-            _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
+            if stock and landscape_layout:
+                from stock_media import make_video_clip
+                make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
+            else:
+                _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
         finally:
             try:
                 os.remove(cover_local)
@@ -1121,6 +1125,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
             "cover_frames": COVER_FRAMES,
             "visual_mode": 'stock_video' if stock else 'ai_images',
+            "stock_processing": {"color_style":images[0].get('processing',{}).get('color_style','none'),"feather":images[0].get('processing',{}).get('feather',0)} if stock else None,
             "motion": 'source_motion' if stock else ("alternating_zoom_in_out" if landscape_layout else "zoom_in"),
             "zoom_amount": 0 if stock else (LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT),
             "zoom_oversample": LANDSCAPE_WORK_SCALE if landscape_layout else ZOOM_OVERSAMPLE,

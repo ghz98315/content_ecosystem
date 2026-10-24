@@ -20,7 +20,7 @@ class StockRenderIntegration(unittest.TestCase):
    count=0
    def copy(src,suffix):
     nonlocal count;count+=1;target=root/(str(count)+suffix);shutil.copyfile(src,target);return str(target)
-   entries=[{'path':'thumb','sentence':'虚构文案','char_start':0,'char_end':4,'char_count':4,'source_start':0,'asset':stock_media.CATALOG[2]}]
+   entries=[{'path':'thumb','sentence':'虚构文案','char_start':0,'char_end':4,'char_count':4,'source_start':0,'asset':stock_media.CATALOG[2],'processing':stock_media.POLICY['processing_defaults']}]
    def load(task,kind):return {'video_index':entries,'subtitle':{'duration':2,'input_format':'timeline_v3','segments':[{'text':'虚构文案','start':0,'end':2,'char_start':0,'char_end':4}]},'book':{}}.get(kind)
    def table(name):
     q=MagicMock()
@@ -46,6 +46,7 @@ class StockRenderIntegration(unittest.TestCase):
    self.assertEqual('done',render.run(stage)[0]);image.assert_not_called()
    self.assertAlmostEqual(2.5,durations[-1],delta=.15)
    self.assertEqual('source_motion',artifacts[-1]['motion']);self.assertEqual(0,artifacts[-1]['zoom_amount'])
+   self.assertEqual(36,artifacts[-1]['stock_processing']['feather'])
    stage['params']['video_text']['title']='修改标题'
    self.assertEqual('done',render.run(stage)[0]);self.assertTrue(artifacts[-1]['picture_track_cache_hit'])
 

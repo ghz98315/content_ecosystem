@@ -204,6 +204,7 @@ def run(stage: dict):
                 'cover':'independent_cover','publication_cover':cover_path,'title_visibility':'cover_only',
                 'footnote_visibility':'full_video','text_layout':{'title':title,'subtitle':subtitle,'footnote':footnote},
                 'visual_mode':'stock_video' if stock else 'ai_images',
+                'stock_processing':{'color_style':images[0].get('processing',{}).get('color_style','none'),'feather':0} if stock else None,
                 'motion':'source_motion' if stock else 'alternating_zoom_in_out','zoom_amount':0 if stock else SCENE_ZOOM_AMOUNT,
                 'motion_curve':'linear','motion_work_scale':SCENE_ZOOM_WORK_SCALE,'layout':'scene_fullscreen',
                 'quality_status':quality['status'],'quality_report':quality_path,'phase_seconds':phase,
