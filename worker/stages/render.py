@@ -259,14 +259,16 @@ def _make_ass(
     foot_fill = '&H001A1D20' if landscape_layout else '&H00E9E9E9'
     foot_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
     foot_size=32 if landscape_layout else 28
+    foot_border=2 if landscape_layout else 1.5
+    foot_shadow=0
     if health_text_style:
         ass_title_color='&H00FFFFFF'
         heading_outline='&H00000000'
         sub_fill='&H0000E6FF'
         sub_outline='&H00000000'
-        foot_size-=1
-        foot_fill='&H33'+foot_fill[4:]
-        foot_outline='&H33'+foot_outline[4:]
+        foot_size-=3
+        foot_fill='&H4DFFFFFF'
+        foot_border=0
     narration_bold = 0 if landscape_layout else -1
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
@@ -278,7 +280,7 @@ def _make_ass(
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
         f"Style: Subheading,{subtitle_font},{56 if landscape_layout else 52},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
-        f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{2 if landscape_layout else 1.5},0,3,70,70,110,1\n\n"
+        f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
@@ -290,6 +292,11 @@ def _make_ass(
         'Subheading': (2, W // 2, picture_top - 56),
         'Footnote': (9, W - 70, picture_bottom + 28),
     }
+    if health_text_style and landscape_layout:
+        # Half a subtitle line of clear space between its bottom and the picture.
+        sub_gap=round(56*0.5)
+        positions['Subheading']=(2,W//2,picture_top-sub_gap)
+        positions['Heading']=(2,W//2,picture_top-sub_gap-56-24)
     if footnote_centered:positions['Footnote']=(8,W//2,picture_bottom+28) if landscape_layout else (2,W//2,H-110)
     overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
@@ -928,7 +935,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             revision = db.get_client().table('artifacts').select('created_at').eq('task_id',task_id).eq('type','video_index' if stock else 'image_index').order('created_at',desc=True).limit(1).execute().data
             if revision:
                 cached = picture_cache.cache_path(task_id, {
-                    'version':'stock-source-motion-v1' if stock else 'subpixel-linear-zoom-16-v3', 'index_revision':revision[0]['created_at'],
+                    'version':'stock-source-motion-v2' if stock else 'subpixel-linear-zoom-16-v3', 'index_revision':revision[0]['created_at'],
+                    'feather_edges':('vertical' if health_vertical_feather else 'all') if stock else None,
                     'images':images, 'timeline':timeline, 'durations':durations,
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
                     'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
@@ -1024,6 +1032,12 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'), use_configured=template_id == 'guoxue-v1')
         if template_id == 'guoxue-v1' and (font_fallback or text_settings['title_font'] != requested_font):
             raise ValueError('国学模板缺少已确认的标题字体，请检查 RENDER_TITLE_FONT_FILE')
+        if text_settings.get('health_text_style') and os.environ.get('HEALTH_TITLE_FONT_FILE'):
+            from PIL import ImageFont
+            health_title_path=Path(os.environ['HEALTH_TITLE_FONT_FILE'])
+            if not health_title_path.is_file():raise ValueError('健康类标题字体文件不存在，请检查 HEALTH_TITLE_FONT_FILE')
+            text_settings['title_font']=ImageFont.truetype(str(health_title_path),92).getname()[0]
+            shutil.copyfile(health_title_path,Path(tmpdir)/'fonts'/'health-title.ttf')
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
