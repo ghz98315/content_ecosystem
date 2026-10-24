@@ -16,7 +16,7 @@ VERSION='stock-video-v1'
 CACHE=Path(__file__).parent/'output'/'stock-cache'
 CATALOG=json.loads(Path(__file__).with_name('stock_catalog.json').read_text(encoding='utf-8'))
 MAX_BYTES=350*1024*1024
-MEDIA_HOSTS={'upload.wikimedia.org','videos.pexels.com','player.vimeo.com','cdn.pixabay.com','images.pexels.com'}
+MEDIA_HOSTS={'upload.wikimedia.org','videos.pexels.com','player.vimeo.com','cdn.pixabay.com','images.pexels.com','cdn.coverr.co','storage.coverr.co'}
 HEALTH_POLICY=json.loads((Path(__file__).resolve().parents[1]/'web/lib/healthStockVisualPolicy.json').read_text(encoding='utf-8'))
 
 def health_candidate_allowed(asset, role='lifestyle'):
@@ -67,6 +67,8 @@ def plan_queries(blocks, category, policy=None):
 def search_candidates(query, entity='', *, category='', role='lifestyle', allow_images=False):
     """Key-backed live search, plus a clearly labeled small curated directory."""
     candidates=[]; notices=[]
+    from coverr_source import search as coverr_search
+    coverr,warnings=coverr_search(query,CACHE);candidates.extend(coverr);notices.extend(warnings)
     key=os.environ.get('PIXABAY_API_KEY','').strip()
     pexels=os.environ.get('PEXELS_API_KEY','').strip()
     with httpx.Client(timeout=30,follow_redirects=False,headers={'User-Agent':'ContentEcosystem/1.0'}) as client:
@@ -133,7 +135,7 @@ def search_candidates(query, entity='', *, category='', role='lifestyle', allow_
             try:asset['motion_check']=json.loads(motion_cache.read_text(encoding='utf-8'))
             except (ValueError,OSError):pass
     candidates.sort(key=lambda a:-candidate_score(a,query))
-    if not key and not pexels: notices.append(f'当前使用{len(CATALOG)}条公开素材目录；配置素材检索账号后可扩大搜索范围。')
+    if not key and not pexels and not os.environ.get('COVERR_API_KEY','').strip(): notices.append(f'当前使用{len(CATALOG)}条公开素材目录；配置素材检索账号后可扩大搜索范围。')
     if entity: notices.append(f'优先查找“{entity}”；未找到时提供山水自然补位，不代表该人物或地点的实拍。')
     return candidates,notices
 
@@ -153,8 +155,12 @@ def load_audio_timeline(task_id):
 def build_plan(text,subs,category,queries=None,overrides=None,policy=None):
     from stages import render as r
     policy=policy or (HEALTH_POLICY if category=='health' else {})
-    blocks=split_blocks(text)
-    intents=queries if queries is not None else plan_queries(blocks,category,policy)
+    timed=bool(policy.get('shot_target_seconds'))
+    from stock_timing import timed_blocks
+    blocks=timed_blocks(text,subs) if timed else split_blocks(text)
+    atmosphere=policy.get('matching_mode')=='atmosphere'
+    broad=policy.get('atmosphere_queries') or ['mountain','ocean','forest','countryside','hiking','park']
+    intents=queries if queries is not None else ([{'query':broad[i%len(broad)],'entity':'','role':'lifestyle','reason':'开阔舒展的氛围配画，优先长镜头，无需逐句内容对应'} for i in range(len(blocks))] if atmosphere else plan_queries(blocks,category,policy))
     if len(intents)!=len(blocks): raise ValueError('素材规划段落不完整')
     for index,query in enumerate(overrides or []):
         if index<len(intents) and str(query).strip(): intents[index]={**intents[index],'query':str(query)[:100]}
@@ -164,21 +170,31 @@ def build_plan(text,subs,category,queries=None,overrides=None,policy=None):
         entry.update(query=str(intent.get('query','nature calm'))[:100],reason=str(intent.get('reason','按段落主题配画'))[:250],entity=str(intent.get('entity',''))[:100],role='explanation' if intent.get('role')=='explanation' else 'lifestyle')
         entries.append(entry);cursor+=count
     timeline=r._build_timeline(entries,subs['segments'],float(subs['duration']))
+    final_entries=[];search_cache={}
     for entry,item in zip(entries,timeline):
         entry.update(start=item['start'],end=item['end'],duration=item['duration'])
         if intents[entry['index']].get('planning_fallback'):notices.append(f"第{entry['index']+1}段模型规划缺项，已按本段主题补充检索词，请预览确认相关性。")
-        candidates,warnings=search_candidates(entry['query'],entry['entity'],category=category,role=entry['role'],allow_images=bool(policy.get('allow_images')));notices.extend(warnings)
-        # Long enough first; short clips stay visible but cannot be confirmed.
-        candidates.sort(key=lambda v:float(v['duration'])<entry['duration']+.2 if v.get('media_type')!='image' else False)
-        if policy.get('allow_images') and any(a.get('media_type')=='image' for a in candidates):
-            photos=[a for a in candidates if a.get('media_type')=='image'][:2]
-            videos=[a for a in candidates if a.get('media_type')!='image'][:8-len(photos)]
-            entry['candidates']=videos+photos
-        else:entry['candidates']=candidates[:8]
-        entry.pop('path',None)
+        key=(entry['query'],entry['entity'],entry['role'])
+        if key not in search_cache:search_cache[key]=search_candidates(entry['query'],entry['entity'],category=category,role=entry['role'],allow_images=bool(policy.get('allow_images')) and not atmosphere)
+        candidates,warnings=search_cache[key];notices.extend(warnings)
+        live=[a for a in candidates if a.get('provider')!='commons_catalog' and a.get('media_type')!='image']
+        cap=min(60,max((float(a['duration'])-.3 for a in live),default=60))
+        parts=timed_blocks(entry['sentence'],subs,target=cap,minimum=cap*.8,maximum=cap,char_offset=entry['char_start']) if timed and cap>=3 and cap<entry['duration']-.05 else [entry['sentence']]
+        if len(parts)>1:notices.append('部分在线源片短于40–60秒，已按实际可用时长缩短分镜；不循环、冻帧或强制慢放。')
+        cursor=entry['char_start']
+        for offset,part in enumerate(parts):
+            end_char=cursor+visible_len(part)
+            start=entry['start'] if offset==0 else r._cue_time_at_char(cursor,subs['segments'],float(subs['duration']))
+            end=entry['end'] if offset==len(parts)-1 else r._cue_time_at_char(end_char,subs['segments'],float(subs['duration']))
+            shot={**entry,'index':len(final_entries),'sentence':part,'char_start':cursor,'char_end':end_char,'char_count':visible_len(part),'word_count':sum(c.isalnum() for c in part),'start':start,'end':end,'duration':round(end-start,3)};cursor=end_char
+            ranked=sorted(candidates,key=lambda v:float(v['duration'])<shot['duration']+.2 if v.get('media_type')!='image' else False)
+            if policy.get('allow_images') and any(a.get('media_type')=='image' for a in ranked):
+                photos=[a for a in ranked if a.get('media_type')=='image'][:2];shot['candidates']=[a for a in ranked if a.get('media_type')!='image'][:8-len(photos)]+photos
+            else:shot['candidates']=ranked[:8]
+            shot.pop('path',None);final_entries.append(shot)
     return {'version':VERSION,'processing_defaults':settings((policy or {}).get('processing_defaults',LEGACY)),
             'visual_policy_version':(policy or {}).get('version','legacy'),'revision':uuid.uuid4().hex,'text_hash':digest(text),'audio_duration':subs['duration'],
-            'entries':entries,'notices':list(dict.fromkeys(notices)),'created_at':time.time()}
+            'shot_target_seconds':[40,60] if timed else None,'entries':final_entries,'notices':list(dict.fromkeys(notices)),'created_at':time.time()}
 
 def selection_entries(plan,selections):
     if not isinstance(selections,list) or len(selections)!=len(plan['entries']): raise ValueError('请为每段文案选择视频')

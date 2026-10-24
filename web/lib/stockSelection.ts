@@ -1,4 +1,4 @@
-export type StockAsset = {id:string;media_type?:'video'|'image';title:string;url:string;page:string;author:string;license:string;license_url:string;duration:number;width:number;height:number;provider?:string;match_note?:string;motion_check?:{state:string}};
+export type StockAsset = {id:string;media_type?:'video'|'image';preview_url?:string;title:string;url:string;page:string;author:string;license:string;license_url:string;duration:number;width:number;height:number;provider?:string;match_note?:string;motion_check?:{state:string}};
 export type StockEntry = {index:number;sentence:string;char_count:number;word_count?:number;start:number;end:number;duration:number;query:string;reason:string;entity?:string;candidates:StockAsset[]};
 export type StockProcessing = {crop_top:number;crop_bottom:number;color_style:'none'|'natural_warm_v1';feather:number};
 export const LEGACY_STOCK_PROCESSING:StockProcessing={crop_top:0,crop_bottom:0,color_style:'none',feather:0};

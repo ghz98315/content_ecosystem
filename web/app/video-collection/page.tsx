@@ -439,7 +439,7 @@ function VideoCollectionContent() {
           </div>
         </div>
       </section>
-      <section className="collection-import" aria-label="画面来源"><h2>画面来源</h2><select aria-label="画面来源" value={visualMode} onChange={e=>setVisualMode(e.target.value as 'ai_images'|'stock_video')}><option value="ai_images">AI图片（原流程）</option><option value="stock_video">公共素材拼接（健康类支持视频／图片）</option></select><p>{visualMode==='stock_video'?'每段约80–100字，按文案主题及配音时长找公共视频；健康类也提供图片候选，先确认素材再拼接。保留所选内容模板的画面比例和文字布局。':'按当前内容模板生成分镜图片。'}</p></section>
+      <section className="collection-import" aria-label="画面来源"><h2>画面来源</h2><select aria-label="画面来源" value={visualMode} onChange={e=>setVisualMode(e.target.value as 'ai_images'|'stock_video')}><option value="ai_images">AI图片（原流程）</option><option value="stock_video">公共素材拼接（健康类支持视频／图片）</option></select><p>{visualMode==='stock_video'?'优先40–60秒连续公共视频，允许短素材；开阔舒展的氛围画面无需逐句匹配，先确认再拼接。保留所选内容模板的画面比例和文字布局。':'按当前内容模板生成分镜图片。'}</p></section>
       <section hidden={visualMode==='stock_video'} className="collection-import" aria-label="画面生成设置">
         <div><h2>画面生成设置</h2><p>风格、类别预设、生成方式和参考策略会随新任务快照保存，确保整条视频画面统一。</p></div>
         <div className="collection-import-footer">

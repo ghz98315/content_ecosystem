@@ -1,7 +1,35 @@
 {
-  "version": "stock-visual-v2",
-  "processing_defaults": {"crop_top":0,"crop_bottom":0,"color_style":"natural_warm_v1","feather":36},
-  "preferred_scenes": ["开阔天地与远山云海","天空大海与海岸沙滩","航拍森林田野村落","原野海边沙漠徒步","城市街景与车流人流","上下班通勤","公园运动","家庭户外活动"],
+  "version": "stock-visual-v2-long-atmosphere",
+  "processing_defaults": {
+    "crop_top": 0,
+    "crop_bottom": 0,
+    "color_style": "natural_warm_v1",
+    "feather": 36
+  },
+  "preferred_scenes": [
+    "开阔天地与远山云海",
+    "天空大海与海岸沙滩",
+    "航拍森林田野村落",
+    "原野海边沙漠徒步",
+    "城市街景与车流人流",
+    "上下班通勤",
+    "公园运动",
+    "家庭户外活动"
+  ],
   "motion_preference": "优先真实缓慢运镜或人物活动，减少固定机位且主体几乎不动的自然风景",
-  "subtitle_policy": "优先无原字幕视频，或选择无字幕时段；需要时裁掉边缘字幕，裁切损伤主体则换片"
+  "subtitle_policy": "优先无原字幕视频，或选择无字幕时段；需要时裁掉边缘字幕，裁切损伤主体则换片",
+  "matching_mode": "atmosphere",
+  "shot_target_seconds": [
+    40,
+    60
+  ],
+  "atmosphere_queries": [
+    "mountain",
+    "ocean",
+    "forest",
+    "countryside",
+    "hiking",
+    "park"
+  ],
+  "selection_priority": "氛围配画，优先开阔舒展、阳光活力的大场景与人物远景，不要求逐句匹配；优先40–60秒连续视频，源片较短时可缩短镜头。"
 }
