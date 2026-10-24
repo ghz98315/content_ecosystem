@@ -416,3 +416,30 @@ def enforce_subtitle_limit(cues: list[dict], max_chars: int = SUBTITLE_MAX_CHARS
             result.append(fragment)
             elapsed = next_elapsed
     return result
+
+
+def mark_book_titles_in_cues(cues: list[dict], book_name: str) -> list[dict]:
+    """Add visible title marks without changing the spoken text or source offsets."""
+    title = str(book_name or "").strip().strip("《》").strip()
+    if not title or not cues:
+        return cues
+    result = [dict(cue) for cue in cues]
+    index = 0
+    while index < len(result) - 1:
+        left = str(result[index].get("text") or "")
+        right = str(result[index + 1].get("text") or "")
+        boundary = len(left)
+        joined = left + right
+        crosses = any(match.start() < boundary < match.end()
+                      for match in re.finditer(re.escape(title), joined))
+        if crosses and visible_len(joined.replace("《", "").replace("》", "")) <= SUBTITLE_MAX_CHARS:
+            merged = {**result[index], "text": joined, "end": result[index + 1]["end"]}
+            if "char_end" in result[index + 1]:
+                merged["char_end"] = result[index + 1]["char_end"]
+            result[index:index + 2] = [merged]
+            continue
+        index += 1
+    pattern = re.compile(r"(?<!《)" + re.escape(title) + r"(?!》)")
+    for cue in result:
+        cue["text"] = pattern.sub(lambda match: f"《{match.group()}》", str(cue.get("text") or ""))
+    return result

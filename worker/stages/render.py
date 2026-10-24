@@ -22,7 +22,7 @@ import storage
 import config
 from production_templates import validate_template, validate_task_template
 from quality import inspect_render_quality
-from narration import enforce_subtitle_limit
+from narration import enforce_subtitle_limit, mark_book_titles_in_cues
 
 W, H = 1080, 1920
 # Source images are portrait 9:16 and must fill the final portrait canvas.
@@ -861,6 +861,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     is_history = str(task_context.get("content_category") or "health") == "social_science"
     rewrite_data = _load_json_artifact(task_id, "rewrite") if is_history else {}
     book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "")
+    segments = mark_book_titles_in_cues(segments, book_name)
     author = str(book_data.get("author", "") if isinstance(book_data, dict) else "")
 
     tmpdir = tempfile.mkdtemp(prefix="render_")

@@ -4,6 +4,7 @@ import unittest
 
 from stages.render import _validate_timeline
 from stages.tts import _build_subtitle_cues
+from narration import mark_book_titles_in_cues
 
 
 class BookTitleSubtitleTests(unittest.TestCase):
@@ -48,6 +49,24 @@ class BookTitleSubtitleTests(unittest.TestCase):
 
         self.assertIn("《身体重置》", display)
         self.assertNotIn("《《", display)
+
+    def test_external_cues_gain_title_marks_without_changing_timing(self):
+        cues = [{"text": "今天读道德经", "start": 0.0, "end": 1.5, "char_start": 0, "char_end": 6}]
+        result = mark_book_titles_in_cues(cues, "《道德经》")
+        self.assertEqual("今天读《道德经》", result[0]["text"])
+        self.assertEqual((0.0, 1.5, 0, 6), (result[0]["start"], result[0]["end"], result[0]["char_start"], result[0]["char_end"]))
+        self.assertEqual("今天读道德经", cues[0]["text"])
+
+    def test_title_split_across_adjacent_cues_is_rejoined(self):
+        cues = [
+            {"text": "今天读道德", "start": 0.0, "end": 1.0, "char_start": 0, "char_end": 5},
+            {"text": "经很有意思", "start": 1.0, "end": 2.0, "char_start": 5, "char_end": 10},
+        ]
+        result = mark_book_titles_in_cues(cues, "道德经")
+        self.assertEqual(1, len(result))
+        self.assertEqual("今天读《道德经》很有意思", result[0]["text"])
+        self.assertEqual(2.0, result[0]["end"])
+        self.assertEqual(10, result[0]["char_end"])
 
 
 if __name__ == "__main__":
