@@ -16,13 +16,12 @@ export function useWorkspaceStatus() {
         if (sessionError) throw sessionError;
         if (!session.session) { if (active) setState(previous => ({ ...previous, status: 'connecting', owner: '', tasks: [] })); return; }
         const owner = session.session.user.id;
-        const [tasks, stages] = await Promise.all([
+        const [tasks, health] = await Promise.all([
           supabase.from('tasks').select('*').eq('owner', owner).neq('status', 'cancelled').order('created_at', { ascending: false }).limit(30),
-          supabase.from('stages').select('updated_at').eq('status', 'processing').order('updated_at', { ascending: false }).limit(1),
+          fetch('/api/worker-health',{headers:{Authorization:'Bearer '+session.session.access_token},signal:AbortSignal.timeout(7000)}).then(response=>response.ok?response.json():null).catch(()=>null),
         ]);
-        if (tasks.error || stages.error) throw tasks.error || stages.error;
-        const heartbeat = stages.data?.[0]?.updated_at;
-        const worker = heartbeat ? Date.now() - Date.parse(heartbeat) < 120_000 ? '最近收到处理心跳' : '运行节点长时间未更新' : '当前无运行节点，无法判断 Worker 是否在线';
+        if (tasks.error) throw tasks.error;
+        const worker = health?.message || '暂时无法检查 Worker 状态';
         if (active) setState({ status: 'connected', owner, tasks: (tasks.data || []) as Task[], worker });
       } catch { if (active) setState(previous => ({ ...previous, status: 'error', worker: '连接恢复后重新检查' })); }
       finally { loading = false; }
@@ -37,3 +36,4 @@ export function useWorkspaceStatus() {
   }, []);
   return state;
 }
+

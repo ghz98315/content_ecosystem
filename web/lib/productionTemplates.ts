@@ -36,4 +36,8 @@ export async function configureProductionTasks(client: any, taskIds: string[], t
   }
   const result = await client.from('tasks').update({ status: 'pending', content_category: databaseCategory(templateId) }).in('id', taskIds).eq('status', 'configuring').select('id');
   if (result.error || result.data?.length !== taskIds.length) throw new Error(result.error?.message || '任务排队失败，请重试');
+  // Liveness telemetry never delays creation or rolls back a valid queued task.
+  if(client.auth?.getSession && taskIds[0])void client.auth.getSession().then(({data}:any)=>{
+    if(data?.session?.access_token)return fetch('/api/worker-health',{method:'POST',headers:{Authorization:`Bearer ${data.session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({taskId:taskIds[0]}),signal:AbortSignal.timeout(7000)});
+  }).catch(()=>{});
 }
