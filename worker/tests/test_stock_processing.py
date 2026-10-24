@@ -26,6 +26,16 @@ class StockProcessingTests(unittest.TestCase):
   self.assertGreater(candidate_score({'title':'family walking outdoors'}),candidate_score({'title':'静景','motion_check':{'state':'nearly_static'}}))
   self.assertGreater(candidate_score({'title':'aerial coast'}),candidate_score({'title':'captioned static_scenery'}))
 
+ def test_health_mask_keeps_left_and_right_edges_clear(self):
+  with tempfile.TemporaryDirectory() as folder:
+   path=Path(folder)/'mask.png';feather_mask(path,1080,810,36,vertical_only=True)
+   with Image.open(path) as image:
+    self.assertEqual(255,image.getpixel((0,405)))
+    self.assertEqual(255,image.getpixel((1079,405)))
+    self.assertEqual(0,image.getpixel((540,0)))
+    self.assertEqual(0,image.getpixel((540,809)))
+    self.assertTrue(0<image.getpixel((0,18))<255)
+
  def test_all_clips_must_share_color_style(self):
   asset=stock_media.CATALOG[0]
   plan={'entries':[{'index':0,'duration':2,'candidates':[asset]},{'index':1,'duration':2,'candidates':[asset]}]}

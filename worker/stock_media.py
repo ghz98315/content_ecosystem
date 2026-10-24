@@ -305,7 +305,7 @@ def run(stage):
     storage.add_artifact(task,'image','stock_credits',prefix+'/credits.txt',meta={'text':credit_text(entries)})
     return 'done',prefix+'/index.json'
 
-def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio=1,source_offset=0):
+def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio=1,source_offset=0,vertical_feather_only=False):
     from stages import render as r
     rate=float(entry.get('playback_rate',1))
     if rate not in (1,.5,.3):raise ValueError('不支持的素材播放速度')
@@ -322,7 +322,7 @@ def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio
                f'boxblur=16:2,scale={r.W}:{r.H},eq=brightness=-0.08[bg];'
                f'[f]scale={r.W}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={r.W}:{h}[fg];')
         if options['feather']:
-            mask=Path(out_mp4).with_suffix('.mask.png');feather_mask(mask,r.W,h,options['feather'])
+            mask=Path(out_mp4).with_suffix('.mask.png');feather_mask(mask,r.W,h,options['feather'],vertical_only=vertical_feather_only)
             extra=['-loop','1','-framerate',str(r.FPS),'-i',str(mask)]
             graph+=f'[1:v]format=gray[m];[fg][m]alphamerge[soft];[bg][soft]overlay=0:{y}:shortest=1,setsar=1,format=yuv420p[v]'
         else:graph+=f'[bg][fg]overlay=0:{y}:shortest=1,setsar=1,format=yuv420p[v]'

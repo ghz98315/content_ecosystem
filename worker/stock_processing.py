@@ -25,12 +25,17 @@ def source_filters(options):
         filters+=['eq=contrast=1.015:brightness=0.006:saturation=0.94','colorbalance=rs=0.012:bs=-0.008']
     return ','.join(filters)
 
-def feather_mask(path,width,height,feather):
+def feather_mask(path,width,height,feather,*,vertical_only=False):
     # Static mask, decoded once and reused; avoids a per-pixel geq per video frame.
     amount=min(round(feather*width/1080),min(width,height)//4)
     mask=Image.new('L',(width,height),255);draw=ImageDraw.Draw(mask)
     for inset in range(amount):
-        draw.rectangle((inset,inset,width-1-inset,height-1-inset),outline=round(255*inset/max(1,amount)))
+        alpha=round(255*inset/max(1,amount))
+        if vertical_only:
+            draw.line((0,inset,width-1,inset),fill=alpha)
+            draw.line((0,height-1-inset,width-1,height-1-inset),fill=alpha)
+        else:
+            draw.rectangle((inset,inset,width-1-inset,height-1-inset),outline=alpha)
     mask.save(path)
 
 def motion_probe(path,ffmpeg,start=0,duration=8):

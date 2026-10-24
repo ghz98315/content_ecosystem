@@ -851,6 +851,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     images: list[dict] = (images_data if isinstance(images_data, list) else []) if stock else _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
     expected_template = (stage.get('params') or {}).get('production_template')
     picture_aspect = ('1:1' if (stage.get('params') or {}).get('template_version') == 2 else '4:3') if expected_template == 'guoxue-v1' else '4:3'
+    health_vertical_feather = expected_template == 'health-v1' or (not expected_template and (stage.get('params') or {}).get('content_line') == 'health')
     picture_ratio = 1.0 if picture_aspect == '1:1' else 4/3
     if expected_template == 'guoxue-v1' and any(image.get('cell_ratio') not in (None,picture_aspect) for image in images):
         raise ValueError(f'已有图片比例与国学{picture_aspect}模板不一致，请重新生图；旧成片已保留')
@@ -898,7 +899,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
             if stock and landscape_layout:
                 from stock_media import make_video_clip
-                make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
+                make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=health_vertical_feather)
             else:
                 _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
         finally:
@@ -956,7 +957,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if stock:
                     from stock_media import make_video_clip
                     clip = os.path.join(tmpdir, f'clip_{i:03d}.mp4')
-                    make_video_clip(item, duration, clip, frame_mode=frame_mode, picture_ratio=picture_ratio)
+                    make_video_clip(item, duration, clip, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=health_vertical_feather)
                     clip_paths.append(clip)
                     continue
                 image_local = storage.download_artifact(item["path"], ".png")
