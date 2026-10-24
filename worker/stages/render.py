@@ -233,6 +233,7 @@ def _make_ass(
     subtitle_font: str | None = None, title_color: str = "#BA413B",
     narration_font: str | None = None, footnote_font: str | None = None,
     picture_ratio: float = 4/3,
+    footnote_centered: bool = False,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
@@ -247,7 +248,10 @@ def _make_ass(
         raise ValueError("字幕位置须在画面高度的55%至82%之间")
     if any(len(value) > limit for value, limit in ((title, 32), (subtitle, 48), (footnote, 60))):
         raise ValueError("标题、副标题或脚注过长")
-    title, subtitle, footnote = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle, footnote))
+    title, subtitle = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle))
+    footnote = footnote.replace('\r\n','\n').replace('\r','\n') if footnote_centered else footnote.replace('\n',' ').replace('\r',' ')
+    if footnote_centered and len(footnote.split('\n'))>4:
+        raise ValueError('健康类脚注最多4行')
     heading_outline = '&H00F1F3F5' if landscape_layout else '&H00202020'
     sub_fill = '&H001A1D20' if landscape_layout else '&H00F4F4F4'
     sub_outline = '&H00FFFFFF' if landscape_layout else '&H00202020'
@@ -276,18 +280,20 @@ def _make_ass(
         'Subheading': (2, W // 2, picture_top - 56),
         'Footnote': (9, W - 70, picture_bottom + 28),
     }
+    if footnote_centered:positions['Footnote']=(8,W//2,picture_bottom+28) if landscape_layout else (2,W//2,H-110)
     overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
         if value:
             placement = ''
-            if landscape_layout:
+            if landscape_layout or (style=='Footnote' and footnote_centered):
                 alignment, x, y = positions[style]
-                base_size = {'Heading': 92, 'Subheading': 56, 'Footnote': 32}[style]
-                units = sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in value)
+                base_size = {'Heading': 92, 'Subheading': 56, 'Footnote': 32 if landscape_layout else 28}[style]
+                units = max(sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in line) for line in value.split('\n'))
                 spacing = 2 if style == 'Heading' else 0
                 size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
                 placement = rf'{{\an{alignment}\pos({x},{y})\fs{size}\q2}}'
-            lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{placement}{_escape_ass(value)}\n")
+            escaped = r'\N'.join(_escape_ass(line) for line in value.split('\n')) if style=='Footnote' and footnote_centered else _escape_ass(value)
+            lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{placement}{escaped}\n")
     for seg in segments:
         start = _fmt_ass_time(float(seg.get("start", 0)))
         end = _fmt_ass_time(float(seg.get("end", 0)))
@@ -338,6 +344,7 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'title_font': str(params.get('title_font') or (os.environ.get('RENDER_TITLE_FONT', 'PlayFont-ChenkunGBT') if is_guoxue else 'KaiTi')),
         'title_color': str(params.get('title_color') or (os.environ.get('RENDER_TITLE_COLOR', '#BA413B') if is_guoxue else '#FFF4D9')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
+        'footnote_centered': params.get('production_template')=='health-v1' or (not params.get('production_template') and params.get('content_line')=='health'),
     }
 
 

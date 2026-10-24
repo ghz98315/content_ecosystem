@@ -4,9 +4,10 @@ export function resolveVideoText(params:Record<string,any>,rewrite:Record<string
  if(saved&&typeof saved==='object')return {title:String(saved.title??''),subtitle:String(saved.subtitle??''),footnote:String(saved.footnote??'')};
  return {title:String(params.main_title??rewrite.cover_title??''),subtitle:String(params.subtitle??rewrite.cover_subtitle??''),footnote:String(params.footnote??(params.production_template==='scene-v1'?'图片由AI生成':'读书分享'))};
 }
-export function validateVideoText(value:VideoText,requireHistoryCover=false):VideoText {
- const text={title:value.title.trim(),subtitle:value.subtitle.trim(),footnote:value.footnote.trim()};
+export function validateVideoText(value:VideoText,requireHistoryCover=false,healthFootnote=false):VideoText {
+ const text={title:value.title.trim(),subtitle:value.subtitle.trim(),footnote:value.footnote.replace(/\r\n?/g,'\n').trim()};
  for(const [key,label,max] of [['title','画面主标题',32],['subtitle','画面副标题',48],['footnote','右下脚注',60]] as const){
+  if(key==='footnote'&&healthFootnote){if(text[key].length>max||text[key].split('\n').length>4)throw new Error('健康类脚注最多4行，总计不超过60字');continue;}
   if(text[key].length>max||/[\r\n]/.test(text[key]))throw new Error(`${label}请填写不超过${max}字的单行文字`);
  }
  if(requireHistoryCover){

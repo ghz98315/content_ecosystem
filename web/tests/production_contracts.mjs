@@ -54,3 +54,7 @@ db=client();let checkRequested=false;db.auth={getSession:()=>{checkRequested=tru
 await configureProductionTasks(db,['x'],'health-v1',{visual_mode:'stock_video'});
 assert.equal(checkRequested,true);assert.equal(db.calls.at(-1).payload.status,'pending');
 console.log('PASS: guardian liveness freshness, new-project visual selector and nonblocking creation check');
+const {validateVideoText}=load('lib/videoText.ts');
+assert.equal(validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\r\n第二行'},false,true).footnote,'第一行\n第二行');
+assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\n第二行'}));
+assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'一\n二\n三\n四\n五'},false,true));
