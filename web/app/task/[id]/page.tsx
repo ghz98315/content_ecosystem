@@ -197,7 +197,7 @@ export default function TaskDetail() {
   if (!task) return <AppShell><div className="state-panel"><strong>任务不存在</strong><span>该任务可能已被删除，或当前工作区无权访问。</span><button className="secondary-action" onClick={() => router.push("/video-collection")}>返回采集工作台</button></div></AppShell>;
 
   const sceneLine = stages.some(stage=>stage.params.production_template==='scene-v1');
-  const stageLabel = (kind: StageKind) => kind==='image'&&stages.some(stage=>stage.params.visual_mode==='stock_video') ? '视频素材' : sceneLine && kind==='book' ? '发布信息' : STAGES.find(item=>item.kind===kind)?.label;
+  const stageLabel = (kind: StageKind) => kind==='rewrite'&&stages.some(stage=>stage.params.input_mode==='ready_script') ? '确认成稿' : kind==='image'&&stages.some(stage=>stage.params.visual_mode==='stock_video') ? '视频素材' : sceneLine && kind==='book' ? '发布信息' : STAGES.find(item=>item.kind===kind)?.label;
   const activeStage = stages.find(stage => stage.status === 'processing') || stages.find(stage => stage.status === 'needs_review');
   return <AppShell tasks={tasks} currentTaskId={id} activity={activeStage ? <><span className={`task-signal signal-${activeStage.status}`}/>{stageLabel(activeStage.kind)} · {nodeClock(activeStage, clock.records, clock.now).label}</> : undefined}>
     <div className="task-workspace">

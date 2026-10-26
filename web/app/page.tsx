@@ -18,6 +18,9 @@ export default function HomePage() {
   const { userId, error: authError } = useAnonAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [url, setUrl] = useState("");
+  const [inputMode, setInputMode] = useState<'link' | 'ready_script'>('link');
+  const [scriptTitle, setScriptTitle] = useState('');
+  const [readyScript, setReadyScript] = useState('');
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [creating, setCreating] = useState(false);
@@ -60,7 +63,8 @@ export default function HomePage() {
 
   const openForm = () => { setShowForm(true); setTimeout(() => inputRef.current?.focus(), 80); };
   const createTask = async () => {
-    if (!url.trim() || !userId || creating) return;
+    const script = readyScript.trim();
+    if (!userId || creating || (inputMode === 'link' ? !url.trim() : script.length < 20 || script.length > 30000)) return;
     setCreating(true); setMsg(null);
     let voice={id:null as string|null,provider:'edge',model:'edge-tts',voice_id:'zh-CN-XiaoxiaoNeural',display_name:'晓晓 · edge-tts'};
     if(ttsSource==='automatic'){
@@ -71,8 +75,9 @@ export default function HomePage() {
     }
     const { data: createdTask, error } = await supabase.from("tasks").insert({
       owner: userId,
-      source_url: url.trim(),
-      source_platform: /weixin\.qq\.com|channels\.weixin\.qq\.com/i.test(url) ? "wechat_channels" : "douyin",
+      source_url: inputMode === 'link' ? url.trim() : null,
+      source_platform: inputMode === 'ready_script' ? 'manual' : /weixin\.qq\.com|channels\.weixin\.qq\.com/i.test(url) ? "wechat_channels" : "douyin",
+      title: inputMode === 'ready_script' ? (scriptTitle.trim() || script.split(/[。！？\n]/)[0].slice(0, 36) || '已导入成稿') : null,
       bgm_path: MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)?.path || null,
       bgm_volume:0.15,
       bgm_authorization_confirmed: Boolean(MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)),
@@ -88,8 +93,14 @@ export default function HomePage() {
     }).select("id").single();
     if (!error && createdTask?.id) {
       try {
+        if (inputMode === 'ready_script') {
+          const saved = await supabase.from('stages').update({ params: { input_mode: 'ready_script', ready_script_text: script } })
+            .eq('task_id', createdTask.id).eq('kind', 'ingest').select('id');
+          if (saved.error || saved.data?.length !== 1) throw new Error(saved.error?.message || '成稿保存失败');
+        }
         await configureProductionTasks(supabase, [createdTask.id], templateId, { visual_mode:visualMode,image_provider: "apimart", image_model: "gpt-image-2", generation_mode: "prompt", reference_mode: "scene_continuity" });
       } catch (configurationError) {
+        await supabase.from('tasks').update({ status: 'cancelled' }).eq('id', createdTask.id).eq('status', 'configuring');
         setCreating(false);
         setMsg({ text: `模板配置失败，任务未启动：${configurationError instanceof Error ? configurationError.message : "请重试"}`, ok: false });
         return;
@@ -97,7 +108,7 @@ export default function HomePage() {
     }
     setCreating(false);
     if (error) setMsg({ text: `创建失败：${error.message}`, ok: false });
-    else { setUrl(""); setShowForm(false); setMsg({ text: "任务已创建，正在进入采集阶段", ok: true }); load(); setTimeout(() => setMsg(null), 3500); }
+    else { setUrl(""); setReadyScript(''); setScriptTitle(''); setShowForm(false); setMsg({ text: inputMode === 'ready_script' ? '成稿已提交，正在进入配音与画面流程' : '任务已创建，正在进入采集阶段', ok: true }); load(); setTimeout(() => setMsg(null), 3500); }
   };
 
   if (!userId && !authError) return <AppShell><div className="page-loading"><div className="skeleton loading-line" /><div className="skeleton loading-block" /></div></AppShell>;
@@ -117,10 +128,11 @@ export default function HomePage() {
       </section>
 
       {showForm && <section className="create-panel create-panel-large anim-fade-in" aria-label="新建项目">
-        <div className="section-heading"><div><h2>新建内容项目</h2><p>选好内容方向，粘贴抖音或视频号链接。后续步骤会引导你完成。</p></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="关闭新建项目">×</button></div>
+        <div className="section-heading"><div><h2>新建内容项目</h2><p>可从视频链接采集，也可直接导入已经确认的成稿。</p></div><button className="icon-button" onClick={() => setShowForm(false)} aria-label="关闭新建项目">×</button></div>
+        <div className="create-input-mode" role="group" aria-label="文案来源"><button type="button" className={inputMode === 'link' ? 'is-active' : ''} disabled={creating} onClick={() => setInputMode('link')}>从链接采集并改写</button><button type="button" className={inputMode === 'ready_script' ? 'is-active' : ''} disabled={creating} onClick={() => setInputMode('ready_script')}>已有成稿，直接制作</button></div>
         <ProductionSetup templateId={templateId} onTemplate={setTemplateId} visualMode={visualMode} onVisualMode={setVisualMode} ttsSource={ttsSource} onTtsSource={setTtsSource} disabled={creating}/>
-        <div className="create-row"><input ref={inputRef} className="url-input" placeholder="粘贴抖音或视频号分享链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && createTask()} /><button className="primary-action" onClick={createTask} disabled={creating || !url.trim()}>{creating ? "创建中…" : "开始处理"}</button><button className="secondary-action" onClick={() => { setShowForm(false); setUrl(""); }}>取消</button></div>
-        <p className="form-hint">支持单条链接；多条内容可到视频采集工作台批量创建。国学和健康类默认配乐可在配音步骤调整。</p>
+        {inputMode === 'link' ? <div className="create-row"><input ref={inputRef} className="url-input" placeholder="粘贴抖音或视频号分享链接" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && createTask()} /><button className="primary-action" onClick={createTask} disabled={creating || !url.trim()}>{creating ? "创建中…" : "开始处理"}</button><button className="secondary-action" onClick={() => { setShowForm(false); setUrl(""); }}>取消</button></div> : <div className="ready-script-entry"><label>项目标题（可选）<input value={scriptTitle} maxLength={80} onChange={e => setScriptTitle(e.target.value)} placeholder="用于工作台识别任务" /></label><label>已确认的完整口播文案<textarea value={readyScript} maxLength={30000} onChange={e => setReadyScript(e.target.value)} placeholder="粘贴已改写、无需再次二创的最终文案；保留自然分段和标点" /></label><small>{readyScript.trim().length} / 30000 字符。系统将原样保存此稿，跳过采集、逐字稿、清洗和改写。</small><div className="create-row"><button className="primary-action" onClick={createTask} disabled={creating || readyScript.trim().length < 20}>{creating ? '创建中…' : '导入成稿并开始制作'}</button><button className="secondary-action" onClick={() => setShowForm(false)}>取消</button></div></div>}
+        <p className="form-hint">{inputMode === 'link' ? '支持单条链接；多条内容可到视频采集工作台批量创建。' : '导入成稿不会调用二创模型；配音、画面和成片沿用所选内容类型的模板。'}国学和健康类默认配乐可在配音步骤调整。</p>
       </section>}
 
       {msg && <div className={`notice ${msg.ok ? "notice-success" : "notice-error"}`} role={msg.ok ? "status" : "alert"}>{msg.text}</div>}

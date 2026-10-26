@@ -37,8 +37,8 @@ export function PreflightPanel({ task, stages, onOpenStage }: { task: Task; stag
         const label = ready ? "已就绪" : review ? "待确认" : failed ? "需修复" : status === "processing" ? "生成中" : def.kind === "render" ? "待生成" : "未就绪";
         return <button className={`preflight-item is-${status}`} key={def.kind} onClick={() => onOpenStage(def.kind)}>
           <span className="preflight-check" aria-hidden="true">{ready ? "✓" : failed ? "!" : review ? "·" : String(stage?.seq ?? STAGES.findIndex(item => item.kind === def.kind) + 1)}</span>
-          <span className="preflight-copy"><strong>{def.kind==='image'&&stage?.params.visual_mode==='stock_video'?'视频素材':COPY[def.kind].title}</strong><small>{def.kind==='image'&&stage?.params.visual_mode==='stock_video'?'视频选片、来源及覆盖时长已确认':COPY[def.kind].description}</small></span>
-          <span className="preflight-status">{label}</span>
+          <span className="preflight-copy"><strong>{stage?.params.input_mode==='ready_script'&&def.kind==='rewrite'?'确认成稿':def.kind==='image'&&stage?.params.visual_mode==='stock_video'?'视频素材':COPY[def.kind].title}</strong><small>{stage?.params.input_mode==='ready_script'&&['ingest','transcribe','clean'].includes(def.kind)?'已直接导入成稿，无需执行':def.kind==='image'&&stage?.params.visual_mode==='stock_video'?'视频选片、来源及覆盖时长已确认':COPY[def.kind].description}</small></span>
+          <span className="preflight-status">{stage?.params.skipped ? '已跳过' : label}</span>
         </button>;
       })}
     </div>

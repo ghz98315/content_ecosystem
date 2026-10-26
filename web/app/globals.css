@@ -237,6 +237,15 @@ textarea:focus-visible, select:focus-visible {
 
 .category-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0 12px; }
 .create-row { display: flex; gap: 8px; }
+.create-input-mode { display: flex; gap: 8px; margin-bottom: 16px; }
+.create-input-mode button { min-height: 38px; padding: 0 13px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-secondary); }
+.create-input-mode button.is-active { border-color: var(--accent); background: var(--bg-hover); color: var(--accent); font-weight: 700; }
+.ready-script-entry { display: grid; gap: 10px; margin-top: 16px; }
+.ready-script-entry label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 13px; }
+.ready-script-entry input, .ready-script-entry textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-primary); }
+.ready-script-entry textarea { min-height: 210px; resize: vertical; line-height: 1.8; }
+.ready-script-entry small { color: var(--text-secondary); }
+@media (max-width: 640px) { .create-input-mode { flex-direction: column; } }
 .url-input { min-width: 0; flex: 1; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-surface); font-size: 14px; outline: none; transition: border-color .15s ease, box-shadow .15s ease; }
 .url-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
 .primary-action, .secondary-action { min-height: 40px; padding: 0 16px; border-radius: var(--radius-md); font-size: 13px; transition: background .15s ease, border-color .15s ease, transform .15s ease; }

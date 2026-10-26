@@ -665,6 +665,10 @@ def run(stage: dict) -> tuple[str, str | None]:
         .execute()
     ).data or {}
     params = latest.get("params") or stage.get("params") or {}
+    if params.get('input_mode') == 'ready_script':
+        from ready_script import materialize
+        imported = db.get_client().table('stages').select('params').eq('task_id', task_id).eq('kind', 'ingest').single().execute().data or {}
+        return 'done', materialize({'task_id': task_id, 'params': imported.get('params') or {}})
     chosen = params.get("chosen_index")
     task_context = db.get_task_prompt_context(task_id)
     mode = str(task_context.get("rewrite_mode") or params.get("rewrite_mode") or "initial_dedup")

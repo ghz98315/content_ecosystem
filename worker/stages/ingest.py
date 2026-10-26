@@ -93,6 +93,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     """
     task_id = stage["task_id"]
     params = stage.get("params") or {}
+    if params.get('input_mode') == 'ready_script':
+        from ready_script import materialize
+        return 'done', materialize(stage)
 
     # 拿 source_url
     task = db.get_client().table("tasks").select("source_url,source_platform").eq("id", task_id).single().execute()

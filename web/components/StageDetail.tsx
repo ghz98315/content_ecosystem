@@ -22,6 +22,10 @@ interface Props {
 export function StageDetail({ kind, stage, stages, taskId, task, onRerun, onApprove }: Props) {
   const common = { stage, taskId, task, onRerun, onApprove };
 
+  if (stage?.params.input_mode === 'ready_script' && ['ingest', 'transcribe', 'clean'].includes(kind)) {
+    return <div className="state-panel"><strong>已直接导入确认成稿</strong><span>此任务跳过采集、逐字稿和清洗，后续使用导入的完整文案。</span></div>;
+  }
+
   return (
     <div className="anim-fade-in" style={{ height: "100%", minHeight: 0 }}>
       {kind === "ingest"     && <IngestDetail     {...common} />}

@@ -16,6 +16,7 @@ interface RewriteData {
   complete?: boolean;
   chosen: number | null;
   final_text?: string | null;
+  imported_final_script?: boolean;
   content_category?: string;
   compliance?: ComplianceReport;
   hook?: string;
@@ -154,7 +155,8 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
 
   return (
     <DetailShell title="改写" stage={stage} onRerun={onRerun} actions={actions}>
-      {task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} />}
+      {stage?.params.input_mode === 'ready_script' && <p role="status">本任务直接使用已确认成稿，没有调用二创模型。配音和画面均以此稿为准。</p>}
+      {stage?.params.input_mode !== 'ready_script' && task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} />}
       <VideoTextSettings ref={videoTextRef} taskId={taskId} disabled={busy} historyCover={task.content_category === 'social_science'} legacyTitle={data?.cover_confirmed ? data.cover_title : undefined} legacySubtitle={data?.cover_confirmed ? data.cover_subtitle : undefined} />
       {(isReview || isDone) && data && (
         <>
@@ -162,7 +164,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
             <div><span>原文长度</span><strong>{data.source_length ?? "—"} 字</strong><small>清洗后输入文本</small></div>
             <div><span>当前稿件</span><strong>{activeLength} 字</strong><small>{data.complete ? "全文已返回，仍需核对信息" : "确认前检查全文"}</small></div>
             <div><span>预计口播</span><strong>{Math.floor(estimatedSeconds / 60)}:{String(estimatedSeconds % 60).padStart(2, "0")}</strong><small>按当前文案估算</small></div>
-            <div><span>合规状态</span><strong>{report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
+            <div><span>合规状态</span><strong>{data.imported_final_script ? '用户确认稿' : report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{data.imported_final_script ? '未运行二创或自动改写检查' : report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
           </section>
           {data.rewrite_review && <RewriteReviewPanel report={{ ...data.rewrite_review, ...(isDone ? data.final_similarity : {}) }} source={data.source_formatted || data.source_text || ''} text={activeText} evaluatedText={isDone && data.final_similarity ? data.final_text || '' : data.candidates[selected ?? 0] || ''} />}
           {isReview && lengthTooShort && <p role="alert">文稿不得减少超过15%：至少需 {minimumLength} 字，当前 {activeLength} 字。请在下方编辑区补回原有信息后确认。</p>}
@@ -232,9 +234,9 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
             const length = textLength(text);
             const estimatedSeconds = Math.max(1, Math.round(length / 3.5));
             const isSingleDraft = data.candidates.length === 1;
-            const styleName = isSingleDraft ? (data.rewrite_review ? "深度二创稿" : "改写稿") : (LEGACY_STYLE_NAMES[i] ?? `候选 ${i + 1}`);
+            const styleName = data.imported_final_script ? '导入的确认稿' : isSingleDraft ? (data.rewrite_review ? "深度二创稿" : "改写稿") : (LEGACY_STYLE_NAMES[i] ?? `候选 ${i + 1}`);
             const styleHint = isSingleDraft
-              ? (data.rewrite_review ? "开头逐字保留，正文重构，结尾按语义改写" : "请核对原文信息与当前表达")
+              ? (data.imported_final_script ? '原样进入配音与画面流程' : data.rewrite_review ? "开头逐字保留，正文重构，结尾按语义改写" : "请核对原文信息与当前表达")
               : LEGACY_STYLE_HINTS[i];
             return (
               <section
