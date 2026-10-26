@@ -10,6 +10,11 @@ from stages import render
 from quality import probe_media
 
 class StockRenderIntegration(unittest.TestCase):
+ def test_video_duration_ignores_non_utf8_filename_diagnostics(self):
+  diagnostic=b'Input #0, from \xff\xaa.mp4:\n  Duration: 00:00:42.75, start: 0.000000\n'
+  with patch.object(render,'_run_ffmpeg',return_value=SimpleNamespace(stderr=diagnostic)):
+   self.assertEqual(42.75,render._video_duration('中文素材.mp4'))
+
  def test_full_render_reuses_selected_video_and_does_not_call_image_encoder(self):
   source=Path(__file__).resolve().parents[1]/'output/stock-video-evaluation-20261024/waterfall.webm'
   if not source.exists():self.skipTest('Local sample missing')

@@ -747,8 +747,13 @@ def _use_dissolve(image_count: int, duration: float) -> bool:
 
 
 def _video_duration(path: str) -> float:
-    result = _run_ffmpeg([ff(), "-i", path], capture_output=True, text=True)
-    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", result.stderr)
+    # FFmpeg's diagnostics may contain UTF-8 filenames even on a GBK Windows
+    # console. Keep stderr as bytes: the Duration line itself is ASCII.
+    result = _run_ffmpeg([ff(), "-i", path], capture_output=True)
+    stderr = result.stderr or b""
+    if isinstance(stderr, str):
+        stderr = stderr.encode("utf-8", errors="replace")
+    match = re.search(rb"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
     if not match:
         raise ValueError("无法读取中间视频时长")
     hours, minutes, seconds = match.groups()
