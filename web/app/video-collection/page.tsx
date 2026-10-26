@@ -430,6 +430,7 @@ function VideoCollectionContent() {
     <div className="collection-page anim-fade-in">
       <header className="collection-heading"><div><p className="eyebrow">采集与创作</p><h1>把好选题，变成下一条内容。</h1><p>导入来源、确认文案，再制作成片。每一步都清楚可见。</p></div><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>刷新数据</button></header>
       <section className="collection-create-card" aria-label="新建采集任务">
+        <p className="form-hint">文案已经写好？<Link href="/?new=ready_script">导入确认成稿，直接进入配音与画面制作 →</Link></p>
         <div className="creation-card-heading"><div><p className="eyebrow">开始一条新内容</p><h2>选好方向，粘贴链接即可开始</h2><p>常用设置已准备好。文案、配音和素材会按步骤引导你确认。</p></div><span className="creation-badge">支持批量导入</span></div>
         <ProductionSetup templateId={productionTemplateId} onTemplate={id=>{setProductionTemplateId(id);if(productionTemplate(id).category==='scene'){setNarrationMode('single');setSelectedVoiceProfileId('system-default');}}} visualMode={visualMode} onVisualMode={setVisualMode} ttsSource={ttsSource} onTtsSource={setTtsSource} disabled={creating}/>
         <div className="creation-source"><label htmlFor="collection-source-input">视频链接或分享文本</label><textarea id="collection-source-input" value={sourceText} disabled={creating} onChange={event=>setSourceText(event.target.value)} placeholder="粘贴抖音或视频号分享内容；多个链接请换行" aria-label="视频链接或分享文本"/><small>每个链接创建一个独立任务。只导入一条也可以。</small></div>

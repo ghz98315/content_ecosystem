@@ -33,7 +33,7 @@ export default function HomePage() {
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { if (new URLSearchParams(window.location.search).get('new') === '1') setShowForm(true); }, []);
+  useEffect(() => { const mode = new URLSearchParams(window.location.search).get('new'); if (mode === '1' || mode === 'ready_script') setShowForm(true); if (mode === 'ready_script') setInputMode('ready_script'); }, []);
 
   const load = async () => {
     setTasksLoading(true);
