@@ -88,6 +88,9 @@ function VideoCollectionContent() {
   const [sourceText, setSourceText] = useState("");
   const [query, setQuery] = useState(() => searchParams.get("q") || "");
   const [status, setStatus] = useState(() => searchParams.get("status") || "all");
+  const [category, setCategory] = useState(() => searchParams.get("category") || "all");
+  const [hookScope, setHookScope] = useState<"sentences" | "paragraph">("sentences");
+  const [exportingHooks, setExportingHooks] = useState(false);
   const [minFollowers, setMinFollowers] = useState(() => searchParams.get("minFollowers") || "");
   const [minComments, setMinComments] = useState(() => searchParams.get("minComments") || "");
   const [bookQuery, setBookQuery] = useState(() => searchParams.get("book") || "");
@@ -129,13 +132,15 @@ function VideoCollectionContent() {
     setLoadError(null);
     const pageSize = 25;
     const from = (page - 1) * pageSize;
-    const taskResult = await supabase.rpc("collection_tasks", {
+    let taskQuery = supabase.rpc("collection_tasks", {
       p_query: query.trim() || null,
       p_status: status === "all" ? null : status,
       p_min_followers: minFollowers ? Number(minFollowers) : 0,
       p_min_comments: minComments ? Number(minComments) : 0,
       p_book_query: bookQuery.trim() || null,
-    }, { count: "exact" }).range(from, from + pageSize - 1);
+    }, { count: "exact" });
+    if (category !== "all") taskQuery = taskQuery.eq("content_category", category);
+    const taskResult = await taskQuery.range(from, from + pageSize - 1);
     if (request !== loadVersion.current) return;
     if (taskResult.error) {
       const text = `采集任务加载失败：${taskResult.error.message}`;
@@ -186,7 +191,7 @@ function VideoCollectionContent() {
       .on("postgres_changes", { event: "*", schema: "public", table: "stages" }, refresh)
       .subscribe();
     return () => { ++loadVersion.current; clearTimeout(refreshTimer); supabase.removeChannel(channel); };
-  }, [userId, query, status, minFollowers, minComments, bookQuery, page]);
+  }, [userId, query, status, category, minFollowers, minComments, bookQuery, page]);
 
   useEffect(() => {
     if(ttsSource!=='automatic'){setVoiceSampleUrl(null);setVoiceSampleState('idle');return;}
@@ -219,13 +224,14 @@ function VideoCollectionContent() {
     const params = new URLSearchParams();
     if (query.trim()) params.set("q", query.trim());
     if (status !== "all") params.set("status", status);
+    if (category !== "all") params.set("category", category);
     if (minFollowers) params.set("minFollowers", minFollowers);
     if (minComments) params.set("minComments", minComments);
     if (bookQuery.trim()) params.set("book", bookQuery.trim());
     if (page > 1) params.set("page", String(page));
     const next = params.toString();
     router.replace(next ? `/video-collection?${next}` : "/video-collection", { scroll: false });
-  }, [bookQuery, minComments, minFollowers, page, query, router, status]);
+  }, [bookQuery, category, minComments, minFollowers, page, query, router, status]);
 
   const artifactByTask = useMemo(() => {
     const map = new Map<string, Artifact>();
@@ -356,6 +362,23 @@ function VideoCollectionContent() {
       setMessage("复制失败，请检查浏览器剪贴板权限。");
     }
   };
+  const downloadSelectedHooks = async () => {
+    const taskIds = pagedVisible.filter(task => selectedIds.includes(task.id)).map(task => task.id);
+    if (!taskIds.length) { setMessage("请先勾选有原始逐字稿的任务。"); return; }
+    setExportingHooks(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) throw new Error("登录会话已失效");
+      const response = await fetch('/api/collection-hooks', { method: 'POST', headers: { Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ taskIds, scope: hookScope }) });
+      if (!response.ok) { const result = await response.json(); throw new Error(result.error || '导出失败'); }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.href = url; link.download = `原始开头钩子_${new Date().toISOString().slice(0,10)}.md`; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage(`已下载 ${taskIds.length} 条任务的原始开头钩子，缺少逐字稿的任务会在文件中说明。`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : '导出失败'); }
+    finally { setExportingHooks(false); }
+  };
   const copyText = async (value: string, label: string) => {
     if (!value) return;
     try {
@@ -438,8 +461,9 @@ function VideoCollectionContent() {
       {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
       <div className={`collection-loading${loading ? '' : ' is-idle'}`} role="status" aria-hidden={!loading}><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>
       {loadError && <div className="collection-load-error" role="alert"><span>{loadError}</span><button type="button" className="secondary-action" onClick={load} disabled={loading} aria-busy={loading}>重试</button></div>}
+      <div className="collection-category-filter"><label htmlFor="collection-category">采集结果类别</label><select id="collection-category" value={category} onChange={event => { setCategory(event.target.value); setPage(1); }}><option value="all">全部类别</option><option value="guoxue">国学类</option><option value="health">健康类</option><option value="scene">场景类</option><option value="social_science">社科类</option><option value="education">教育类</option></select></div>
       <section className="collection-results" aria-labelledby="collection-results-heading"><div className="collection-toolbar"><div><h2 id="collection-results-heading">采集结果 <span>{totalTasks}</span></h2><p>查看来源表现、制作进度，找到值得继续创作的选题。</p></div><div className="collection-filters"><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索标题、作者或链接" aria-label="搜索采集任务" /><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} aria-label="按任务状态筛选"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={minFollowers} onChange={event => { setMinFollowers(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低粉丝" aria-label="最低粉丝数" /><input value={minComments} onChange={event => { setMinComments(event.target.value.replace(/[^0-9]/g, "")); setPage(1); }} inputMode="numeric" placeholder="最低评论" aria-label="最低评论数" /></div></div>
-        {selectedIds.length > 0 && <div className="collection-bulk-bar"><span>已选 {selectedIds.length} 条</span><button className="secondary-action" onClick={copySelectedUrls}>复制来源链接</button><button className="secondary-action" onClick={cancelSelectedPending}>取消待处理任务</button><button className="collection-bulk-clear" onClick={() => setSelectedIds([])}>清除选择</button></div>}
+        {selectedIds.length > 0 && <div className="collection-bulk-bar"><span>已选 {selectedIds.length} 条</span><select value={hookScope} onChange={event => setHookScope(event.target.value as "sentences" | "paragraph")} aria-label="开头钩子提取范围"><option value="sentences">开头前四句</option><option value="paragraph">开头第一段</option></select><button className="secondary-action" onClick={downloadSelectedHooks} disabled={exportingHooks}>{exportingHooks ? '正在整理…' : '下载原始开头钩子 Markdown'}</button><button className="secondary-action" onClick={copySelectedUrls}>复制来源链接</button><button className="secondary-action" onClick={cancelSelectedPending}>取消待处理任务</button><button className="collection-bulk-clear" onClick={() => setSelectedIds([])}>清除选择</button></div>}
         <div className="collection-table-wrap"><table className="collection-table"><thead><tr><th><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} aria-label="选择当前页任务" /></th><th>序号</th><th>标题</th><th>识别书籍</th><th>采集来源</th><th>作者</th><th>粉丝</th><th>时长</th><th>采集时间</th><th>点赞</th><th>评论</th><th>分享</th><th>收藏</th><th>任务状态</th><th>操作</th></tr></thead><tbody>{pagedVisible.map((task, index) => {
           const meta = artifactByTask.get(task.id)?.meta || {};
           const author = (task.author || {}) as Record<string, unknown>;

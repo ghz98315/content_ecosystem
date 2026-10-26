@@ -11,6 +11,7 @@ type Cue = { text: string; start: number | null; end: number | null; needs_timin
 type Version = {
   id: string; state: string; subtitle_path: string | null; subtitle_text: string; original_name: string;
   review: { error?: string; recognized_text?: string; duration?: number; coverage?: number;
+    match_report?: { state?: string; script_chars?: number; audio_chars?: number; script_opening?: string; audio_opening?: string };
     audio_expired_at?: string;
     alignment_ready?: boolean; segments?: Cue[];
     differences?: NarrationDifference[]; subtitle_differences?: NarrationDifference[];
@@ -109,6 +110,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
   };
   const current = payload?.current;
   const review = current?.review;
+  const mismatchedRecording = review?.match_report?.state === 'unrelated';
   const suggestionsReady = review?.difference_method === 'speech_sequence_v2'
     && review?.difference_base_text === current?.subtitle_text;
   const changedText = draft.trim() !== (current?.subtitle_text || '').trim();
@@ -122,6 +124,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
     {error && <p role="alert" className="external-error">{error}<button type="button" onClick={() => void perform(load)}>重试读取</button></p>}
     {external && <>
       <p>请上传无背景音乐的最终人声 WAV 或 MP3（最多 200MB、60 分钟）。大文件会在本地转成 MP3 后上传，电脑原文件不改；云端配音文件保留 48 小时，文稿和对齐记录继续保留。</p>
+      {payload?.script && <p className="external-script-preview"><strong>本任务确认稿开头：</strong>{payload.script.trim().slice(0, 100)}{payload.script.trim().length > 100 ? '…' : ''}</p>}
       <div className="external-actions">
         <button type="button" className="secondary-action" disabled={!payload?.rewriteReady || !payload.script} onClick={downloadScript}>下载确认朗读稿</button>
         <label className="secondary-action">{current ? '上传新版本' : '上传配音'}<input type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" disabled={busy || !payload?.rewriteReady || stage?.status === 'processing'} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void upload(file); }} /></label>
@@ -130,8 +133,8 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       {uploadStatus && <p role="status">{uploadStatus}</p>}
       {busy && <progress aria-label="配音文件上传或提交中" />}
       {(current?.state === 'queued' || stage?.status === 'processing') && <p role="status">正在识别人声、自动校正识别偏差并对齐字幕，完成后自动继续。</p>}
-      {review?.error && <p role="alert">处理失败：{review.error}。可以重新上传或重新对齐。</p>}
-      {review?.error && current && <button type="button" className="secondary-action" disabled={!canEdit} onClick={() => void perform(async () => {
+      {review?.error && <p role="alert">处理失败：{review.error}{mismatchedRecording && <><br />当前录音：{current?.original_name}<br />录音识别开头：{review.match_report?.audio_opening}…<br />确认稿开头：{review.match_report?.script_opening}…<br />请上传这条任务对应的录音。</>}{!mismatchedRecording && '。可以重新上传或重新对齐。'}</p>}
+      {review?.error && current && !mismatchedRecording && <button type="button" className="secondary-action" disabled={!canEdit} onClick={() => void perform(async () => {
         await action('realign', { id: current.id, text: draft.trim() }); setNotice('已复用当前录音重新自动对齐，无需再次上传。');
       })}>复用当前录音重试对齐</button>}
       {review?.audio_expired_at && <p role="status">配音文件已按 48 小时保留规则清理；如需重新成片，请重新上传配音。</p>}

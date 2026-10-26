@@ -17,6 +17,22 @@ def comparable(text: str) -> str:
     return ''.join(c.lower() for c in spoken if c.isalnum())
 
 
+def recording_match_report(script: str, recognized: str) -> dict:
+    """Distinguish a different recording from ordinary ASR character errors."""
+    expected, heard = comparable(script), comparable(recognized)
+    similarity = difflib.SequenceMatcher(None, expected, heard, autojunk=False).ratio() if expected and heard else 0.0
+    length_ratio = max(len(expected), len(heard)) / max(1, min(len(expected), len(heard)))
+    unrelated = similarity < .15 or (similarity < .25 and length_ratio > 1.3)
+    return {
+        'state': 'unrelated' if unrelated else 'review',
+        'similarity': round(similarity, 3),
+        'script_chars': len(expected),
+        'audio_chars': len(heard),
+        'script_opening': str(script or '').strip()[:56],
+        'audio_opening': str(recognized or '').strip()[:56],
+    }
+
+
 def _comparable_spans(text: str) -> tuple[str, list[tuple[int, int]]]:
     """Track raw character spans through the existing speech-number cleanup."""
     spoken = normalize_tts_numbers(text)

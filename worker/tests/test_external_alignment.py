@@ -1,9 +1,21 @@
 import unittest
 
-from external_alignment import align, differences, validate_cues
+from external_alignment import align, differences, recording_match_report, validate_cues
 
 
 class ExternalAlignmentTests(unittest.TestCase):
+    def test_unrelated_long_recording_is_not_treated_as_asr_noise(self):
+        script='孔子带着学生周游列国，向隐士询问渡口。' * 8
+        audio='八十岁也能保持思维敏捷，今天读不老的大脑。' * 35
+        report=recording_match_report(script,audio)
+        self.assertEqual('unrelated',report['state'])
+        self.assertGreater(report['audio_chars'],report['script_chars'])
+
+    def test_small_asr_error_does_not_trigger_wrong_recording_alert(self):
+        script='每天读经典，慢慢理解其中的道理。' * 8
+        report=recording_match_report(script,script.replace('经典','经点',1))
+        self.assertEqual('review',report['state'])
+
     def test_long_recorded_pause_is_preserved_in_subtitles(self):
         words = [{'word':'今天读经典','start':0.3,'end':2.0},
                  {'word':'明天再继续','start':5.0,'end':7.0}]

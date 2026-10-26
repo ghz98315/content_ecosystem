@@ -13,7 +13,7 @@ import db
 import storage
 import imageio_ffmpeg
 from external_pause import POLICY as PAUSE_POLICY, cap_internal_pauses
-from external_alignment import align, comparable, differences, validate_cues
+from external_alignment import align, comparable, differences, recording_match_report, validate_cues
 from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit
 
 
@@ -49,6 +49,10 @@ def run(stage: dict) -> tuple[str, None]:
         if not (is_wav or is_mp3):
             raise ValueError('音频无法解码：文件内容不是 WAV 或 MP3')
         source_hash = hashlib.sha256(Path(original).read_bytes()).hexdigest()
+        if (previous.get('source_sha256') == source_hash
+                and previous.get('difference_base_text') == text
+                and (previous.get('match_report') or {}).get('state') == 'unrelated'):
+            raise ValueError('这份录音已确认与本任务文案不同；请上传正确配音，重复对齐同一文件不会改变结果')
         job_path = f"{stage['task_id']}/external/{row['id']}/{uuid.uuid4()}"
         with tempfile.TemporaryDirectory(prefix='external-narration-') as tmp:
             decoded_source = Path(tmp)/'narration-source.wav'
@@ -89,11 +93,18 @@ def run(stage: dict) -> tuple[str, None]:
                 recognized=''.join(recognized_parts).strip()
             if not comparable(recognized):
                 raise ValueError('未识别到可对齐的人声，请检查音频')
+            match_report=recording_match_report(text,recognized)
+            if match_report['state']=='unrelated':
+                recognition_cache={'source_sha256':source_hash,'recognized_text':recognized,'words':words,
+                                   'duration':duration,'match_report':match_report,'difference_base_text':text,
+                                   'pause_optimization':pause_report}
+                raise ValueError('录音内容与当前任务的确认稿不是同一篇；请上传这条任务对应的配音，重复对齐同一文件无法解决')
             from external_asr_repair import repair_omissions
             from stages.transcribe import _transcribe_media
             words,local_repairs=repair_omissions(text,words,duration,decoded,tmp,imageio_ffmpeg.get_ffmpeg_exe(),_transcribe_media)
             if any(item.get('accepted') for item in local_repairs):recognized=''.join(word['word'] for word in words).strip()
             recognition_cache={'source_sha256':source_hash,'recognized_text':recognized,'words':words,
+                               'duration':duration,'match_report':match_report,'difference_base_text':text,
                                'pause_optimization':pause_report,'local_asr_repairs':local_repairs or previous.get('local_asr_repairs',[])}
             cues,coverage=align(text,words,duration,repair=True)
             manual=previous.get('requested_cues') if (previous.get('pause_optimization') or {}).get('policy') == PAUSE_POLICY else None
