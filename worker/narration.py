@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SUBTITLE_MAX_CHARS = 12
+SUBTITLE_MAX_CHARS = 10
 
 import html
 import json
@@ -168,13 +168,30 @@ def strip_subtitle_punctuation(text: str) -> str:
     return re.sub(r"\s+", "", _SUBTITLE_PUNCTUATION_RE.sub("", text or ""))
 
 
+_SUBTITLE_END_MARKS = set("，。？！")
+_SOURCE_SUBTITLE_BREAKS = set("，。！？；：、,.!?;:—…")
+
+
+def subtitle_display_text(text: str) -> str:
+    """Keep only the punctuation supported by the subtitle import format."""
+    value = re.sub(r"\s+", "", text or "")
+    value = value.replace("——", "，").replace("—", "，").replace("……", "，").replace("…", "，")
+    value = value.translate(str.maketrans({"、": "，", "；": "，", "：": "，", ",": "，",
+                                           ";": "，", ":": "，", ".": "。", "?": "？", "!": "！"}))
+    value = re.sub(r"，+", "，", value)
+    return "".join(char for char in value if char.isalnum() or char in "《》" or char in _SUBTITLE_END_MARKS)
+
+
+def subtitle_visible_len(text: str) -> int:
+    return sum(char.isalnum() for char in text or "")
+
+
 def has_disallowed_subtitle_punctuation(text: str) -> bool:
-    """Allow paired Chinese book-title marks, but reject other subtitle punctuation."""
+    """Allow paired book marks and one supported terminal mark only."""
     value = str(text or "")
-    if re.fullmatch(r"(?:[^《》]|《[^《》]+》)*", value) is None:
+    if value != subtitle_display_text(value) or re.fullmatch(r"(?:[^《》]|《[^《》]+》)*", value) is None:
         return True
-    unmarked = value.replace("《", "").replace("》", "")
-    return unmarked != strip_subtitle_punctuation(value)
+    return any(char in _SUBTITLE_END_MARKS for char in value[:-1])
 
 
 def pause_after_text(text: str) -> float:
@@ -208,7 +225,7 @@ _NO_BREAK_WORDS = (
 
 _MAJOR_SUBTITLE_BREAKS = set("。！？!?；;…")
 _MINOR_SUBTITLE_BREAKS = set("，,：:")
-_AWKWARD_LINE_END = set("的了着过和与及或而但并把被在对从向给将以为")
+_AWKWARD_LINE_END = set("的了着过和与及或而但并把被在对从向给将以为很太更挺最不")
 _AWKWARD_LINE_START = set("的了着过吗呢吧啊呀和与及或而但并")
 _NUMBER_UNIT_RE = re.compile(
     r"(?:第\d+(?:\.\d+)?[章节步点项]|\d+(?:\.\d+)?(?:%|％|年|月|天|小时|分钟|秒|次|个|条|页|章|岁|元|万元|公斤|千克|克|毫克|厘米|毫米|米|倍))"
@@ -274,7 +291,7 @@ def _boundary_kind(text: str, end: int, word_boundaries: set[int]) -> str:
     previous = text[end - 1]
     if previous in _MAJOR_SUBTITLE_BREAKS:
         return "major"
-    if previous in _MINOR_SUBTITLE_BREAKS:
+    if previous in _SOURCE_SUBTITLE_BREAKS:
         return "minor"
     if end in word_boundaries:
         return "word"
@@ -322,6 +339,9 @@ def _semantic_cuts(
     for start in range(size - 1, -1, -1):
         winner: tuple[float, list[tuple[int, str]]] | None = None
         for end in range(start + 1, size + 1):
+            # Every source punctuation mark ends its own on-screen line.
+            if end > start + 1 and text[end - 2] in _SOURCE_SUBTITLE_BREAKS and text[end - 1] not in _SOURCE_SUBTITLE_BREAKS:
+                break
             display_len = visible_len(strip_subtitle_punctuation(text[start:end]))
             if display_len > max_chars:
                 break
@@ -356,8 +376,8 @@ def split_semantic_units(
     for cut, kind in _semantic_cuts(compact, max_chars, protected_terms):
         raw = compact[start:cut]
         source_length = visible_len(raw)
-        display = strip_subtitle_punctuation(raw)
-        display_length = visible_len(display)
+        display = subtitle_display_text(raw)
+        display_length = subtitle_visible_len(display)
         if kind == "forced":
             preview = display[:max_chars + 2]
             raise ValueError(f"字幕存在超过{max_chars}字且无法保持完整的词语：{preview}")
@@ -380,9 +400,6 @@ def enforce_subtitle_limit(cues: list[dict], max_chars: int = SUBTITLE_MAX_CHARS
     result: list[dict] = []
     for cue in cues:
         caption = str(cue.get("text") or "")
-        if visible_len(caption.replace("《", "").replace("》", "")) <= max_chars:
-            result.append(cue)
-            continue
         try:
             units = split_semantic_units(caption, max_chars=max_chars)
         except ValueError:
@@ -391,12 +408,12 @@ def enforce_subtitle_limit(cues: list[dict], max_chars: int = SUBTITLE_MAX_CHARS
             start = 0
             while start < len(caption):
                 end = start
-                while end < len(caption) and visible_len(caption[start:end + 1].replace("《", "").replace("》", "")) <= max_chars:
+                while end < len(caption) and subtitle_visible_len(caption[start:end + 1]) <= max_chars:
                     end += 1
                 end = max(start + 1, end)
                 part = caption[start:end]
-                units.append({"text": part, "char_start": start, "char_end": end,
-                              "char_count": visible_len(part.replace("《", "").replace("》", "")),
+                units.append({"text": subtitle_display_text(part), "char_start": start, "char_end": end,
+                              "char_count": subtitle_visible_len(part),
                               "boundary": "forced"})
                 start = end
         total = sum(max(1, int(unit["char_count"])) for unit in units)
@@ -432,7 +449,7 @@ def mark_book_titles_in_cues(cues: list[dict], book_name: str) -> list[dict]:
         joined = left + right
         crosses = any(match.start() < boundary < match.end()
                       for match in re.finditer(re.escape(title), joined))
-        if crosses and visible_len(joined.replace("《", "").replace("》", "")) <= SUBTITLE_MAX_CHARS:
+        if crosses and subtitle_visible_len(joined) <= SUBTITLE_MAX_CHARS and not any(char in _SUBTITLE_END_MARKS for char in left):
             merged = {**result[index], "text": joined, "end": result[index + 1]["end"]}
             if "char_end" in result[index + 1]:
                 merged["char_end"] = result[index + 1]["char_end"]

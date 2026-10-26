@@ -846,7 +846,7 @@ class TtsInputTests(unittest.TestCase):
         ):
             self.assertTrue(any(protected in screen for screen in screens), (protected, screens))
         self.assertTrue(all(unit["char_count"] <= 14 for unit in units))
-        self.assertEqual(strip_subtitle_punctuation(text), "".join(screens))
+        self.assertEqual(strip_subtitle_punctuation(text), strip_subtitle_punctuation("".join(screens)))
 
     def test_subtitle_word_cuts_do_not_leave_two_character_tail(self):
         text = "保持词语的完整性非常重要，字幕不能把人工智能技术从中间切开。"
@@ -858,12 +858,12 @@ class TtsInputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "无法保持完整的词语"):
             split_semantic_units("Supercalifragilistic", max_chars=14)
 
-    def test_subtitles_use_semantic_breaks_without_punctuation(self):
+    def test_subtitles_use_semantic_breaks_with_terminal_punctuation(self):
         text = "先把最重要的事情说清楚，然后再解释为什么这样做。最后给出一个可以执行的方法。"
         units = split_semantic_units(text, max_chars=12)
-        self.assertEqual(strip_subtitle_punctuation(text), "".join(unit["text"] for unit in units))
+        self.assertEqual(strip_subtitle_punctuation(text), strip_subtitle_punctuation("".join(unit["text"] for unit in units)))
         self.assertTrue(all(unit["char_count"] <= 12 for unit in units))
-        self.assertTrue(all(strip_subtitle_punctuation(unit["text"]) == unit["text"] for unit in units))
+        self.assertTrue(all(not any(mark in unit["text"][:-1] for mark in "，。？！") for unit in units))
         self.assertTrue(any(unit["pause_after"] > 0 for unit in units))
 
         anchors = [{
@@ -914,7 +914,7 @@ class TtsInputTests(unittest.TestCase):
         _validate_timeline(timeline, cues, 2.0)
         self.assertFalse(has_disallowed_subtitle_punctuation(cues[0]["text"]))
         self.assertTrue(has_disallowed_subtitle_punctuation("《超越百岁"))
-        self.assertTrue(has_disallowed_subtitle_punctuation("《超越百岁》。"))
+        self.assertFalse(has_disallowed_subtitle_punctuation("《超越百岁》。"))
 
     def test_render_does_not_block_overlong_or_reversed_subtitles(self):
         timeline = [{"path": "a.png", "start": 0.0, "end": 2.0, "duration": 2.0}]

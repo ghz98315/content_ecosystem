@@ -423,7 +423,7 @@ def _book_title(book_name: str) -> str:
 
 def _format_book_title(text: str, book_name: str) -> str:
     title = _book_title(book_name)
-    return text.replace(title, f"《{title}》") if title else text
+    return re.sub(r"(?<!《)" + re.escape(title) + r"(?!》)", f"《{title}》", text) if title else text
 
 
 def _build_subtitle_cues(

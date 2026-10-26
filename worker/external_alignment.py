@@ -7,7 +7,7 @@ import re
 
 from opencc import OpenCC
 
-from narration import SUBTITLE_MAX_CHARS, normalize_tts_numbers, split_semantic_units, strip_subtitle_punctuation, visible_len
+from narration import SUBTITLE_MAX_CHARS, normalize_tts_numbers, split_semantic_units, strip_subtitle_punctuation, subtitle_display_text, subtitle_visible_len
 
 _SIMPLIFIED_CONVERTER = OpenCC('t2s')
 
@@ -205,7 +205,7 @@ def align(text: str, words: list[dict], duration: float, *, repair: bool = False
 def validate_cues(text: str, cues: list[dict], duration: float) -> list[dict]:
     if not cues or len(cues) > 10000:
         raise ValueError('字幕不能为空或超过上限')
-    if ''.join(str(c.get('text') or '') for c in cues) != strip_subtitle_punctuation(text).replace(' ', '').replace('\n', '').replace('\r', '').replace('\t', ''):
+    if ''.join(strip_subtitle_punctuation(str(c.get('text') or '')) for c in cues) != strip_subtitle_punctuation(text):
         raise ValueError('字幕文字与当前字幕稿不一致，请重新对齐')
     result = []
     previous = 0.0
@@ -214,16 +214,21 @@ def validate_cues(text: str, cues: list[dict], duration: float) -> list[dict]:
     for cue in cues:
         caption = str(cue.get('text') or '')
         start, end = float(cue['start']), float(cue['end'])
-        if not caption or visible_len(caption.replace('《','').replace('》',''))>SUBTITLE_MAX_CHARS or not math.isfinite(start+end) or start<previous or end<=start or end>duration+.001:
+        if (not caption or subtitle_visible_len(caption)>SUBTITLE_MAX_CHARS
+                or caption != subtitle_display_text(caption)
+                or not math.isfinite(start+end) or start<previous or end<=start or end>duration+.001):
             raise ValueError(f'字幕时间须递增、不重叠、不超过音频末尾，每条最多{SUBTITLE_MAX_CHARS}字')
         # Preserve original punctuation offsets for the existing image timeline.
         while char_cursor<len(compact) and not strip_subtitle_punctuation(compact[char_cursor]):
             char_cursor+=1
         begin=char_cursor
         count=0
-        while char_cursor<len(compact) and count<len(caption):
+        while char_cursor<len(compact) and count<len(strip_subtitle_punctuation(caption)):
             if strip_subtitle_punctuation(compact[char_cursor]): count+=1
             char_cursor+=1
+        if caption[-1] in '，。？！':
+            while char_cursor<len(compact) and compact[char_cursor] in '，。！？；：、,.!?;:—…“”‘’"\'':
+                char_cursor+=1
         result.append({**cue,'start':round(start,3),'end':round(end,3),
                        'char_start':begin,'char_end':char_cursor,'needs_timing_review':False})
         previous=end

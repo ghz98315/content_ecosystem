@@ -46,6 +46,7 @@ const QUALITY_COLOR = { passed: "var(--status-done)", warning: "var(--status-rev
 
 export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: DetailCommon) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoPath, setVideoPath] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [videoMotion, setVideoMotion] = useState<{ motion?: string; zoom_amount?: number }>({});
   const [isPreviousVideo, setIsPreviousVideo] = useState(false);
@@ -67,6 +68,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   useEffect(() => {
     let active = true;
     setVideoUrl(null);
+    setVideoPath(null);
     setCoverUrl(null);
     setIsPreviousVideo(false);
     setVideoMotion({});
@@ -93,6 +95,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       const { signedUrl } = await response.json();
       if (active && signedUrl) {
         setVideoUrl(signedUrl);
+        setVideoPath(path);
         setIsPreviousVideo(previous);
         setVideoMotion(artifact?.storage_path === path ? artifact.meta || {} : {});
         if (artifact?.meta?.publication_cover) {
@@ -195,18 +198,23 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
     return () => { active = false; };
   }, [stage?.status, taskId]);
 
-  const download = () => {
-    if (!videoUrl) return;
+  const download = async () => {
+    if (!videoPath) return;
     setDownloadBusy(true);
     setDownloadError(null);
     try {
+      const { data: renderStage } = await supabase.from("stages").select("params").eq("task_id", taskId).eq("kind", "render").single();
+      const videoText = renderStage?.params?.video_text as { title?: string } | undefined;
+      const title = (videoText?.title?.trim() || task.title?.trim() || bookName || "成片").replace(/[\\/:*?"<>|\r\n]/g, "_");
+      const now = new Date();
+      const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+      const fileName = `${date}${title}.mp4`;
+      const response = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(videoPath)}&download=${encodeURIComponent(fileName)}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.signedUrl) throw new Error(payload.error || "下载链接生成失败");
       const link = document.createElement("a");
-      // The signed source URL is already downloadable in the video player.
-      // Avoid fetching the complete MP4 into a Blob before starting the download.
-      link.href = videoUrl;
-      const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-      const title = (bookName || task.title?.trim() || "成片").replace(/[\\\\/:*?"<>|]/g, "_");
-      link.download = `${title}_${date}.mp4`;
+      link.href = payload.signedUrl;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();

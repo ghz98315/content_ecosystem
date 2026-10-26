@@ -35,7 +35,11 @@ export async function GET(req: NextRequest) {
       if (!task) return NextResponse.json({ error: '无权读取该任务素材' }, { status: 403 });
     }
   }
-  const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(path, 300);
+  const requestedName = req.nextUrl.searchParams.get('download');
+  const downloadName = requestedName?.replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 120);
+  const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(
+    path, 300, downloadName ? { download: downloadName } : undefined,
+  );
   if (error || !data?.signedUrl)
     return NextResponse.json({ error: error?.message ?? "signed url failed" }, { status: 404 });
 
