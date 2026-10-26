@@ -219,6 +219,9 @@ def selection_entries(plan,selections):
 
 def fetch_source(asset):
     """Hash-named local file, atomic completion, verified host on every redirect."""
+    if asset.get('provider') == 'local_library':
+        from local_materials import resolve_asset
+        return resolve_asset(asset)
     url=asset['url']
     if not allowed_url(url): raise ValueError('素材下载地址不在支持的来源范围')
     CACHE.mkdir(parents=True,exist_ok=True);path=CACHE/(digest(url)+'.media')
@@ -253,6 +256,9 @@ def credit_text(entries):
     return '\n'.join(credits.values())
 
 def run(stage):
+    if (stage.get('params') or {}).get('stock_source') == 'local_library':
+        from local_materials import run as run_local
+        return run_local(stage)
     from stages.image import _find_chosen_text
     from stages import render as r
     params=stage.get('params') or {}; task=stage['task_id']
