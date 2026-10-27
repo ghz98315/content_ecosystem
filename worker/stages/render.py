@@ -1086,7 +1086,21 @@ def run(stage: dict) -> tuple[str, str | None]:
             *_encoder_args(target_kbps=bitrate),
             "-map", "0:v:0", "-map", audio_label,
             "-c:a", "aac", "-b:a", f"{audio_kbps}k", "-shortest", output]
-        _run_ffmpeg(finish_args(target_kbps, final), check=True, capture_output=True, cwd=tmpdir)
+        # Subtitle layout and audio mixing are expensive on a long video. Render
+        # them once into the local master, then derive the storage preview from
+        # that master without running the subtitle filter a second time.
+        high_temp = os.path.join(tmpdir, 'final_high.mp4') if local_guoxue else None
+        if high_temp:
+            high_started = time.monotonic()
+            _run_ffmpeg(finish_args(1800, high_temp, 96),
+                        check=True, capture_output=True, cwd=tmpdir)
+            phase_seconds['local_high_encode_seconds'] = round(time.monotonic() - high_started, 3)
+            _run_ffmpeg([
+                ff(), '-y', '-i', high_temp, '-map', '0:v:0', '-map', '0:a:0',
+                *_encoder_args(target_kbps=target_kbps), '-c:a', 'copy', final,
+            ], check=True, capture_output=True)
+        else:
+            _run_ffmpeg(finish_args(target_kbps, final), check=True, capture_output=True, cwd=tmpdir)
         print(f"  [render] 字幕音乐合成累计 {time.monotonic() - render_started:.1f}s，文件 {os.path.getsize(final) / 1048576:.1f} MiB", flush=True)
         if os.path.getsize(final) > upload_limit:
             smaller = os.path.join(tmpdir, 'final_compact.mp4')
@@ -1159,11 +1173,6 @@ def run(stage: dict) -> tuple[str, str | None]:
         local_high_quality_path = None
         local_high_quality_bytes = None
         if local_guoxue and not quality_needs_review:
-            high_started = time.monotonic()
-            high_temp = os.path.join(tmpdir, 'final_high.mp4')
-            high_bitrate = 1800
-            _run_ffmpeg(finish_args(high_bitrate, high_temp, 96),
-                        check=True, capture_output=True, cwd=tmpdir)
             from quality import probe_media
             high_probe = probe_media(high_temp, ff())
             if (abs(float(high_probe['duration']) - (tts_duration + INTRO_DUR)) > 1
@@ -1177,7 +1186,6 @@ def run(stage: dict) -> tuple[str, str | None]:
             shutil.copyfile(high_temp, export_path)
             local_high_quality_path = str(export_path)
             local_high_quality_bytes = export_path.stat().st_size
-            phase_seconds['local_high_encode_seconds'] = round(time.monotonic() - high_started, 3)
             print(f'  [render] 本机清晰版 {local_high_quality_bytes / 1048576:.1f} MiB', flush=True)
 
         timeline_path = f"{task_id}/render_timeline.json"
