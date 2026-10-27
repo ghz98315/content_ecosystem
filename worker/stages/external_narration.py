@@ -111,13 +111,16 @@ def run(stage: dict) -> tuple[str, None]:
             if manual is not None:
                 cues=validate_cues(text,enforce_subtitle_limit(manual),duration)
             ready=False
+            validation_error=None
             if not any(c.get('needs_timing_review') for c in cues):
                 try:
                     cues=validate_cues(text,cues,duration)
                     ready=True
-                except (ValueError,TypeError):
-                    pass
+                except (ValueError,TypeError) as exc:
+                    validation_error=str(exc)
             if not ready:
+                if validation_error:
+                    raise ValueError(f'字幕自动对齐校验未通过：{validation_error}')
                 raise ValueError('音频时间信息不完整，自动对齐未通过校验，请检查录音文件')
             audio_path=row['original_path']
             if optimized is not None:

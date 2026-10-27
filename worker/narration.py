@@ -165,7 +165,7 @@ def _decimal_to_zh(value: str) -> str:
 
 def strip_subtitle_punctuation(text: str) -> str:
     """Remove punctuation from on-screen subtitles while retaining words."""
-    return re.sub(r"\s+", "", _SUBTITLE_PUNCTUATION_RE.sub("", text or ""))
+    return re.sub(r"\s+", "", _SUBTITLE_PUNCTUATION_RE.sub("", text or "")).replace("％", "%")
 
 
 _SUBTITLE_END_MARKS = set("，。？！")
@@ -177,9 +177,11 @@ def subtitle_display_text(text: str) -> str:
     value = re.sub(r"\s+", "", text or "")
     value = value.replace("——", "，").replace("—", "，").replace("……", "，").replace("…", "，")
     value = value.translate(str.maketrans({"、": "，", "；": "，", "：": "，", ",": "，",
-                                           ";": "，", ":": "，", ".": "。", "?": "？", "!": "！"}))
+                                           ";": "，", ":": "，", ".": "。", "?": "？", "!": "！", "％": "%"}))
     value = re.sub(r"，+", "，", value)
-    return "".join(char for char in value if char.isalnum() or char in "《》" or char in _SUBTITLE_END_MARKS)
+    # Percentages carry meaning in health scripts; dropping '%' makes the
+    # displayed captions differ from the confirmed script during validation.
+    return "".join(char for char in value if char.isalnum() or char in "《》%" or char in _SUBTITLE_END_MARKS)
 
 
 def subtitle_visible_len(text: str) -> int:

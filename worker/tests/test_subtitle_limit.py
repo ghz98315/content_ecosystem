@@ -6,6 +6,14 @@ from stages.tts import _build_subtitle_cues
 
 
 class SubtitleLimitTests(unittest.TestCase):
+    def test_percent_sign_remains_in_health_subtitles_and_validation(self):
+        text = "有些人说下降20%，另一些人说只有5％。"
+        self.assertEqual("有些人说下降20%，另一些人说只有5%。",
+                         "".join(unit["text"] for unit in split_semantic_units(text)))
+        manual = [{"text": text, "start": 0.0, "end": 5.0}]
+        cues = validate_cues(text, enforce_subtitle_limit(manual), 5.0)
+        self.assertEqual(2, sum(cue["text"].count("%") for cue in cues))
+
     def test_synthesized_subtitles_use_ten_character_limit(self):
         text = "先把最重要的事情说清楚，然后再解释为什么这样做。"
         anchors = [{"char_start": 0, "char_end": len(text), "start": 0, "end": 6}]
