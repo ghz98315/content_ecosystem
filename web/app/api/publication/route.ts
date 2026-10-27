@@ -5,7 +5,7 @@ import { PUBLICATION_PROMPT, validatePublication } from '@/lib/publication';
 import { splitSourceDescription } from '@/lib/sourceMetadata';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 class RequestError extends Error { constructor(message: string, public status = 400) { super(message); } }
 const response = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       const source = splitSourceDescription(task.title);
       const result = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.6, max_tokens: 2200, response_format: { type: 'json_object' }, messages: [
           { role: 'system', content: PUBLICATION_PROMPT + (task.content_category==='scene' ? '\n本次为山河人文：围绕校园、风景、城市和旅行文化选题，三组封面角度采用视觉吸引、人文价值和问题悬念；若正文没有商品转化，purchase_comment 留空，不增加橱窗购书话术，replies 围绕地点、旅行体验和下一期选题。此场景专项规则覆盖通用购书要求。' : '') },
           { role: 'user', content: JSON.stringify({ content_category: task.content_category, source_title: source.title, source_tags: task.source_tags || source.tags, confirmed_script: script.text }) },

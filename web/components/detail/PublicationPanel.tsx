@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { characterCount, PublicationCopy, PUBLICATION_FIELDS, publicationText, validatePublication } from '@/lib/publication';
+import { publicationResponse } from '@/lib/publicationResponse';
 
 type RecordEntry = { id: string; created_at: string; meta: { copy: PublicationCopy; source_hash: string } };
 type Loaded = { record: RecordEntry | null; ready: boolean; sourceHash: string | null; stale: boolean; sourceTitle: string; sourceTags: string[] };
@@ -24,8 +25,7 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
     setBusy('load'); setError('');
     (async () => {
       const response = await authenticatedFetch(`/api/publication?taskId=${taskId}`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || '发布文案读取失败');
+      const result = await publicationResponse<Loaded>(response, '发布文案读取失败');
       if (!active) return;
       setData(result); setCopy(result.record?.meta.copy || null); setTagsInput((result.record?.meta.copy.tags || []).map((tag: string) => `#${tag}`).join(' ')); setDraftHash(result.record?.meta.source_hash || result.sourceHash || ''); setDirty(false);
       try {
@@ -54,8 +54,7 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
     setBusy('generate'); setError(''); setMessage('正在根据最终确认稿生成…');
     try {
       const response = await authenticatedFetch('/api/publication', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, action: 'generate', sourceHash: data?.sourceHash }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || '生成失败');
+      const result = await publicationResponse<{ copy: PublicationCopy; sourceHash: string }>(response, '发布文案生成失败');
       setCopy(result.copy); setTagsInput(result.copy.tags.map((tag: string) => `#${tag}`).join(' ')); setDraftHash(result.sourceHash); setDirty(true); setMessage('已生成草稿，检查后点击保存发布文案');
     } catch (err) { setError(err instanceof Error ? err.message : '生成失败'); setMessage(''); }
     finally { setBusy(''); }
@@ -67,8 +66,7 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
     try {
       const valid = validatePublication(copy, scene);
       const response = await authenticatedFetch('/api/publication', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, action: 'save', copy: valid, sourceHash: draftHash, baseId: data?.record?.id || null }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || '保存失败');
+      const result = await publicationResponse<{ record: RecordEntry }>(response, '发布文案保存失败');
       setData(previous => previous ? { ...previous, record: result.record, stale: false } : previous); setCopy(valid); setDirty(false);
       try { sessionStorage.removeItem(cacheKey); } catch { /* Optional local cache. */ }
       setMessage('已保存发布文案；历史版本保留，图片和视频清理不影响文案记录');
