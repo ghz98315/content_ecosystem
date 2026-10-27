@@ -129,9 +129,43 @@ def meets_native_resolution(asset: dict, aspect: str, target_width: int = 1080) 
     return crop_width >= target_width
 
 
+def _seed_value(*parts: object) -> float:
+    digest = hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") / 2**64
+
+
+def _unused_start(asset_duration: float, clip_duration: float,
+                  occupied: list[tuple[float, float]], seed: str, index: int,
+                  asset_id: str) -> float | None:
+    """Choose a stable task-specific excerpt that does not repeat this task's source range."""
+    maximum = asset_duration - clip_duration - .2
+    if maximum < 0:
+        return None
+    free = [(0.0, maximum)]
+    for start, end in occupied:
+        blocked = (start - clip_duration - 1.0, end + 1.0)
+        free = [(left, right) for low, high in free
+                for left, right in ((low, min(high, blocked[0])),
+                                    (max(low, blocked[1]), high)) if right >= left]
+    if not free:
+        return None
+    # The source's useful window changes across tasks, but is reproducible
+    # when a pending stage is retried for the same task.
+    slot = min(len(free)-1, int(_seed_value(seed, index, asset_id, "slot") * len(free)))
+    low, high = free[slot]
+    return round(low + (high-low) * _seed_value(seed, index, asset_id, "offset"), 2)
+
+
+def sequence_signature(entries: list[dict]) -> str:
+    sequence = [(item["asset"]["relative_path"], round(item["source_start"], 2),
+                 round(item["source_end"], 2)) for item in entries]
+    return hashlib.sha256(json.dumps(sequence, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
-         require_native: bool = False, output_width: int = 1080) -> list[dict]:
-    """Deterministic, non-random continuous excerpts; keep narration intact."""
+         require_native: bool = False, output_width: int = 1080,
+         selection_seed: str = "") -> list[dict]:
+    """Task-seeded excerpts; never overlap ranges from one source within a video."""
     from stages import render
 
     duration = float(subtitles["duration"])
@@ -162,6 +196,7 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
                 "请补充更清晰的视频素材"
             )
     used: dict[str, int] = {}
+    occupied: dict[str, list[tuple[float, float]]] = {}
     result = []
     for index, sketch in enumerate(sketches):
         wanted = float(sketch["duration"])
@@ -172,6 +207,12 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
                     last = used.get(asset["id"], -100)
                     if index - last <= 2:
                         continue
+                    source_duration = wanted * rate
+                    source_start = _unused_start(asset["duration"], source_duration,
+                                                 occupied.get(asset["id"], []), selection_seed,
+                                                 index, asset["id"])
+                    if source_start is None:
+                        continue
                     # Prefer fresh footage, normal speed and diverse folders.
                     preferred = FOLDERS.get(category, FOLDERS["guoxue"])[index % 2]
                     native_width, _ = native_crop_size(asset["width"], asset["height"], aspect)
@@ -179,17 +220,15 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
                              + (0 if asset["relative_path"].startswith(preferred) else 2)
                              + int(asset["duration"] < wanted + 2) * 2
                              + (0 if native_width >= output_width * 4 / 3 else 3))
-                    options.append((score, asset["id"], asset, rate))
+                    options.append((score, _seed_value(selection_seed,index,asset["id"],"order"),
+                                    asset["id"], asset, rate, source_start))
                     break
         if not options:
-            raise ValueError(f"第 {index + 1} 段没有足够时长的本地视频")
-        _, _, asset, rate = min(options)
+            raise ValueError(f"第 {index + 1} 段没有不重复的可用本地片段，请补充素材或缩短该段")
+        _, _, _, asset, rate, source_start = min(options)
         used[asset["id"]] = index
         source_duration = wanted * rate
-        source_start = 0.0 if asset["duration"] < source_duration + 8 else min(
-            max(0.0, asset["duration"] - source_duration - .2),
-            round(asset["duration"] * .12, 2),
-        )
+        occupied.setdefault(asset["id"], []).append((source_start, source_start + source_duration))
         result.append({**sketch, "asset": asset, "source_start": source_start,
                        "source_end": source_start + source_duration, "playback_rate": rate,
                        "require_native_crop": require_native,
@@ -243,8 +282,19 @@ def run(stage: dict) -> tuple[str, str | None]:
     # width for both content lines, rather than enlarging it to 1080p.
     require_native = category in {"guoxue", "health"}
     output_width = 720 if require_native else 1080
-    entries = plan(text, subtitles, category, aspect=aspect, require_native=require_native,
-                   output_width=output_width)
+    previous = db.retry(lambda: db.get_client().table("artifacts").select("meta")
+                        .eq("type", "video_index").contains("meta", {"source": "local_library"})
+                        .neq("task_id", task).order("created_at", desc=True).limit(500).execute()).data or []
+    previous_signatures = {str((row.get("meta") or {}).get("sequence_signature"))
+                           for row in previous if (row.get("meta") or {}).get("sequence_signature")}
+    for attempt in range(12):
+        entries = plan(text, subtitles, category, aspect=aspect, require_native=require_native,
+                       output_width=output_width, selection_seed=f"{task}:{attempt}")
+        signature = sequence_signature(entries)
+        if signature not in previous_signatures:
+            break
+    else:
+        raise ValueError("本地素材无法形成与已有任务不同的片段顺序，请补充可用视频")
     revision = uuid.uuid4().hex
     ff = imageio_ffmpeg.get_ffmpeg_exe()
     width, height = (960, 720) if aspect == "4:3" else (720, 720)
@@ -276,7 +326,8 @@ def run(stage: dict) -> tuple[str, str | None]:
     storage.upload_bytes(index_path, json.dumps(entries, ensure_ascii=False).encode("utf-8"),
                          "application/json")
     storage.add_artifact(task, "image", "video_index", index_path,
-                         meta={"visual_mode": "stock_video", "source": "local_library", "count": len(entries)})
+                         meta={"visual_mode": "stock_video", "source": "local_library",
+                               "count": len(entries), "sequence_signature": signature})
     db.set_stage(stage["id"], "needs_review", output_ref=index_path,
                  error="请预览并确认本地素材清单，确认后开始拼接")
     return "needs_review", index_path

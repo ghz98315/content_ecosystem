@@ -5,12 +5,27 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from local_materials import meets_native_resolution, native_crop_size, resolve_asset
+from local_materials import _unused_start, meets_native_resolution, native_crop_size, resolve_asset, sequence_signature
 from stock_media import fetch_source
 import media_retention
 
 
 class LocalMaterialSafetyTests(unittest.TestCase):
+    def test_task_seed_reuses_source_only_at_a_distinct_nonoverlapping_excerpt(self):
+        first = _unused_start(150, 30, [], 'task-one', 0, 'asset')
+        self.assertEqual(first, _unused_start(150, 30, [], 'task-one', 0, 'asset'))
+        second = _unused_start(150, 30, [(first, first+30)], 'task-one', 4, 'asset')
+        self.assertIsNotNone(second)
+        self.assertTrue(second+30 <= first-0.95 or second >= first+30.95)
+        self.assertIsNone(_unused_start(50, 30, [(0, 30)], 'task-one', 4, 'asset'))
+
+    def test_sequence_signature_includes_order_and_source_range(self):
+        a = {'asset': {'relative_path': 'health/a.mp4'}, 'source_start': 2, 'source_end': 12}
+        b = {'asset': {'relative_path': 'health/b.mp4'}, 'source_start': 4, 'source_end': 14}
+        self.assertNotEqual(sequence_signature([a, b]), sequence_signature([b, a]))
+        self.assertNotEqual(sequence_signature([a, b]),
+                            sequence_signature([{**a, 'source_start': 3}, b]))
+
     def test_clear_master_retention_only_removes_expired_video_inside_uuid_folder(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'output') as directory:
             root = Path(directory)
