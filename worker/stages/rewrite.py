@@ -324,6 +324,12 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     budget = _length_budget(source, hook)
     history: list[dict] = list(context.get('rewrite_resume') or [])
     checkpoint = context.get('rewrite_checkpoint')
+    if history and all(item.get('state') == 'service_error' for item in history):
+        # An outage did not produce a draft and must not consume the bounded
+        # content-revision budget on the next run.
+        history.clear()
+        if checkpoint:
+            checkpoint(history)
     last: tuple[list[str], list[int], dict] | None = None
     best_rank: tuple | None = None
     stop_reason = 'limit_reached'
@@ -380,13 +386,13 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             if checkpoint:
                 checkpoint(history)
             if last is None:
+                if db.is_transient_error(exc):
+                    raise
                 if attempt == MAX_REVISIONS or 'model_not_found' in str(exc).lower():
                     raise
                 continue
             stop_reason = 'service_error'
-            if attempt == MAX_REVISIONS or 'model_not_found' in str(exc).lower():
-                break
-            continue
+            break
         choice = response.choices[0]
         raw = (choice.message.content or '').strip()
         try:
