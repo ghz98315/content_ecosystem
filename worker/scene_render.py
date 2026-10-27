@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 import config
 import db
 import storage
+from narration import subtitle_display_text
 
 W,H,FPS=1080,1920,30
 COVER_SECONDS=0.5
@@ -38,8 +39,9 @@ def write_ass(cues: list[dict], duration: float, footnote: str, path: str):
     for cue in cues:
         start=max(COVER_SECONDS,float(cue['start']))
         end=min(duration,float(cue['end']))
-        if end>start and str(cue.get('text','')).strip():
-            lines.append(f"Dialogue: 1,{ass_time(start)},{ass_time(end)},Narration,,0,0,0,,{_escape_ass(cue['text'])}\n")
+        caption=subtitle_display_text(str(cue.get('text','')))
+        if end>start and caption:
+            lines.append(f"Dialogue: 1,{ass_time(start)},{ass_time(end)},Narration,,0,0,0,,{_escape_ass(caption)}\n")
     Path(path).write_text(''.join(lines),encoding='utf-8-sig')
 
 

@@ -22,7 +22,7 @@ import storage
 import config
 from production_templates import validate_template, validate_task_template
 from quality import inspect_render_quality
-from narration import enforce_subtitle_limit, mark_book_titles_in_cues
+from narration import enforce_subtitle_limit, mark_book_titles_in_cues, subtitle_display_text
 
 W, H = 1080, 1920
 # Source images are portrait 9:16 and must fill the final portrait canvas.
@@ -314,7 +314,9 @@ def _make_ass(
     for seg in segments:
         start = _fmt_ass_time(float(seg.get("start", 0)))
         end = _fmt_ass_time(float(seg.get("end", 0)))
-        text = _escape_ass(str(seg.get("text", "")))
+        # Final fence for saved legacy subtitles: only question and exclamation
+        # marks are visible, even when an older cue still contains commas.
+        text = _escape_ass(subtitle_display_text(str(seg.get("text", ""))))
         if text:
             pos = r"{\an5\pos(540," + str(round(H * subtitle_y)) + ")}"
             lines.append(f"Dialogue: 2,{start},{end},Default,,0,0,0,,{pos}{text}\n")

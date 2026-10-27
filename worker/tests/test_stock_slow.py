@@ -21,5 +21,8 @@ class StockSlowTests(unittest.TestCase):
     for rate in (.5,.3):
      output=root/f'{rate}.mp4';make_video_clip({'asset':{},'source_start':0,'playback_rate':rate},5,str(output),frame_mode='landscape_blur',picture_ratio=4/3) if rate==.3 else make_video_clip({'asset':{},'source_start':0,'playback_rate':rate},3,str(output),frame_mode='landscape_blur',picture_ratio=4/3)
      self.assertAlmostEqual(5 if rate==.3 else 3,render._video_duration(str(output)),delta=.1)
+    changed_voice=root/'changed-voice.mp4'
+    make_video_clip({'asset':{},'source_start':1,'playback_rate':1},3,str(changed_voice),frame_mode='landscape_blur',picture_ratio=4/3)
+    self.assertAlmostEqual(3,render._video_duration(str(changed_voice)),delta=.1)
 
 if __name__=='__main__':unittest.main()

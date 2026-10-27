@@ -321,9 +321,24 @@ def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio
         aspect = '1:1' if abs(picture_ratio - 1) < .01 else '4:3'
         if not meets_native_resolution(entry['asset'], aspect, int(entry.get('render_width') or r.W)):
             raise ValueError('所选本地素材裁切后分辨率不足，已停止放大；请在素材节点重新选片')
-    # Do not freeze or loop a short source. Updated narration can require re-selection.
+    # A new voice can change the timing without changing the manuscript. Keep
+    # the selected source and fit its excerpt by moving earlier or slowing it,
+    # rather than invalidating the whole material selection.
     photo=entry['asset'].get('media_type')=='image'
-    if not photo and start+duration*rate>r._video_duration(str(local))+.08: raise ValueError('新配音所需时长超过已选视频，请返回素材节点换片')
+    if not photo:
+        available=r._video_duration(str(local))
+        if start+duration*rate>available+.08:
+            original_rate,original_start=rate,start
+            for candidate in (1.0,.5,.3):
+                if candidate>original_rate:continue
+                candidate_start=min(float(entry['source_start'])+source_offset*candidate,
+                                    max(0.0,available-duration*candidate-.1))
+                if candidate_start+duration*candidate<=available+.08:
+                    rate,start=candidate,candidate_start
+                    break
+            else:
+                raise ValueError('新配音时长超过已选源视频可用范围，最低0.3倍速仍无法覆盖；请在素材节点换片')
+            print(f'  [stock] 同一源片适配新配音：起点 {original_start:.1f}→{start:.1f}s，速度 {original_rate:g}→{rate:g}',flush=True)
     options=settings(entry.get('processing'));pre=source_filters(options)
     initial=f'[0:v]setpts=(PTS-STARTPTS)/{rate},{pre+"," if pre else ""}fps={r.FPS}'
     mask=None;extra=[]

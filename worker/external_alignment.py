@@ -226,9 +226,10 @@ def validate_cues(text: str, cues: list[dict], duration: float) -> list[dict]:
         while char_cursor<len(compact) and count<len(strip_subtitle_punctuation(caption)):
             if strip_subtitle_punctuation(compact[char_cursor]): count+=1
             char_cursor+=1
-        if caption[-1] in '，。？！':
-            while char_cursor<len(compact) and compact[char_cursor] in '，。！？；：、,.!?;:—…“”‘’"\'':
-                char_cursor+=1
+        # The source punctuation still belongs to this cue's span even when
+        # the screen format hides commas and periods.
+        while char_cursor<len(compact) and compact[char_cursor] in '，。！？；：、,.!?;:—…“”‘’"\'':
+            char_cursor+=1
         result.append({**cue,'start':round(start,3),'end':round(end,3),
                        'char_start':begin,'char_end':char_cursor,'needs_timing_review':False})
         previous=end

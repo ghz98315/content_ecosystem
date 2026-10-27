@@ -65,6 +65,6 @@ class StockMediaTests(unittest.TestCase):
    metadata=probe_media(target,render.ff())
    self.assertEqual((360,640),(metadata['width'],metadata['height']))
    self.assertAlmostEqual(2,metadata['duration'],delta=.1)
-   with self.assertRaisesRegex(ValueError,'时长'):stock.make_video_clip(entry,40,target)
+   with self.assertRaisesRegex(ValueError,'时长'):stock.make_video_clip(entry,100,target)
 
 if __name__=='__main__':unittest.main()

@@ -68,7 +68,7 @@ class ExternalAlignmentTests(unittest.TestCase):
         checked=validate_cues(text,cues,9)
         self.assertEqual(1,coverage)
         self.assertEqual([],differences(text,'今天讀《道德經》，把心放慢。明天繼續讀經典。',words))
-        self.assertEqual('今天读道德经把心放慢明天继续读经典',''.join(c['text'] for c in checked))
+        self.assertEqual('今天读《道德经》把心放慢明天继续读经典',''.join(c['text'] for c in checked))
         self.assertEqual(5,checked[-1]['start'])
 
     def test_traditional_asr_difference_keeps_raw_suggestion_positions(self):

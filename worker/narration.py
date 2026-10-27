@@ -169,7 +169,8 @@ def strip_subtitle_punctuation(text: str) -> str:
                    if char.isalnum() or char in _SUBTITLE_MEANINGFUL_SYMBOLS)
 
 
-_SUBTITLE_END_MARKS = set("，。？！")
+# Commas and periods still define speech/screen breaks, but are not drawn.
+_SUBTITLE_END_MARKS = set("？！")
 _SOURCE_SUBTITLE_BREAKS = set("，。！？；：、,.!?;:—…")
 
 

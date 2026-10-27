@@ -1,11 +1,35 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from external_alignment import align, validate_cues
 from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit, strip_subtitle_punctuation, subtitle_display_text, subtitle_visible_len, split_semantic_units
 from stages.tts import _build_subtitle_cues
+from stages.render import _make_ass
+from scene_render import write_ass as write_scene_ass
 
 
 class SubtitleLimitTests(unittest.TestCase):
+    def test_only_question_and_exclamation_marks_reach_final_video(self):
+        raw = "先读《道德经》，再看20%。真的吗？当然！"
+        units = split_semantic_units(raw)
+        self.assertEqual("先读《道德经》再看20%真的吗？当然！",
+                         "".join(unit["text"] for unit in units))
+        self.assertGreaterEqual(len(units), 4)  # commas and periods still split screens
+        legacy = [{"text": raw, "start": 0.0, "end": 4.0}]
+        with tempfile.TemporaryDirectory() as directory:
+            for writer in (lambda path: _make_ass(legacy, str(path), duration=4.0),
+                           lambda path: write_scene_ass(legacy, 4.0, "", str(path))):
+                path = Path(directory) / "captions.ass"
+                writer(path)
+                dialogue = "\n".join(line for line in path.read_text(encoding="utf-8-sig").splitlines()
+                                     if line.startswith("Dialogue:"))
+                self.assertNotIn("，", dialogue)
+                self.assertNotIn("。", dialogue)
+                self.assertIn("？", dialogue)
+                self.assertIn("！", dialogue)
+                self.assertIn("%", dialogue)
+
     def test_display_and_validation_share_symbol_normalization(self):
         for source in ("下降20%至5％。", "体温37℃，误差±2%。", "价格¥10，剂量2mg/L。",
                        "比例1:2，费用$5。", "范围5-10，约3‰。", "说明@标记，含#号。"):
@@ -21,7 +45,7 @@ class SubtitleLimitTests(unittest.TestCase):
 
     def test_percent_sign_remains_in_health_subtitles_and_validation(self):
         text = "有些人说下降20%，另一些人说只有5％。"
-        self.assertEqual("有些人说下降20%，另一些人说只有5%。",
+        self.assertEqual("有些人说下降20%另一些人说只有5%",
                          "".join(unit["text"] for unit in split_semantic_units(text)))
         manual = [{"text": text, "start": 0.0, "end": 5.0}]
         cues = validate_cues(text, enforce_subtitle_limit(manual), 5.0)
@@ -56,16 +80,16 @@ class SubtitleLimitTests(unittest.TestCase):
 
     def test_short_complete_clause_is_not_fragmented(self):
         units = split_semantic_units("原本就在十字以内。")
-        self.assertEqual(["原本就在十字以内。"], [unit["text"] for unit in units])
+        self.assertEqual(["原本就在十字以内"], [unit["text"] for unit in units])
 
     def test_degree_adverb_stays_with_its_phrase(self):
         units = split_semantic_units("庄子曾经讲过一个很奇怪的故事，为什么喝醉的人摔不死？")
-        self.assertEqual("很奇怪的故事，", units[1]["text"])
+        self.assertEqual("很奇怪的故事", units[1]["text"])
 
     def test_punctuation_stays_at_line_end_and_is_normalized(self):
         units = split_semantic_units("读《达生》——先看故事；再想想：为什么？")
         captions = [unit["text"] for unit in units]
-        self.assertEqual("读《达生》，先看故事，再想想，为什么？", "".join(captions))
+        self.assertEqual("读《达生》先看故事再想想为什么？", "".join(captions))
         self.assertTrue(all(subtitle_visible_len(text) <= 10 for text in captions))
         self.assertTrue(all(not any(mark in text[:-1] for mark in "，。？！") for text in captions))
 
@@ -75,7 +99,7 @@ class SubtitleLimitTests(unittest.TestCase):
                  for index, char in enumerate(strip_subtitle_punctuation(text))]
         cues, _ = align(text, words, len(words) * .2)
         checked = validate_cues(text, cues, len(words) * .2)
-        self.assertEqual("先看《达生》，再想想为什么？", "".join(c["text"] for c in checked))
+        self.assertEqual("先看《达生》再想想为什么？", "".join(c["text"] for c in checked))
         self.assertEqual(len(text), checked[-1]["char_end"])
 
     def test_zero_duration_asr_word_is_repaired_between_neighbours(self):
