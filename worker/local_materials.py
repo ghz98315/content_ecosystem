@@ -38,6 +38,9 @@ EXCLUDED_NAMES = {
 # Visual inspection of the 4:3 crop: soft-focus or prominent modern signs.
 # Keep the originals on disk for other categories, but skip them for Guoxue.
 EXCLUDED_FOR_GUOXUE = {
+    # Dark, shallow-focus red flower dominated the first narrated shot in the
+    # 2026-10-27 acceptance video; it does not fit the open scenic direction.
+    "13437497285421121.mp4",
     "13437498054343706.mp4", "13437498388625108.mp4",
     "13437496983141845.mp4", "13437496799094888.mp4",
     "13437499187602832.mp4",
