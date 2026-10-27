@@ -247,7 +247,7 @@ def _make_ass(
     ass_title_color = '&H00' + title_color[5:7] + title_color[3:5] + title_color[1:3]
     if not 0.55 <= float(subtitle_y) <= 0.82:
         raise ValueError("字幕位置须在画面高度的55%至82%之间")
-    if any(len(value) > limit for value, limit in ((title, 32), (subtitle, 48), (footnote, 60))):
+    if any(len(value) > limit for value, limit in ((title, 32), (subtitle, 48), (footnote, 80 if footnote_centered else 60))):
         raise ValueError("标题、副标题或脚注过长")
     title, subtitle = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle))
     footnote = footnote.replace('\r\n','\n').replace('\r','\n') if footnote_centered else footnote.replace('\n',' ').replace('\r',' ')
@@ -348,23 +348,30 @@ def _prepare_title_font(requested: str, fonts_dir: str, *, use_configured: bool 
 def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
     params = stage.get('params') or {}
     is_guoxue = params.get('production_template') == 'guoxue-v1'
+    is_health = params.get('production_template') == 'health-v1' or (not params.get('production_template') and params.get('content_line') == 'health')
     configured = params.get('video_text')
     configured = configured if isinstance(configured, dict) else {}
+    book_name = str(rewrite.get('book_title') or book.get('book_name') or '').strip().strip('《》')
+    author = str(book.get('author') or '').strip()
+    health_title = f'《{book_name}》' if book_name else ''
+    health_subtitle = f'{author}（著）' if author else ''
+    health_footnote = (f'本文根据《{book_name}》书籍和资料整理\n' if book_name else '本文根据书籍和资料整理\n') + '仅作参考分享\n不提供任何健康建议或者行为指导'
+    main_default = health_title if is_health else (book.get('publish_title') or book.get('title_short') or book.get('book_name') or '')
     main = str(params.get('main_title') or (
         rewrite.get('cover_title') if rewrite.get('cover_confirmed') else ''
-    ) or book.get('publish_title') or book.get('title_short') or book.get('book_name') or '').strip()
+    ) or main_default).strip()
     sub = str(params.get('subtitle') or (
         rewrite.get('cover_subtitle') if rewrite.get('cover_confirmed') else ''
-    ) or '').strip()
+    ) or (health_subtitle if is_health else '') or '').strip()
     return {
         'title': str(configured.get('title', main)).strip(),
         'subtitle': str(configured.get('subtitle', sub)).strip(),
-        'footnote': str(configured.get('footnote', params.get('footnote', '读书分享'))).strip(),
+        'footnote': str(configured.get('footnote', params.get('footnote', health_footnote if is_health else '读书分享'))).strip(),
         'title_font': str(params.get('title_font') or (os.environ.get('RENDER_TITLE_FONT', 'PlayFont-ChenkunGBT') if is_guoxue else 'KaiTi')),
         'title_color': str(params.get('title_color') or (os.environ.get('RENDER_TITLE_COLOR', '#BA413B') if is_guoxue else '#FFF4D9')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
-        'footnote_centered': params.get('production_template')=='health-v1' or (not params.get('production_template') and params.get('content_line')=='health'),
-        'health_text_style': params.get('production_template')=='health-v1' or (not params.get('production_template') and params.get('content_line')=='health'),
+        'footnote_centered': is_health,
+        'health_text_style': is_health,
     }
 
 
@@ -1055,7 +1062,17 @@ def run(stage: dict) -> tuple[str, str | None]:
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
-        if text_settings.get('health_text_style') and os.environ.get('HEALTH_SUBTITLE_FONT_FILE'):
+        health_kai_path = os.environ.get('HEALTH_XINGYUN_FONT_FILE', '').strip()
+        if text_settings.get('health_text_style') and health_kai_path:
+            from PIL import ImageFont
+            font_path = Path(health_kai_path)
+            if not font_path.is_file():
+                raise ValueError('健康类行云楷字体文件不存在，请检查 HEALTH_XINGYUN_FONT_FILE')
+            font_name = ImageFont.truetype(str(font_path), SUBTITLE_FONT_SIZE).getname()[0]
+            text_settings['subtitle_font'] = font_name
+            text_settings['narration_font'] = font_name
+            shutil.copyfile(font_path, Path(tmpdir)/'fonts'/'health-xingyun.ttf')
+        elif text_settings.get('health_text_style') and os.environ.get('HEALTH_SUBTITLE_FONT_FILE'):
             from PIL import ImageFont
             font_path=Path(os.environ['HEALTH_SUBTITLE_FONT_FILE'])
             if not font_path.is_file():raise ValueError('健康类字幕字体文件不存在，请检查 HEALTH_SUBTITLE_FONT_FILE')

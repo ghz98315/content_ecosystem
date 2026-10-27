@@ -32,6 +32,15 @@ class RewriteSkillTests(unittest.TestCase):
    prompt,profile=prompt_extension(resolve_domain('虚构主题。',domain))
    self.assertEqual(profile['rule_files'],files);self.assertEqual(len(profile['rules_sha256']),64)
    self.assertIn('information_card',prompt)
+ def test_health_audience_and_attribution_rules_are_domain_scoped(self):
+  health,_=prompt_extension(resolve_domain('关注血糖变化。','health'))
+  mixed,_=prompt_extension(resolve_domain('谈《黄帝内经》与血压。','mixed'))
+  guoxue,_=prompt_extension(resolve_domain('读《道德经》谈处世。','guoxue'))
+  for prompt in (health,mixed):
+   self.assertIn('50岁以上',prompt)
+   self.assertIn('银发女性',prompt)
+   self.assertIn('不能为了口播自然省掉证据边界',prompt)
+  self.assertNotIn('银发女性',guoxue)
  def test_fact_and_output_anchors(self):
   obj={'information_card':[{'id':'F01','source_quote':'孩子更换工作','summary':'换工作'}],
        'rewrite_outline':[{'purpose':'先说担忧','fact_ids':['F01'],'target_quote':'工作要换的时候'}]}

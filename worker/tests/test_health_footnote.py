@@ -3,6 +3,18 @@ from pathlib import Path
 from stages.render import _make_ass,_render_text_settings
 
 class HealthFootnoteTests(unittest.TestCase):
+ def test_health_defaults_use_book_and_author_without_changing_other_templates(self):
+  book={'book_name':'《好好生活》','author':'张老师'}
+  health=_render_text_settings({'params':{'production_template':'health-v1'}},book,{})
+  self.assertEqual(health['title'],'《好好生活》')
+  self.assertEqual(health['subtitle'],'张老师（著）')
+  self.assertEqual(health['footnote'],'本文根据《好好生活》书籍和资料整理\n仅作参考分享\n不提供任何健康建议或者行为指导')
+  missing=_render_text_settings({'params':{'production_template':'health-v1'}},{},{})
+  self.assertEqual(missing['title'],'')
+  self.assertEqual(missing['subtitle'],'')
+  self.assertNotIn('《》',missing['footnote'])
+  guoxue=_render_text_settings({'params':{'production_template':'guoxue-v1'}},book,{})
+  self.assertEqual(guoxue['footnote'],'读书分享')
  def test_health_centered_with_literal_line_breaks(self):
   with tempfile.TemporaryDirectory() as folder:
    path=Path(folder)/'sub.ass'
