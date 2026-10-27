@@ -1,14 +1,48 @@
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from local_materials import resolve_asset
+from local_materials import meets_native_resolution, native_crop_size, resolve_asset
 from stock_media import fetch_source
+import media_retention
 
 
 class LocalMaterialSafetyTests(unittest.TestCase):
+    def test_clear_master_retention_only_removes_expired_video_inside_uuid_folder(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'output') as directory:
+            root = Path(directory)
+            valid = root / 'output' / 'high-quality-exports' / '11111111-1111-1111-1111-111111111111'
+            valid.mkdir(parents=True)
+            old_video = valid / 'old.mp4'
+            fresh_video = valid / 'fresh.mp4'
+            old_video.write_bytes(b'old')
+            fresh_video.write_bytes(b'fresh')
+            old_time = time.time() - 8 * 86400
+            os.utime(old_video, (old_time, old_time))
+            outside = root / 'output' / 'high-quality-exports' / 'not-a-task'
+            outside.mkdir()
+            outside_video = outside / 'old.mp4'
+            outside_video.write_bytes(b'keep')
+            os.utime(outside_video, (old_time, old_time))
+            with patch.object(media_retention, '__file__', str(root / 'media_retention.py')):
+                result = media_retention.cleanup_local_high_quality_exports()
+            self.assertEqual(1, result['removed'])
+            self.assertFalse(old_video.exists())
+            self.assertTrue(fresh_video.exists())
+            self.assertTrue(outside_video.exists())
+
+    def test_native_crop_gate_never_enlarges_a_720p_source(self):
+        self.assertEqual((960, 720), native_crop_size(1280, 720, '4:3'))
+        self.assertFalse(meets_native_resolution({'width': 1280, 'height': 720}, '4:3'))
+        self.assertFalse(meets_native_resolution({'width': 720, 'height': 1280}, '4:3'))
+        self.assertTrue(meets_native_resolution({'width': 1280, 'height': 720}, '4:3', 720))
+        self.assertTrue(meets_native_resolution({'width': 720, 'height': 1280}, '4:3', 720))
+        self.assertTrue(meets_native_resolution({'width': 1920, 'height': 1080}, '4:3'))
+        self.assertTrue(meets_native_resolution({'width': 1080, 'height': 1920}, '4:3'))
+
     def test_selected_video_stays_local_and_cannot_escape_library(self):
         scratch = Path(__file__).resolve().parents[1] / "output"
         scratch.mkdir(exist_ok=True)

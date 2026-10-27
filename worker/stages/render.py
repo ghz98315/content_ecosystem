@@ -825,6 +825,10 @@ def run(stage: dict) -> tuple[str, str | None]:
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
     stock = (stage.get('params') or {}).get('visual_mode') == 'stock_video'
+    local_guoxue = (stock and (stage.get('params') or {}).get('stock_source') == 'local_library'
+                    and (stage.get('params') or {}).get('production_template') == 'guoxue-v1'
+                    and (stage.get('params') or {}).get('template_version') == 3)
+    delivery_width, delivery_height = (720, 1280) if local_guoxue else (W, H)
     render_started = time.monotonic()
     phase_seconds = {}
     _ACTIVE_DEADLINE = time.monotonic() + max(1.0, float(config.RENDER_TIMEOUT))
@@ -910,7 +914,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         try:
             frame_mode = (stage.get('params') or {}).get('frame_mode')
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
-            if stock and landscape_layout:
+            if stock and landscape_layout and not images[0].get('cover_path'):
                 from stock_media import make_video_clip
                 make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=health_vertical_feather)
             else:
@@ -1058,26 +1062,31 @@ def run(stage: dict) -> tuple[str, str | None]:
         _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, picture_ratio=picture_ratio, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
-        render_args = [
+        render_inputs = [
             ff(), "-y", "-i", video_only,
             "-itsoffset", str(INTRO_DUR), "-i", audio_local,
         ]
         if bgm_local:
-            render_args.extend(["-stream_loop", "-1", "-i", bgm_local])
+            render_inputs.extend(["-stream_loop", "-1", "-i", bgm_local])
         mix_filter = _audio_mix_filter(
             bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
         )
         audio_label = "[audio]" if bgm_local else "[narration]"
         upload_limit = storage.upload_limit_bytes()
         target_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, max_bytes=upload_limit)
-        render_args.extend([
+        video_filter = "ass=subs.ass:fontsdir=fonts"
+        if local_guoxue:
+            # All current local sources are 720p. After a ratio crop, finish at
+            # their native display width instead of shipping interpolated 1080p.
+            video_filter += ",scale=720:1280:flags=lanczos"
+        def finish_args(bitrate: int, output: str, audio_kbps: int = 64) -> list[str]:
+            return [*render_inputs,
             "-filter_complex", mix_filter,
-            "-vf", "ass=subs.ass:fontsdir=fonts",
-            *_encoder_args(target_kbps=target_kbps),
+            "-vf", video_filter,
+            *_encoder_args(target_kbps=bitrate),
             "-map", "0:v:0", "-map", audio_label,
-            "-c:a", "aac", "-b:a", "64k", "-shortest", final,
-        ])
-        _run_ffmpeg(render_args, check=True, capture_output=True, cwd=tmpdir)
+            "-c:a", "aac", "-b:a", f"{audio_kbps}k", "-shortest", output]
+        _run_ffmpeg(finish_args(target_kbps, final), check=True, capture_output=True, cwd=tmpdir)
         print(f"  [render] 字幕音乐合成累计 {time.monotonic() - render_started:.1f}s，文件 {os.path.getsize(final) / 1048576:.1f} MiB", flush=True)
         if os.path.getsize(final) > upload_limit:
             smaller = os.path.join(tmpdir, 'final_compact.mp4')
@@ -1123,8 +1132,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             cues=segments,
             timeline=quality_timeline,
             tts_duration=tts_duration,
-            width=W,
-            height=H,
+            width=delivery_width,
+            height=delivery_height,
             fps=FPS,
             intro_duration=INTRO_DUR,
         )
@@ -1147,6 +1156,30 @@ def run(stage: dict) -> tuple[str, str | None]:
             if check["status"] == "failed"
         ]
 
+        local_high_quality_path = None
+        local_high_quality_bytes = None
+        if local_guoxue and not quality_needs_review:
+            high_started = time.monotonic()
+            high_temp = os.path.join(tmpdir, 'final_high.mp4')
+            high_bitrate = 1800
+            _run_ffmpeg(finish_args(high_bitrate, high_temp, 96),
+                        check=True, capture_output=True, cwd=tmpdir)
+            from quality import probe_media
+            high_probe = probe_media(high_temp, ff())
+            if (abs(float(high_probe['duration']) - (tts_duration + INTRO_DUR)) > 1
+                    or high_probe['width'] != delivery_width
+                    or high_probe['height'] != delivery_height
+                    or not high_probe.get('has_audio')):
+                raise ValueError('本机高清成片质检未通过；旧成片已保留')
+            export_dir = Path(__file__).resolve().parents[1] / 'output' / 'high-quality-exports' / task_id
+            export_dir.mkdir(parents=True, exist_ok=True)
+            export_path = export_dir / f'{uuid.uuid4().hex}.mp4'
+            shutil.copyfile(high_temp, export_path)
+            local_high_quality_path = str(export_path)
+            local_high_quality_bytes = export_path.stat().st_size
+            phase_seconds['local_high_encode_seconds'] = round(time.monotonic() - high_started, 3)
+            print(f'  [render] 本机清晰版 {local_high_quality_bytes / 1048576:.1f} MiB', flush=True)
+
         timeline_path = f"{task_id}/render_timeline.json"
         storage.upload_bytes(
             timeline_path,
@@ -1161,11 +1194,14 @@ def run(stage: dict) -> tuple[str, str | None]:
         sp = f"{task_id}/renders/{uuid.uuid4()}/final.mp4"
         storage.upload(sp, final, "video/mp4")
         storage.add_artifact(task_id, "render", "final", sp, meta={
-            "width": W,
+            "width": delivery_width,
             "phase_seconds": phase_seconds,
             "picture_track_cache_hit": cache_hit,
             "production_template": template_id or 'legacy',
-            "height": H,
+            "height": delivery_height,
+            "local_high_quality_path": local_high_quality_path,
+            "local_high_quality_bytes": local_high_quality_bytes,
+            "storage_preview_only": bool(local_high_quality_path),
             "tts_duration": tts_duration,
             "image_count": len(images),
             "intro_duration": INTRO_DUR,

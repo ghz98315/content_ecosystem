@@ -64,8 +64,11 @@ class ProductionContractTests(unittest.TestCase):
         validate_template({'production_template':'guoxue-v1','template_version':1,'visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
         validate_template({'production_template':'guoxue-v1','template_version':1,'content_line':'guoxue','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
         validate_template({'production_template':'guoxue-v1','template_version':2,'content_line':'guoxue','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'1:1'},'image')
+        validate_template({'production_template':'guoxue-v1','template_version':3,'content_line':'guoxue','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
         with self.assertRaises(ValueError):
             validate_template({'production_template':'guoxue-v1','template_version':2,'content_line':'guoxue','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
+        with self.assertRaises(ValueError):
+            validate_template({'production_template':'guoxue-v1','template_version':3,'content_line':'guoxue','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'1:1'},'image')
         with self.assertRaisesRegex(ValueError,'内容类型'):
             validate_template({'production_template':'guoxue-v1','template_version':1,'content_line':'health','visual_style':'guoxue_gongbi_life','image_aspect_ratio':'4:3'},'image')
         for template in ['health-v1','history-v1','education-v1']:
@@ -112,7 +115,7 @@ class TemplateConsistencyTests(unittest.TestCase):
         from production_templates import DEFINITIONS
         from guoxue_visuals import grid_prompt
         item=DEFINITIONS['guoxue-v1']
-        self.assertEqual((item['aspect'],item['gridCells'],item['frameMode']),('1:1',2,'landscape_blur'))
+        self.assertEqual((item['aspect'],item['gridCells'],item['frameMode']),('4:3',2,'landscape_blur'))
         prompt=grid_prompt(['虚构场景'])
         self.assertIn('2行2列四宫格',prompt)
         self.assertNotIn('9:16',prompt)

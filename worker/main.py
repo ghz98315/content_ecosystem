@@ -228,11 +228,12 @@ def main() -> None:
                 if not config.WORKER_TASK_ID and time.monotonic() - last_media_cleanup >= 3600:
                     last_media_cleanup = time.monotonic()
                     try:
-                        from media_retention import cleanup_expired_external_audio, cleanup_expired_media
+                        from media_retention import cleanup_expired_external_audio, cleanup_expired_media, cleanup_local_high_quality_exports
                         result = cleanup_expired_media(limit=100)
                         if result['removed'] or result['failures']:
                             print(f"  [retention] removed={result['removed']} bytes={result['removed_bytes']} failures={len(result['failures'])}", flush=True)
                         audio_result = cleanup_expired_external_audio(limit=50)
+                        cleanup_local_high_quality_exports()
                         from stock_media import cleanup_cache
                         cleanup_cache()
                         if audio_result['removed'] or audio_result['failures']:

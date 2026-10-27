@@ -43,7 +43,7 @@ class StockRenderIntegration(unittest.TestCase):
     patch.object(render.db,'get_client',return_value=client),patch.object(render.db,'get_task_prompt_context',return_value={'content_category':'health'}),
     patch.object(render.storage,'download_artifact',side_effect=lambda p,suffix:copy(thumb,suffix)),patch.object(render.storage,'upload',side_effect=upload),
     patch.object(render.storage,'upload_bytes'),patch.object(render.storage,'add_artifact',side_effect=artifact),
-    patch.object(render,'_prepare_title_font',return_value=('KaiTi',False)),patch.object(render,'_nvenc_available',return_value=False),
+    patch.object(render,'_prepare_title_font',return_value=('PlayFont-ChenkunGBT',False)),patch.object(render,'_nvenc_available',return_value=False),
     patch.object(render,'inspect_render_quality',return_value={'status':'passed','checks':[],'summary':{},'metrics':{}})]
    for p in patches:stack.enter_context(p)
    image=stack.enter_context(patch.object(render,'_make_image_clip',side_effect=AssertionError('Image-mode renderer called')))
@@ -54,5 +54,44 @@ class StockRenderIntegration(unittest.TestCase):
    self.assertEqual(36,artifacts[-1]['stock_processing']['feather'])
    stage['params']['video_text']['title']='修改标题'
    self.assertEqual('done',render.run(stage)[0]);self.assertTrue(artifacts[-1]['picture_track_cache_hit'])
+
+ def test_local_guoxue_exports_native_width_clear_master(self):
+  source=Path(__file__).resolve().parents[1]/'output/stock-video-evaluation-20261024/waterfall.webm'
+  if not source.exists():self.skipTest('Local sample missing')
+  with tempfile.TemporaryDirectory(dir=source.parent) as directory,ExitStack() as stack:
+   root=Path(directory);thumb=root/'thumb.png';Image.new('RGB',(960,720),'#b8cb9a').save(thumb)
+   audio=root/'audio.wav'
+   with wave.open(str(audio),'wb') as out:out.setnchannels(1);out.setsampwidth(2);out.setframerate(16000);out.writeframes(b'\0\0'*16000*2)
+   counter=0
+   def copy(src,suffix):
+    nonlocal counter;counter+=1;target=root/(str(counter)+suffix);shutil.copyfile(src,target);return str(target)
+   entries=[{'path':'thumb','sentence':'虚构文案','char_start':0,'char_end':4,'char_count':4,'source_start':0,'cell_ratio':'4:3','asset':stock_media.CATALOG[2],'processing':stock_media.POLICY['processing_defaults']}]
+   def load(task,kind):return {'video_index':entries,'subtitle':{'duration':2,'input_format':'timeline_v3','segments':[{'text':'虚构文案','start':0,'end':2,'char_start':0,'char_end':4}]},'book':{}}.get(kind)
+   def table(name):
+    q=MagicMock()
+    for method in ('select','eq','order','limit','single'):getattr(q,method).return_value=q
+    q.execute.return_value=SimpleNamespace(data=[{'created_at':'stock-revision'}] if name=='artifacts' else {})
+    return q
+   client=MagicMock();client.table.side_effect=table;artifacts=[];stage_updates=MagicMock()
+   patches=[patch.object(render,'__file__',str(root/'stages/render.py')),patch.object(picture_cache,'ROOT',root/'cache'),
+    patch.object(stock_media,'fetch_source',return_value=source),patch.object(render,'validate_task_template'),
+    patch.object(render,'_load_json_artifact',side_effect=load),patch.object(render,'_load_audio',side_effect=lambda t:copy(audio,'.wav')),
+    patch.object(render,'_load_bgm_config',return_value=(None,.15,1)),patch.object(render.db,'get_client',return_value=client),
+    patch.object(render.db,'set_stage',stage_updates),
+    patch.object(render.db,'get_task_prompt_context',return_value={'content_category':'health'}),
+    patch.object(render.storage,'download_artifact',side_effect=lambda p,suffix:copy(thumb,suffix)),
+    patch.object(render.storage,'upload'),patch.object(render.storage,'upload_bytes'),
+    patch.object(render.storage,'add_artifact',side_effect=lambda task,kind,type_,path,meta=None,**kw:artifacts.append((type_,meta))),
+    patch.object(render,'_prepare_title_font',return_value=('PlayFont-ChenkunGBT',False)),patch.object(render,'_nvenc_available',return_value=False),
+    patch.object(render,'inspect_render_quality',return_value={'status':'passed','checks':[],'summary':{},'metrics':{}})]
+   for p in patches:stack.enter_context(p)
+   stage={'id':'synthetic','task_id':'synthetic','params':{'production_template':'guoxue-v1','template_version':3,'stock_source':'local_library','visual_mode':'stock_video','frame_mode':'landscape_blur'}}
+   result=render.run(stage)
+   self.assertEqual('done',result[0],str(stage_updates.call_args_list))
+   final=next(meta for kind,meta in artifacts if kind=='final')
+   self.assertEqual((720,1280),(final['width'],final['height']))
+   self.assertTrue(final['storage_preview_only'])
+   self.assertGreater(final['local_high_quality_bytes'],0)
+   self.assertTrue(Path(final['local_high_quality_path']).is_file())
 
 if __name__=='__main__':unittest.main()

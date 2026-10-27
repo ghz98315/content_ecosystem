@@ -26,11 +26,14 @@ def validate_template(params: dict, kind: str) -> None:
     if not template:  # Existing tasks retain their original snapshot.
         return
     version=params.get('template_version')
-    if template not in TEMPLATES or version not in ({1,2} if template in ('guoxue-v1','health-v1') else {1}):
+    supported_versions = {1, 2, 3} if template == 'guoxue-v1' else ({1, 2} if template == 'health-v1' else {1})
+    if template not in TEMPLATES or version not in supported_versions:
         raise ValueError('未支持的成片模板版本，请检查任务配置')
     style, aspect, frame_mode = TEMPLATES[template]
     if template == 'guoxue-v1' and version == 1:
         aspect='4:3'
+    if template == 'guoxue-v1' and version == 2:
+        aspect='1:1'
     if template == 'health-v1' and version == 1:
         aspect, frame_mode = '9:16', 'portrait'
     expected = {'visual_style': style, 'image_aspect_ratio': aspect} if kind == 'image' else {'frame_mode': frame_mode}

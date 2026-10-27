@@ -316,6 +316,11 @@ def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio
     rate=float(entry.get('playback_rate',1))
     if rate not in (1,.5,.3):raise ValueError('不支持的素材播放速度')
     local=fetch_source(entry['asset']);start=float(entry['source_start'])+source_offset*rate
+    if entry.get('require_native_crop'):
+        from local_materials import meets_native_resolution
+        aspect = '1:1' if abs(picture_ratio - 1) < .01 else '4:3'
+        if not meets_native_resolution(entry['asset'], aspect, int(entry.get('render_width') or r.W)):
+            raise ValueError('所选本地素材裁切后分辨率不足，已停止放大；请在素材节点重新选片')
     # Do not freeze or loop a short source. Updated narration can require re-selection.
     photo=entry['asset'].get('media_type')=='image'
     if not photo and start+duration*rate>r._video_duration(str(local))+.08: raise ValueError('新配音所需时长超过已选视频，请返回素材节点换片')

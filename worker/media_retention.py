@@ -6,7 +6,9 @@ Use the Storage API so physical objects are removed as well as artifact rows.
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import db
 
@@ -15,6 +17,31 @@ IMAGE_TYPES = ('image', 'image_replacement', 'cover_image', 'publication_cover')
 VIDEO_TYPES = ('final',)
 TERMINAL = {'done', 'failed', 'cancelled'}
 UUID = re.compile(r'^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$', re.I)
+
+
+def cleanup_local_high_quality_exports(*, dry_run: bool = False) -> dict:
+    """Apply the same seven-day retention to the Worker-only clear master."""
+    root = Path(__file__).resolve().parent / 'output' / 'high-quality-exports'
+    report = {'removed': 0, 'removed_bytes': 0}
+    if not root.is_dir():
+        return report
+    cutoff = time.time() - 7 * 86400
+    for folder in root.iterdir():
+        if not folder.is_dir() or folder.is_symlink() or not UUID.fullmatch(folder.name):
+            continue
+        for file in folder.iterdir():
+            if file.is_symlink() or not file.is_file() or file.suffix.lower() != '.mp4':
+                continue
+            stat = file.stat()
+            if stat.st_mtime >= cutoff:
+                continue
+            report['removed'] += 1
+            report['removed_bytes'] += stat.st_size
+            if not dry_run:
+                file.unlink()
+        if not dry_run and not any(folder.iterdir()):
+            folder.rmdir()
+    return report
 
 
 def _timestamp(value: str) -> datetime:

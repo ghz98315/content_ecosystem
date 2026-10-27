@@ -48,7 +48,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
-  const [videoMotion, setVideoMotion] = useState<{ motion?: string; zoom_amount?: number }>({});
+  const [videoMotion, setVideoMotion] = useState<{ motion?: string; zoom_amount?: number; storage_preview_only?: boolean; local_high_quality_path?: string; local_high_quality_bytes?: number }>({});
   const [isPreviousVideo, setIsPreviousVideo] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -255,7 +255,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       errorTone="warning"
       actions={
         <>
-          {videoUrl && <TextBtn variant="primary" onClick={download} disabled={downloadBusy}>{downloadBusy ? "正在下载…" : "下载视频"}</TextBtn>}
+          {videoUrl && <TextBtn variant="primary" onClick={download} disabled={downloadBusy}>{downloadBusy ? "正在下载…" : videoMotion.storage_preview_only ? "下载线上预览版" : "下载视频"}</TextBtn>}
           {videoUrl && canApprove && (
             <TextBtn variant="primary" onClick={() => onApprove(stage!.id, "render")}>
               人工审核通过
@@ -289,8 +289,9 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       {videoUrl && (
         <section className="render-workbench">
           <div className="render-video-panel">
-            <div className="render-panel-heading"><div><strong>成片预览</strong><span>{isPreviousVideo ? "当前展示上一次成功版本" : "当前任务最新版本"}</span></div><span className="status-badge status-done">可人工检查</span></div>
+            <div className="render-panel-heading"><div><strong>成片预览</strong><span>{isPreviousVideo ? "当前展示上一次成功版本" : videoMotion.storage_preview_only ? "线上压缩预览；清晰版保存在本机 Worker" : "当前任务最新版本"}</span></div><span className="status-badge status-done">可人工检查</span></div>
             <video key={videoUrl} controls src={videoUrl} />
+            {videoMotion.local_high_quality_path && <div className="render-preset-note">本机清晰版：<code>{videoMotion.local_high_quality_path}</code><button type="button" onClick={() => navigator.clipboard.writeText(videoMotion.local_high_quality_path || "")}>复制路径</button></div>}
           </div>
           <aside className="render-preset-panel" aria-label="当前成片方案">
             <div><p className="eyebrow">当前成片方案</p><h3>{productionTemplate?.label || '历史任务方案'}</h3><p>模板随本任务固定保存，文字与背景音乐可在成片前设置。</p></div>

@@ -15,7 +15,7 @@ export function productionTemplate(id: string) {
 export function databaseCategory(id: string) { const template=productionTemplate(id); return template.databaseCategory || template.category; }
 export async function configureProductionTasks(client: any, taskIds: string[], templateId: string, image: Record<string, unknown> = {}) {
   const template = productionTemplate(templateId);
-  const version = ['guoxue','health'].includes(template.category) ? 2 : 1;
+  const version = template.category === 'guoxue' ? 3 : template.category === 'health' ? 2 : 1;
   const stock = image.visual_mode === 'stock_video';
   const imageParams = { ...image, ...(stock ? {stock_visual_policy:template.category === 'health' ? healthStockVisualPolicy : stockVisualPolicy} : {}), production_template: template.id, template_version: version, content_line: template.category, visual_style: template.style, visual_preset_id: template.preset, image_aspect_ratio: template.aspect, ...(template.gridResolution ? { grid_resolution: template.gridResolution } : {}) };
   const renderParams = { production_template: template.id, template_version: version, content_line: template.category, title_font: template.font, title_color: template.color, frame_mode: template.frameMode, visual_mode: stock ? 'stock_video' : 'ai_images', ...(template.category === 'scene' ? {footnote:stock?'':'图片由AI生成', cover_duration:0.5} : {}) };
