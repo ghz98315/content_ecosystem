@@ -48,7 +48,7 @@ APIMART_IMAGE_RESOLUTION = os.environ.get("APIMART_IMAGE_RESOLUTION", "1k").stri
 if APIMART_IMAGE_RESOLUTION not in {"1k", "2k", "4k"}:
     raise ValueError("APIMART_IMAGE_RESOLUTION must be one of: 1k, 2k, 4k")
 XCODE_IMAGE_API_KEY = os.environ.get("XCODE_IMAGE_API_KEY", "").strip() or IMAGE_API_KEY
-XCODE_IMAGE_BASE_URL = os.environ.get("XCODE_IMAGE_BASE_URL", "https://api.xcode.best/v1").strip()
+XCODE_IMAGE_BASE_URL = os.environ.get("XCODE_IMAGE_BASE_URL", "https://xcode.best/v1").strip()
 XCODE_IMAGE_MODEL = os.environ.get("XCODE_IMAGE_MODEL", "gpt-image-2").strip()
 # Grid source size. gpt-image-2 supports a 3:2 landscape canvas; each 3x3
 # cell is then cropped deterministically to the required 4:3 video still.
