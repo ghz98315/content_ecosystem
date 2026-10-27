@@ -2,9 +2,10 @@
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+_ENV_FILE = Path(__file__).parent / ".env"
+load_dotenv(_ENV_FILE)
 
 # ---- Supabase ----
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -13,7 +14,9 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 # ---- 大模型（清洗/改写/生图/书名反推）----
 OPENAI_API_KEY  = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")   # 第三方中转填此项，如 https://api.xcode.best/v1
+# The long-lived Windows supervisor may retain an older process environment.
+# Keep this endpoint in sync with the project's explicitly edited .env file.
+OPENAI_BASE_URL = (dotenv_values(_ENV_FILE).get("OPENAI_BASE_URL") or os.environ.get("OPENAI_BASE_URL", "")).strip()
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 DEEPSEEK_TIMEOUT = float(os.environ.get("DEEPSEEK_TIMEOUT", "110"))

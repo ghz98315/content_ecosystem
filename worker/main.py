@@ -207,6 +207,8 @@ def tick() -> bool:
 def main() -> None:
     config.require_config()
     print("worker 启动。轮询间隔", config.POLL_INTERVAL, "秒。Ctrl+C 退出。")
+    from urllib.parse import urlsplit
+    print("改写服务主机:", urlsplit(config.OPENAI_BASE_URL).hostname or "default", flush=True)
     if config.WORKER_TASK_ID:
         print("测试隔离模式：仅处理任务", config.WORKER_TASK_ID)
     recovered_at_startup = False
