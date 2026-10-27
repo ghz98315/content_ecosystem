@@ -131,6 +131,12 @@ class RevisionLoopTests(unittest.TestCase):
         self.assertTrue(candidates[0].endswith(OLD))
         self.assertEqual('service_error', data['rewrite_review']['stop_reason'])
 
+    def test_all_service_failures_keep_original_error(self):
+        with patch('stages.rewrite._request_rewrite', side_effect=ConnectionError('proxy unavailable')) as request:
+            with self.assertRaisesRegex(ConnectionError, 'proxy unavailable'):
+                _generate_candidates(SOURCE, CONTEXT)
+        self.assertEqual(4, request.call_count)
+
     def test_truncated_or_invalid_repair_does_not_replace_complete_text(self):
         replies = [response(OLD), response(NEW, 'length'), response(NEW, 'length'), response(NEW, 'length')]
         (candidates, _, data), request = self.generate(replies)

@@ -328,6 +328,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     best_rank: tuple | None = None
     stop_reason = 'limit_reached'
     last_issues: list[str] = []
+    last_service_error: Exception | None = None
     for saved in history:
         if saved.get('text') and saved.get('structure') and saved.get('similarity'):
             rank = attempt_rank(saved)
@@ -373,6 +374,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                 response_format={'type': 'json_object'},
             )
         except Exception as exc:
+            last_service_error = exc
             history[-1]['state'] = 'service_error'
             history[-1]['issues'] = ['改写请求失败，保留已有稿及已使用次数']
             if checkpoint:
@@ -453,6 +455,10 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             stop_reason = 'locked_hook_floor' if similarity['status'] != 'passed' else 'passed'
             break
     if last is None:
+        if last_service_error is not None and all(item.get('state') == 'service_error' for item in history):
+            # Keep transport failures retryable at the Worker boundary instead
+            # of disguising them as malformed model output.
+            raise last_service_error
         raise ValueError('改写服务连续未返回可用正文，请稍后重试')
     candidates, lengths, structure = last
     selected = next(entry for entry in history if entry['attempt'] == selected_attempt)
