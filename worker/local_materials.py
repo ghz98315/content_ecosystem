@@ -239,7 +239,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     subtitles = load_audio_timeline(task)
     category = str((stage.get("params") or {}).get("content_line") or "guoxue")
     aspect = str((stage.get("params") or {}).get("image_aspect_ratio") or "4:3")
-    require_native = category == "guoxue" and (stage.get("params") or {}).get("template_version") == 3
+    # The local library is largely 720p. Keep the visible 4:3 crop at native
+    # width for both content lines, rather than enlarging it to 1080p.
+    require_native = category in {"guoxue", "health"}
     output_width = 720 if require_native else 1080
     entries = plan(text, subtitles, category, aspect=aspect, require_native=require_native,
                    output_width=output_width)
@@ -275,4 +277,6 @@ def run(stage: dict) -> tuple[str, str | None]:
                          "application/json")
     storage.add_artifact(task, "image", "video_index", index_path,
                          meta={"visual_mode": "stock_video", "source": "local_library", "count": len(entries)})
-    return "done", index_path
+    db.set_stage(stage["id"], "needs_review", output_ref=index_path,
+                 error="请预览并确认本地素材清单，确认后开始拼接")
+    return "needs_review", index_path

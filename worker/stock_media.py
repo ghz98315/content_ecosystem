@@ -311,7 +311,7 @@ def run(stage):
     storage.add_artifact(task,'image','stock_credits',prefix+'/credits.txt',meta={'text':credit_text(entries)})
     return 'done',prefix+'/index.json'
 
-def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio=1,source_offset=0,vertical_feather_only=False):
+def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio=1,source_offset=0,vertical_feather_only=True):
     from stages import render as r
     rate=float(entry.get('playback_rate',1))
     if rate not in (1,.5,.3):raise ValueError('不支持的素材播放速度')

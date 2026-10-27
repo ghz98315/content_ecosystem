@@ -20,13 +20,44 @@ function StockPreview({asset,offset,duration,selection,aspect}:{asset:StockAsset
   if(e.currentTarget.currentTime>offset+duration*rate)e.currentTarget.pause();
   if(background.current&&Math.abs(background.current.currentTime-e.currentTarget.currentTime)>.2)background.current.currentTime=e.currentTarget.currentTime;
  }};
- if(asset.media_type==='image')return <><div className="stock-material-actions"><button type="button" className="secondary-action" onClick={()=>setProcessed(v=>!v)}>{processed?'查看原图':'查看处理效果'}</button></div>{processed?<div className="stock-processed-preview"><img alt="模糊背景" src={asset.preview_url||asset.url} style={{position:'absolute',width:'100%',height:'100%',objectFit:'cover',filter:`${filter==='none'?'':filter} blur(16px) brightness(.92)`}}/><div style={{position:'absolute',width:'100%',height:`${panelHeight}%`,top:`${(100-panelHeight)/2}%`,overflow:'hidden',maskImage:options.feather?`linear-gradient(to bottom,transparent,black ${feather}%,black ${100-feather}%,transparent),linear-gradient(to right,transparent,black ${feather}%,black ${100-feather}%,transparent)`:undefined,maskComposite:'intersect'}}><img alt={asset.title} src={asset.preview_url||asset.url} style={{position:'absolute',width:'100%',height:`${100/(1-top-bottom)}%`,top:`${-100*top/(1-top-bottom)}%`,objectFit:'cover',filter}}/></div></div>:<img alt={asset.title} src={asset.preview_url||asset.url} style={{width:'100%'}}/>}<small>公共图片按本段配音时长展示；处理预览为近似效果。</small></>;
+ if(asset.media_type==='image')return <><div className="stock-material-actions"><button type="button" className="secondary-action" onClick={()=>setProcessed(v=>!v)}>{processed?'查看原图':'查看处理效果'}</button></div>{processed?<div className="stock-processed-preview"><img alt="模糊背景" src={asset.preview_url||asset.url} style={{position:'absolute',width:'100%',height:'100%',objectFit:'cover',filter:`${filter==='none'?'':filter} blur(16px) brightness(.92)`}}/><div style={{position:'absolute',width:'100%',height:`${panelHeight}%`,top:`${(100-panelHeight)/2}%`,overflow:'hidden',maskImage:options.feather?`linear-gradient(to bottom,transparent,black ${feather}%,black ${100-feather}%,transparent)`:undefined}}><img alt={asset.title} src={asset.preview_url||asset.url} style={{position:'absolute',width:'100%',height:`${100/(1-top-bottom)}%`,top:`${-100*top/(1-top-bottom)}%`,objectFit:'cover',filter}}/></div></div>:<img alt={asset.title} src={asset.preview_url||asset.url} style={{width:'100%'}}/>}<small>公共图片按本段配音时长展示；处理预览为近似效果。</small></>;
  return <><div className="stock-material-actions"><button type="button" className="secondary-action" onClick={()=>setProcessed(v=>!v)}>{processed?'查看原片':'查看处理效果'}</button></div>
  {processed?<><div className="stock-processed-preview">
   <video ref={background} muted preload="none" src={asset.preview_url||asset.url} onLoadedMetadata={e=>{e.currentTarget.currentTime=offset;e.currentTarget.playbackRate=rate;}} style={{position:'absolute',width:'100%',height:'100%',objectFit:'cover',filter:`${filter==='none'?'':filter} blur(16px) brightness(.92)`}}/>
-  <div style={{position:'absolute',width:'100%',height:`${panelHeight}%`,top:`${(100-panelHeight)/2}%`,overflow:'hidden',maskImage:options.feather&&ratio!==9/16?`linear-gradient(to bottom,transparent,black ${feather}%,black ${100-feather}%,transparent),linear-gradient(to right,transparent,black ${feather}%,black ${100-feather}%,transparent)`:undefined,maskComposite:'intersect'}}>
+  <div style={{position:'absolute',width:'100%',height:`${panelHeight}%`,top:`${(100-panelHeight)/2}%`,overflow:'hidden',maskImage:options.feather&&ratio!==9/16?`linear-gradient(to bottom,transparent,black ${feather}%,black ${100-feather}%,transparent)`:undefined}}>
    <video ref={video} muted preload="none" src={asset.preview_url||asset.url} {...handlers} onPlay={()=>{void background.current?.play().catch(()=>{});}} onPause={()=>background.current?.pause()} style={{position:'absolute',width:'100%',height:`${100/(1-top-bottom)}%`,top:`${-100*top/(1-top-bottom)}%`,maxHeight:'none',objectFit:'cover',filter}}/>
   </div></div><button type="button" className="secondary-action" onClick={()=>{if(video.current?.paused)void video.current.play();else video.current?.pause();}}>播放／暂停处理预览</button><small>调色为浏览器近似预览，最终以成片为准；请检查裁切是否影响人物。</small></>:<video ref={video} controls muted preload="none" src={asset.preview_url||asset.url} {...handlers}/>}</>;
+}
+
+type LocalEntry={index:number;duration:number;source_start:number;playback_rate:number;path:string;cover_source_index?:number;asset:{relative_path:string;title:string;width:number;height:number}};
+function LocalStockDetail({current,onRerun}:{current:Stage;onRerun:(id:string)=>void}){
+ const [entries,setEntries]=useState<LocalEntry[]>([]),[previews,setPreviews]=useState<Record<number,string>>({});
+ const [error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ useEffect(()=>{if(!current.output_ref||!current.params.stock_source)return;let cancelled=false;
+  const load=async()=>{try{
+   const response=await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(current.output_ref!)}`);
+   const signed=await response.json();if(!response.ok)throw new Error(signed.error||'本地素材清单读取失败');
+   const index=await fetch(signed.signedUrl,{cache:'no-store'});if(!index.ok)throw new Error('本地素材清单读取失败');
+   const items=await index.json() as LocalEntry[];if(cancelled)return;setEntries(items);
+   const urls=await Promise.all(items.map(async item=>{try{const result=await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(item.path)}`);const data=await result.json();return [item.index,result.ok?data.signedUrl:''] as const;}catch{return [item.index,''] as const;}}));
+   if(!cancelled)setPreviews(Object.fromEntries(urls));
+  }catch(e){if(!cancelled)setError(e instanceof Error?e.message:'本地素材清单读取失败');}};
+  void load();return()=>{cancelled=true;};
+ },[current.output_ref,current.params.stock_source]);
+ const confirm=async()=>{setBusy(true);setError('');try{
+  const result=await authenticatedFetch('/api/stock-materials',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({stageId:current.id,action:'local_confirm'})});
+  const body=await result.json();if(!result.ok)throw new Error(body.error||'确认失败');setMessage('本地素材已确认，开始拼接。');
+ }catch(e){setError(e instanceof Error?e.message:'确认失败');}finally{setBusy(false);}};
+ return <section className="stock-materials"><h2>本地素材清单</h2><p>原视频留在本机，只上传预览图；主画面左右边缘保持清晰，仅上下羽化。请预览清单后开始拼接。</p>
+  {current.status==='processing'&&<p role="status">正在按配音时长挑选本地视频…</p>}
+  {current.status==='failed'&&<div role="alert"><p>{current.error}</p><button type="button" onClick={()=>onRerun(current.id)}>重试素材节点</button></div>}
+  {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
+  {entries.length>0&&<><p>共 {entries.length} 段 · {entries.length===new Set(entries.map(item=>item.asset.relative_path)).size?'全部采用不同源片':`采用 ${new Set(entries.map(item=>item.asset.relative_path)).size} 条不同源片`}</p>
+   <div className="stock-material-list">{entries.map(item=><article className="stock-material-row" key={item.index}><div className="stock-material-script"><h3>段落 {item.index+1} · {item.duration.toFixed(1)} 秒 {item.index===entries[0]?.cover_source_index?'· 封面画面':''}</h3><p>{item.asset.title}</p><small>{item.asset.width}×{item.asset.height} · 从 {item.source_start.toFixed(1)} 秒截取 · {item.playback_rate} 倍速</small></div><div className="stock-material-preview">{previews[item.index]?<img src={previews[item.index]} alt={`第 ${item.index+1} 段素材预览`} loading="lazy" style={{maxWidth:'100%',height:'auto'}}/>:<span>预览图加载中</span>}</div></article>)}</div>
+   {current.status==='needs_review'&&<button type="button" className="primary-action" disabled={busy} onClick={()=>void confirm()}>{busy?'确认中…':'确认本地素材并开始拼接'}</button>}
+   {current.status==='done'&&<p>本地素材已确认，可继续成片。</p>}
+  </>}
+ </section>;
 }
 
 export function StockVideoDetail({stage,onRerun}:DetailCommon){
@@ -36,6 +67,7 @@ export function StockVideoDetail({stage,onRerun}:DetailCommon){
  const revision=plan?.revision;
  useEffect(()=>{setCurrent(stage);},[stage]);
  useEffect(()=>{if(!plan)return;setSelection((current?.params.stock_selection as StockSelection[])||defaultStockSelection(plan));setQueries(plan.entries.map(e=>e.query));},[revision]);
+ if(current?.params.stock_source==='local_library')return <LocalStockDetail current={current} onRerun={onRerun}/>;
  async function action(name:'confirm'|'search'){
    if(!current||!plan)return;setBusy(true);setError('');
    try{

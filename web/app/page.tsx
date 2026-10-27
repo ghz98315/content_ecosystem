@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ProductionSetup } from "@/components/ProductionSetup";
+import { ProductionSetup, type VisualMode } from "@/components/ProductionSetup";
 import { MUSIC_PRESETS } from "@/lib/musicPresets";
 import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks, databaseCategory } from "@/lib/productionTemplates";
 import { supabase } from "@/lib/supabase";
@@ -26,7 +26,7 @@ export default function HomePage() {
   const [creating, setCreating] = useState(false);
   const [templateId, setTemplateId] = useState<ProductionTemplateId>("health-v1");
   const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
-  const [visualMode,setVisualMode]=useState<'ai_images'|'stock_video'>('ai_images');
+  const [visualMode,setVisualMode]=useState<VisualMode>('ai_images');
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);

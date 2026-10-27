@@ -825,10 +825,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     global _ACTIVE_DEADLINE
     task_id = stage["task_id"]
     stock = (stage.get('params') or {}).get('visual_mode') == 'stock_video'
-    local_guoxue = (stock and (stage.get('params') or {}).get('stock_source') == 'local_library'
-                    and (stage.get('params') or {}).get('production_template') == 'guoxue-v1'
-                    and (stage.get('params') or {}).get('template_version') == 3)
-    delivery_width, delivery_height = (720, 1280) if local_guoxue else (W, H)
+    local_stock = (stock and (stage.get('params') or {}).get('stock_source') == 'local_library'
+                   and (stage.get('params') or {}).get('production_template') in ('guoxue-v1','health-v1'))
+    delivery_width, delivery_height = (720, 1280) if local_stock else (W, H)
     render_started = time.monotonic()
     phase_seconds = {}
     _ACTIVE_DEADLINE = time.monotonic() + max(1.0, float(config.RENDER_TIMEOUT))
@@ -867,7 +866,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     images: list[dict] = (images_data if isinstance(images_data, list) else []) if stock else _apply_image_replacements(task_id, images_data if isinstance(images_data, list) else [])
     expected_template = (stage.get('params') or {}).get('production_template')
     picture_aspect = ('1:1' if (stage.get('params') or {}).get('template_version') == 2 else '4:3') if expected_template == 'guoxue-v1' else '4:3'
-    health_vertical_feather = expected_template == 'health-v1' or (not expected_template and (stage.get('params') or {}).get('content_line') == 'health')
+    # Stock footage keeps its left and right picture edges sharp. Only the
+    # horizontal seams into the blurred background are feathered.
+    stock_vertical_feather = stock
     picture_ratio = 1.0 if picture_aspect == '1:1' else 4/3
     if expected_template == 'guoxue-v1' and any(image.get('cell_ratio') not in (None,picture_aspect) for image in images):
         raise ValueError(f'已有图片比例与国学{picture_aspect}模板不一致，请重新生图；旧成片已保留')
@@ -916,7 +917,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
             if stock and landscape_layout and not images[0].get('cover_path'):
                 from stock_media import make_video_clip
-                make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=health_vertical_feather)
+                make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=stock_vertical_feather)
             else:
                 _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
         finally:
@@ -945,7 +946,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             if revision:
                 cached = picture_cache.cache_path(task_id, {
                     'version':'stock-source-motion-v2' if stock else 'subpixel-linear-zoom-16-v3', 'index_revision':revision[0]['created_at'],
-                    'feather_edges':('vertical' if health_vertical_feather else 'all') if stock else None,
+                    'feather_edges':'vertical' if stock else None,
                     'images':images, 'timeline':timeline, 'durations':durations,
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
                     'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
@@ -975,7 +976,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if stock:
                     from stock_media import make_video_clip
                     clip = os.path.join(tmpdir, f'clip_{i:03d}.mp4')
-                    make_video_clip(item, duration, clip, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=health_vertical_feather)
+                    make_video_clip(item, duration, clip, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=stock_vertical_feather)
                     clip_paths.append(clip)
                     continue
                 image_local = storage.download_artifact(item["path"], ".png")
@@ -1075,7 +1076,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         upload_limit = storage.upload_limit_bytes()
         target_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, max_bytes=upload_limit)
         video_filter = "ass=subs.ass:fontsdir=fonts"
-        if local_guoxue:
+        if local_stock:
             # All current local sources are 720p. After a ratio crop, finish at
             # their native display width instead of shipping interpolated 1080p.
             video_filter += ",scale=720:1280:flags=lanczos"
@@ -1089,7 +1090,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         # Subtitle layout and audio mixing are expensive on a long video. Render
         # them once into the local master, then derive the storage preview from
         # that master without running the subtitle filter a second time.
-        high_temp = os.path.join(tmpdir, 'final_high.mp4') if local_guoxue else None
+        high_temp = os.path.join(tmpdir, 'final_high.mp4') if local_stock else None
         if high_temp:
             high_started = time.monotonic()
             _run_ffmpeg(finish_args(1800, high_temp, 96),
@@ -1172,7 +1173,7 @@ def run(stage: dict) -> tuple[str, str | None]:
 
         local_high_quality_path = None
         local_high_quality_bytes = None
-        if local_guoxue and not quality_needs_review:
+        if local_stock and not quality_needs_review:
             from quality import probe_media
             high_probe = probe_media(high_temp, ff())
             if (abs(float(high_probe['duration']) - (tts_duration + INTRO_DUR)) > 1
@@ -1216,7 +1217,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
             "cover_frames": COVER_FRAMES,
             "visual_mode": 'stock_video' if stock else 'ai_images',
-            "stock_processing": {"color_style":images[0].get('processing',{}).get('color_style','none'),"feather":images[0].get('processing',{}).get('feather',0),"feather_edges":"vertical" if health_vertical_feather else "all"} if stock else None,
+            "stock_processing": {"color_style":images[0].get('processing',{}).get('color_style','none'),"feather":images[0].get('processing',{}).get('feather',0),"feather_edges":"vertical"} if stock else None,
             "motion": 'source_motion' if stock else ("alternating_zoom_in_out" if landscape_layout else "zoom_in"),
             "zoom_amount": 0 if stock else (LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT),
             "zoom_oversample": LANDSCAPE_WORK_SCALE if landscape_layout else ZOOM_OVERSAMPLE,

@@ -91,6 +91,7 @@ class StockRenderIntegration(unittest.TestCase):
    final=next(meta for kind,meta in artifacts if kind=='final')
    self.assertEqual((720,1280),(final['width'],final['height']))
    self.assertTrue(final['storage_preview_only'])
+   self.assertEqual('vertical',final['stock_processing']['feather_edges'])
    self.assertGreater(final['local_high_quality_bytes'],0)
    self.assertTrue(Path(final['local_high_quality_path']).is_file())
 

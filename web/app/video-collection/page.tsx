@@ -108,7 +108,7 @@ function VideoCollectionContent() {
   const [imageProvider, setImageProvider] = useState<"apimart" | "xcode">("apimart");
   const [referenceMode, setReferenceMode] = useState("scene_continuity");
   const generationMode="prompt";
-  const [visualMode, setVisualMode] = useState<'ai_images' | 'stock_video'>('ai_images');
+  const [visualMode, setVisualMode] = useState<'ai_images' | 'stock_video' | 'local_stock_video'>('ai_images');
   const [bgmVolume, setBgmVolume] = useState("0.15");
   const [ttsRate, setTtsRate] = useState("-8%");
   const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
@@ -318,7 +318,7 @@ function VideoCollectionContent() {
     if (!error && createdTasks?.length) {
       try {
         await configureProductionTasks(supabase, createdTasks.map(task => task.id), productionTemplateId, {
-          visual_mode: visualMode, stock_policy: visualMode === 'stock_video' ? 'stock-video-v1' : undefined,
+          visual_mode: visualMode, stock_policy: visualMode !== 'ai_images' ? 'stock-video-v1' : undefined,
           image_provider: imageProvider, image_model: "gpt-image-2", reference_mode: referenceMode,
           generation_mode: generationMode, reference_asset_ids: [],
         });
@@ -457,7 +457,7 @@ function VideoCollectionContent() {
       </section>
 <section className="collection-import" aria-label="图片参考设置"><h3>图片参考</h3><label>参考方向<select value={referenceMode} onChange={e=>setReferenceMode(e.target.value)}><option value="scene_continuity">保持镜头风格连续 · 推荐</option><option value="book_cover">借鉴书籍气质</option><option value="none">使用类型默认风格</option></select></label><small>画面风格和比例已随内容类型确定，无需重复选择。</small></section></>}
         </div></details>
-        <div className="creation-submit"><p><strong>下一步：确认改写文案</strong><span>{ttsSource==='external'?'确认后上传配音，系统继续处理字幕与画面。':'确认后自动处理配音与画面。'}{visualMode==='stock_video'?'公共素材会先列出清单供你预览。':''}</span></p><button className="primary-action" disabled={creating||!userId||!/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating?'正在创建…':'创建并开始采集'}<span aria-hidden="true"> →</span></button></div>
+        <div className="creation-submit"><p><strong>下一步：确认改写文案</strong><span>{ttsSource==='external'?'确认后上传配音，系统继续处理字幕与画面。':'确认后自动处理配音与画面。'}{visualMode==='stock_video'?'网络素材会先列出清单供你预览。':visualMode==='local_stock_video'?'本机素材会按配音时长自动选取，不上传原片。':''}</span></p><button className="primary-action" disabled={creating||!userId||!/https?:\/\//.test(sourceText)} onClick={createTasks}>{creating?'正在创建…':'创建并开始采集'}<span aria-hidden="true"> →</span></button></div>
       </section>
       {(copyNotice || message) && <p className="collection-notice" role="status">{copyNotice || message}</p>}
       <div className={`collection-loading${loading ? '' : ' is-idle'}`} role="status" aria-hidden={!loading}><span className="collection-loading-bar" /><span className="collection-loading-bar short" />正在更新当前页…</div>

@@ -24,6 +24,15 @@ export async function PATCH(request:Request){
   try{
     const body=await request.json();const {admin,stage}=await context(request,String(body.stageId||''));
     if(stage.status!=='needs_review')throw new Error('当前未等待素材确认，请刷新查看最新进度');
+    if(stage.params?.stock_source==='local_library'){
+      if(body.action!=='local_confirm'||!stage.output_ref?.startsWith(`${stage.task_id}/stock/local-`))throw new Error('本地素材清单无效，请刷新重试');
+      const {data,error}=await admin.from('stages').update({status:'done',error:null})
+        .eq('id',stage.id).eq('status','needs_review').eq('updated_at',stage.updated_at).select('id');
+      if(error||data?.length!==1)throw new Error(error?.message||'任务刚刚更新，请刷新重试');
+      const {error:taskError}=await admin.from('tasks').update({status:'processing'}).eq('id',stage.task_id).neq('status','cancelled');
+      if(taskError)throw new Error(taskError.message);
+      return NextResponse.json({ok:true});
+    }
     const plan=stage.params.stock_plan as StockPlan;
     if(!plan?.revision||plan.revision!==body.revision)throw new Error('素材清单已更新，请重新读取');
     const params={...stage.params};

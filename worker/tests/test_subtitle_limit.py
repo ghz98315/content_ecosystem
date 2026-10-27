@@ -1,11 +1,24 @@
 import unittest
 
 from external_alignment import align, validate_cues
-from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit, strip_subtitle_punctuation, subtitle_visible_len, split_semantic_units
+from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit, strip_subtitle_punctuation, subtitle_display_text, subtitle_visible_len, split_semantic_units
 from stages.tts import _build_subtitle_cues
 
 
 class SubtitleLimitTests(unittest.TestCase):
+    def test_display_and_validation_share_symbol_normalization(self):
+        for source in ("下降20%至5％。", "体温37℃，误差±2%。", "价格¥10，剂量2mg/L。",
+                       "比例1:2，费用$5。", "范围5-10，约3‰。", "说明@标记，含#号。"):
+            with self.subTest(source=source):
+                displayed = subtitle_display_text(source)
+                self.assertEqual(strip_subtitle_punctuation(source),
+                                 strip_subtitle_punctuation(displayed))
+                cues = validate_cues(source, enforce_subtitle_limit([
+                    {"text": source, "start": 0.0, "end": 6.0}
+                ]), 6.0)
+                self.assertEqual(strip_subtitle_punctuation(source),
+                                 strip_subtitle_punctuation("".join(c["text"] for c in cues)))
+
     def test_percent_sign_remains_in_health_subtitles_and_validation(self):
         text = "有些人说下降20%，另一些人说只有5％。"
         self.assertEqual("有些人说下降20%，另一些人说只有5%。",

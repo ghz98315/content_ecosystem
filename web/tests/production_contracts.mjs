@@ -5,12 +5,12 @@ import ts from 'typescript';
 function load(file,requireImpl) { const module={exports:{}};const localRequire=requireImpl||((name)=>{if(name.endsWith('.json'))return {default:JSON.parse(fs.readFileSync(path.resolve(path.dirname(file),name),'utf8'))};throw new Error(`Unsupported import: ${name}`);});new Function('module','exports','require',ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(module,module.exports,localRequire);return module.exports; }
 const {productionTemplate,configureProductionTasks}=load('lib/productionTemplates.ts');
 const {workflowTiming,unionMilliseconds,nodeClock,clockLabel}=load('lib/workflowTiming.ts');
-assert.equal(productionTemplate('guoxue-v1').aspect,'1:1');
+assert.equal(productionTemplate('guoxue-v1').aspect,'4:3');
 assert.equal(productionTemplate('health-v1').aspect,'4:3');
 assert.throws(()=>productionTemplate('unknown'));
 function client(fail=false){const calls=[];return {calls,from(table){let payload;return {update(value){payload=value;return this;},in(){return this;},eq(){return this;},select(){if(payload===undefined)return this;calls.push({table,payload});return Promise.resolve(fail?{error:{message:'denied'}}:{data:[{id:'x',task_id:'x',params:{}}]});},then(resolve,reject){return Promise.resolve(fail?{error:{message:'denied'}}:{data:[{id:'x',task_id:'x',params:{}}]}).then(resolve,reject);}};}};}
 let db=client();await configureProductionTasks(db,['x'],'guoxue-v1');
-assert.equal(db.calls.length,4);assert.equal(db.calls[1].payload.params.image_aspect_ratio,'1:1');assert.equal(db.calls[1].payload.params.template_version,2);assert.equal(db.calls[2].payload.params.production_template,'guoxue-v1');assert.equal(db.calls[3].payload.status,'pending');
+assert.equal(db.calls.length,4);assert.equal(db.calls[1].payload.params.image_aspect_ratio,'4:3');assert.equal(db.calls[1].payload.params.template_version,3);assert.equal(db.calls[2].payload.params.production_template,'guoxue-v1');assert.equal(db.calls[3].payload.status,'pending');
 db=client(true);await assert.rejects(configureProductionTasks(db,['x'],'health-v1'));assert.equal(db.calls.length,0);
 assert.equal(unionMilliseconds([[0,100],[50,200],[300,400]]),300);
 const stages=[{id:'s',kind:'render',status:'done',updated_at:'2026-10-16T00:01:00Z',params:{}}];
@@ -42,6 +42,12 @@ assert.equal(db.calls[1].payload.params.image_aspect_ratio,'4:3');
 assert.equal(db.calls[1].payload.params.stock_visual_policy.content_line,'health');
 assert.equal(db.calls[1].payload.params.stock_visual_policy.allow_images,true);
 assert.equal(db.calls[2].payload.params.frame_mode,'landscape_blur');
+db=client();await configureProductionTasks(db,['x'],'health-v1',{visual_mode:'local_stock_video'});
+assert.equal(db.calls[1].payload.params.visual_mode,'stock_video');
+assert.equal(db.calls[1].payload.params.stock_source,'local_library');
+assert.equal(db.calls[2].payload.params.stock_source,'local_library');
+assert.equal(db.calls[2].payload.params.visual_mode,'stock_video');
+await assert.rejects(configureProductionTasks(client(),['x'],'scene-v1',{visual_mode:'local_stock_video'}));
 const {workerHealthStatus}=load('lib/workerHealth.ts');
 const now=Date.now();
 assert.equal(workerHealthStatus({status:'online',heartbeat_at:new Date(now).toISOString(),checked_at:now/1000},now).status,'online');

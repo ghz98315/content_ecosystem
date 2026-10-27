@@ -15,9 +15,9 @@ import jieba.posseg as pseg
 jieba.setLogLevel(logging.WARNING)
 
 
-_SUBTITLE_PUNCTUATION_RE = re.compile(
-    r"[，。！？；：、,.!?;:“”‘’\"'（）()【】\[\]《》〈〉—…·~～\-]+"
-)
+# Signs that change the meaning of a number are text, not disposable
+# punctuation. The display and alignment normalizers must share this set.
+_SUBTITLE_MEANINGFUL_SYMBOLS = frozenset("%‰℃°±+−-×÷/=<>≤≥¥￥$")
 _PAUSE_SECONDS = {
     "，": 0.3, ",": 0.3, "、": 0.3,
     "。": 0.8, ".": 0.8,
@@ -164,8 +164,9 @@ def _decimal_to_zh(value: str) -> str:
 
 
 def strip_subtitle_punctuation(text: str) -> str:
-    """Remove punctuation from on-screen subtitles while retaining words."""
-    return re.sub(r"\s+", "", _SUBTITLE_PUNCTUATION_RE.sub("", text or "")).replace("％", "%")
+    """Canonical comparison text from the same display rules as captions."""
+    return "".join(char for char in subtitle_display_text(text)
+                   if char.isalnum() or char in _SUBTITLE_MEANINGFUL_SYMBOLS)
 
 
 _SUBTITLE_END_MARKS = set("，。？！")
@@ -179,9 +180,8 @@ def subtitle_display_text(text: str) -> str:
     value = value.translate(str.maketrans({"、": "，", "；": "，", "：": "，", ",": "，",
                                            ";": "，", ":": "，", ".": "。", "?": "？", "!": "！", "％": "%"}))
     value = re.sub(r"，+", "，", value)
-    # Percentages carry meaning in health scripts; dropping '%' makes the
-    # displayed captions differ from the confirmed script during validation.
-    return "".join(char for char in value if char.isalnum() or char in "《》%" or char in _SUBTITLE_END_MARKS)
+    return "".join(char for char in value if char.isalnum() or char in "《》"
+                   or char in _SUBTITLE_MEANINGFUL_SYMBOLS or char in _SUBTITLE_END_MARKS)
 
 
 def subtitle_visible_len(text: str) -> int:
