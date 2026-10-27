@@ -1062,16 +1062,16 @@ def run(stage: dict) -> tuple[str, str | None]:
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
-        health_kai_path = os.environ.get('HEALTH_XINGYUN_FONT_FILE', '').strip()
-        if text_settings.get('health_text_style') and health_kai_path:
+        health_text_path = os.environ.get('HEALTH_TEXT_FONT_FILE', '').strip()
+        if text_settings.get('health_text_style') and health_text_path:
             from PIL import ImageFont
-            font_path = Path(health_kai_path)
+            font_path = Path(health_text_path)
             if not font_path.is_file():
-                raise ValueError('健康类行云楷字体文件不存在，请检查 HEALTH_XINGYUN_FONT_FILE')
+                raise ValueError('健康类副标题与字幕字体文件不存在，请检查 HEALTH_TEXT_FONT_FILE')
             font_name = ImageFont.truetype(str(font_path), SUBTITLE_FONT_SIZE).getname()[0]
             text_settings['subtitle_font'] = font_name
             text_settings['narration_font'] = font_name
-            shutil.copyfile(font_path, Path(tmpdir)/'fonts'/'health-xingyun.ttf')
+            shutil.copyfile(font_path, Path(tmpdir)/'fonts'/'health-text.ttf')
         elif text_settings.get('health_text_style') and os.environ.get('HEALTH_SUBTITLE_FONT_FILE'):
             from PIL import ImageFont
             font_path=Path(os.environ['HEALTH_SUBTITLE_FONT_FILE'])
