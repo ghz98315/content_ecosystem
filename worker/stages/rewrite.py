@@ -366,6 +366,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                                  f'本轮请按上方信息块预算补全，全文目标约{math.ceil(effective_length(source) * target_ratio)}字。')
                     feedback += ('\n本轮优先修复篇幅与信息覆盖：保留上稿已有的正确信息，逐项对照原稿，'
                                  '补回省略的案例、说明过程、事实条件和细节；不得再概括或合并成更短的提纲。'
+                                 '允许在不改变原意的基础上适度展开原稿已有解释、指代和承接，'
+                                 '但不得添加新机制、例子、数据或建议，全文不得超过本轮上限。'
                                  '仅压缩重复报幕用语，不压缩其后的解释内容；不能靠编造新事实或重复句凑字。')
             feedback += '\n【可改写区重复片段】\n' + '\n'.join(
                 previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
