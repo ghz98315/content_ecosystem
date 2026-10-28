@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from local_materials import add_book_cover_inserts, local_book_cover, _book_cover_settings
+from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings
 
 
 class BookCoverInsertTests(unittest.TestCase):
@@ -53,6 +53,20 @@ class BookCoverInsertTests(unittest.TestCase):
         self.assertEqual([(0,3),(8,12)],[(item['start'],item['end']) for item in covers])
         self.assertEqual([3,4],[item['duration'] for item in covers])
         self.assertAlmostEqual(12,sum(item['duration'] for item in result))
+
+    def test_pip_keeps_video_segments_and_marks_spoken_title_ranges(self):
+        text='今天读养生书。中间讲饮食和运动。最后再回到养生书。'
+        cues=[
+            {'text':'今天读《养生书》','start':0,'end':3,'char_start':0,'char_end':7},
+            {'text':'中间讲饮食和运动','start':3,'end':8,'char_start':7,'char_end':15},
+            {'text':'最后再回到《养生书》','start':8,'end':12,'char_start':15,'char_end':24},
+        ]
+        entries=[{'index':0,'start':0,'end':12,'duration':12,'asset':{'provider':'local_library','relative_path':'30_健康/a.mp4'}}]
+        cover={'provider':'local_book_cover','relative_path':'30_健康/养生书01.png'}
+        result=add_book_cover_pip(entries,text,{'segments':cues,'duration':12},'养生书',cover,'task/book.jpg')
+        self.assertEqual(1,len(result))
+        self.assertEqual(12,result[0]['duration'])
+        self.assertEqual([{'start':0,'end':3},{'start':8,'end':12}],result[0]['book_cover_pip']['intervals'])
 
 
 if __name__=='__main__':unittest.main()

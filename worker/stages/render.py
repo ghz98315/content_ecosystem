@@ -920,7 +920,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
     is_history = str(task_context.get("content_category") or "health") == "social_science"
-    rewrite_data = _load_json_artifact(task_id, "rewrite") if is_history or expected_template == 'guoxue-v1' else {}
+    rewrite_data = _load_json_artifact(task_id, "rewrite") if is_history or expected_template in ('guoxue-v1', 'health-v1') else {}
     book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "")
     segments = mark_book_titles_in_cues(segments, book_name)
     author = str(book_data.get("author", "") if isinstance(book_data, dict) else "")
@@ -1121,6 +1121,24 @@ def run(stage: dict) -> tuple[str, str | None]:
         ]
         if bgm_local:
             render_inputs.extend(["-stream_loop", "-1", "-i", bgm_local])
+        book_pip = images[0].get('book_cover_pip') if local_stock and images else None
+        pip_intervals = book_pip.get('intervals') if isinstance(book_pip, dict) else None
+        if pip_intervals and isinstance(subs_data, dict):
+            # Audio can be replaced while the selected video remains. Reattach
+            # the cover to the new subtitle timeline instead of stale seconds.
+            from local_materials import _cover_ranges
+            cover_text = str(subs_data.get('text') or (rewrite_data or {}).get('final_text') or '')
+            ranges = _cover_ranges(cover_text, subs_data, str(book_pip.get('book_name') or ''))
+            pip_intervals = [
+                {'start': _cue_time_at_char(start, subs_data.get('segments') or [], tts_duration),
+                 'end': _cue_time_at_char(end, subs_data.get('segments') or [], tts_duration)}
+                for start, end in ranges
+            ]
+        if pip_intervals:
+            from stock_media import fetch_source
+            pip_source = fetch_source(book_pip['asset'])
+            pip_input = 3 if bgm_local else 2
+            render_inputs.extend(['-loop', '1', '-framerate', str(FPS), '-i', str(pip_source)])
         mix_filter = _audio_mix_filter(
             bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
         )
@@ -1132,13 +1150,30 @@ def run(stage: dict) -> tuple[str, str | None]:
             # All current local sources are 720p. After a ratio crop, finish at
             # their native display width instead of shipping interpolated 1080p.
             video_filter += ",scale=720:1280:flags=lanczos"
+        pip_graph = ''
+        if pip_intervals:
+            spans = []
+            for interval in pip_intervals:
+                start = max(0.0, min(tts_duration, float(interval['start']))) + INTRO_DUR
+                end = max(0.0, min(tts_duration, float(interval['end']))) + INTRO_DUR
+                if end > start:
+                    spans.append(f'between(t,{start:.3f},{end:.3f})')
+            if spans:
+                picture_top = (H - round(W / picture_ratio)) // 2
+                pip_graph = (
+                    f'[{pip_input}:v]scale=230:310:force_original_aspect_ratio=decrease:flags=lanczos,'
+                    f'pad=250:330:(ow-iw)/2:(oh-ih)/2:color=0xF3EBDD[book];'
+                    f"[0:v][book]overlay=W-w-70:{picture_top+35}:enable='{'+'.join(spans)}':eof_action=pass[vbook];"
+                    f'[vbook]{video_filter}[video]'
+                )
         def finish_args(bitrate: int, output: str, audio_kbps: int = 64) -> list[str]:
-            return [*render_inputs,
-            "-filter_complex", mix_filter,
-            "-vf", video_filter,
-            *_encoder_args(target_kbps=bitrate),
-            "-map", "0:v:0", "-map", audio_label,
-            "-c:a", "aac", "-b:a", f"{audio_kbps}k", "-shortest", output]
+            if pip_graph:
+                video_args = ['-filter_complex', mix_filter + ';' + pip_graph, '-map', '[video]']
+            else:
+                video_args = ['-filter_complex', mix_filter, '-vf', video_filter, '-map', '0:v:0']
+            return [*render_inputs, *video_args,
+                    *_encoder_args(target_kbps=bitrate), '-map', audio_label,
+                    '-c:a', 'aac', '-b:a', f'{audio_kbps}k', '-shortest', output]
         # Subtitle layout and audio mixing are expensive on a long video. Render
         # them once into the local master, then derive the storage preview from
         # that master without running the subtitle filter a second time.

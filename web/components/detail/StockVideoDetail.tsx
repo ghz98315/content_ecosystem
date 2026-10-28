@@ -29,9 +29,9 @@ function StockPreview({asset,offset,duration,selection,aspect}:{asset:StockAsset
   </div></div><button type="button" className="secondary-action" onClick={()=>{if(video.current?.paused)void video.current.play();else video.current?.pause();}}>播放／暂停处理预览</button><small>调色为浏览器近似预览，最终以成片为准；请检查裁切是否影响人物。</small></>:<video ref={video} controls muted preload="none" src={asset.preview_url||asset.url} {...handlers}/>}</>;
 }
 
-type LocalEntry={index:number;duration:number;source_start:number;playback_rate:number;path:string;cover_source_index?:number;asset:{relative_path:string;title:string;width:number;height:number}};
+type LocalEntry={index:number;start:number;end:number;duration:number;source_start:number;playback_rate:number;path:string;cover_source_index?:number;book_cover_pip?:{book_name:string;path:string;intervals:{start:number;end:number}[]};asset:{relative_path:string;title:string;width:number;height:number}};
 function LocalStockDetail({current,onRerun}:{current:Stage;onRerun:(id:string)=>void}){
- const [entries,setEntries]=useState<LocalEntry[]>([]),[previews,setPreviews]=useState<Record<number,string>>({});
+ const [entries,setEntries]=useState<LocalEntry[]>([]),[previews,setPreviews]=useState<Record<number,string>>({}),[bookPreview,setBookPreview]=useState('');
  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  useEffect(()=>{if(!current.output_ref||!current.params.stock_source)return;let cancelled=false;
   const load=async()=>{try{
@@ -41,6 +41,9 @@ function LocalStockDetail({current,onRerun}:{current:Stage;onRerun:(id:string)=>
    const items=await index.json() as LocalEntry[];if(cancelled)return;setEntries(items);
    const urls=await Promise.all(items.map(async item=>{try{const result=await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(item.path)}`);const data=await result.json();return [item.index,result.ok?data.signedUrl:''] as const;}catch{return [item.index,''] as const;}}));
    if(!cancelled)setPreviews(Object.fromEntries(urls));
+   const coverPath=items[0]?.book_cover_pip?.path;
+   if(coverPath){const result=await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(coverPath)}`);const data=await result.json();if(!cancelled)setBookPreview(result.ok?data.signedUrl:'');}
+   else if(!cancelled)setBookPreview('');
   }catch(e){if(!cancelled)setError(e instanceof Error?e.message:'本地素材清单读取失败');}};
   void load();return()=>{cancelled=true;};
  },[current.output_ref,current.params.stock_source]);
@@ -53,7 +56,8 @@ function LocalStockDetail({current,onRerun}:{current:Stage;onRerun:(id:string)=>
   {current.status==='failed'&&<div role="alert"><p>{current.error}</p><button type="button" onClick={()=>onRerun(current.id)}>重试素材节点</button></div>}
   {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
   {entries.length>0&&<><p>共 {entries.length} 段 · {entries.length===new Set(entries.map(item=>item.asset.relative_path)).size?'全部采用不同源片':`采用 ${new Set(entries.map(item=>item.asset.relative_path)).size} 条不同源片`}</p>
-   <div className="stock-material-list">{entries.map(item=><article className="stock-material-row" key={item.index}><div className="stock-material-script"><h3>段落 {item.index+1} · {item.duration.toFixed(1)} 秒 {item.index===entries[0]?.cover_source_index?'· 封面画面':''}</h3><p>{item.asset.title}</p><small>{item.asset.width}×{item.asset.height} · 从 {item.source_start.toFixed(1)} 秒截取 · {item.playback_rate} 倍速</small></div><div className="stock-material-preview">{previews[item.index]?<img src={previews[item.index]} alt={`第 ${item.index+1} 段素材预览`} loading="lazy" style={{maxWidth:'100%',height:'auto'}}/>:<span>预览图加载中</span>}</div></article>)}</div>
+   {entries[0]?.book_cover_pip&&<p>《{entries[0].book_cover_pip.book_name}》书封将在提到书名时以画中画显示：{entries[0].book_cover_pip.intervals.map(v=>`${v.start.toFixed(1)}–${v.end.toFixed(1)} 秒`).join('、')}。</p>}
+   <div className="stock-material-list">{entries.map(item=>{const pip=entries[0]?.book_cover_pip;const showPip=Boolean(pip?.intervals.some(v=>item.start<v.end&&item.end>v.start));return <article className="stock-material-row" key={item.index}><div className="stock-material-script"><h3>段落 {item.index+1} · {item.duration.toFixed(1)} 秒 {item.index===entries[0]?.cover_source_index?'· 封面画面':''}{showPip?' · 书封画中画':''}</h3><p>{item.asset.title}</p><small>{item.asset.width}×{item.asset.height} · 从 {item.source_start.toFixed(1)} 秒截取 · {item.playback_rate} 倍速</small></div><div className="stock-material-preview">{previews[item.index]?<div style={{position:'relative',width:'100%'}}><img src={previews[item.index]} alt={`第 ${item.index+1} 段素材预览`} loading="lazy" style={{maxWidth:'100%',height:'auto',display:'block'}}/>{showPip&&bookPreview&&<img src={bookPreview} alt={`《${pip?.book_name}》书封画中画示意`} style={{position:'absolute',right:'6%',top:'7%',width:'24%',height:'42%',objectFit:'contain',background:'#f3ebdd',padding:4,boxShadow:'0 3px 12px #0008'}}/>}</div>:<span>预览图加载中</span>}</div></article>;})}</div>
    {current.status==='needs_review'&&<button type="button" className="primary-action" disabled={busy} onClick={()=>void confirm()}>{busy?'确认中…':'确认本地素材并开始拼接'}</button>}
    {current.status==='done'&&<p>本地素材已确认，可继续成片。</p>}
   </>}

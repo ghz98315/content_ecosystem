@@ -355,6 +355,30 @@ def add_book_cover_inserts(entries: list[dict], text: str, subtitles: dict,
     return output
 
 
+def add_book_cover_pip(entries: list[dict], text: str, subtitles: dict,
+                       book_name: str, cover_asset: dict, preview_path: str) -> list[dict]:
+    """Keep the source clips intact and display a cover over spoken title ranges."""
+    if not entries:
+        return entries
+    ranges = _cover_ranges(text, subtitles, book_name)
+    if not ranges:
+        return entries
+    from stages import render
+    duration = float(subtitles.get("duration") or 0)
+    intervals = []
+    for start, end in ranges:
+        begin = render._cue_time_at_char(start, subtitles.get("segments") or [], duration)
+        finish = render._cue_time_at_char(end, subtitles.get("segments") or [], duration)
+        if finish > begin:
+            intervals.append({"start": round(begin, 3), "end": round(finish, 3)})
+    if intervals:
+        entries[0]["book_cover_pip"] = {
+            "book_name": book_name, "asset": cover_asset,
+            "path": preview_path, "intervals": intervals,
+        }
+    return entries
+
+
 def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
          require_native: bool = False, output_width: int = 1080,
          selection_seed: str = "") -> list[dict]:
@@ -531,8 +555,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                 storage.add_artifact(task,"image","image",preview_path,
                                      meta={"visual_mode":"stock_video","source":"book_cover",
                                            "provider":cover_asset.get("provider"),"book_name":book_name})
-                entries = add_book_cover_inserts(entries, text, subtitles, book_name,
-                                                 cover_asset, preview_path)
+                entries = add_book_cover_pip(entries, text, subtitles, book_name,
+                                             cover_asset, preview_path)
             except (OSError,ValueError,httpx.HTTPError) as exc:
                 print(f"  [local-materials] 书封插片跳过：{type(exc).__name__}: {exc}",flush=True)
     prefix = f"{task}/stock/local-{revision}"
