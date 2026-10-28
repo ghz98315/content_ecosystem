@@ -339,6 +339,7 @@ def add_book_cover_inserts(entries: list[dict], text: str, subtitles: dict,
                    "sentence":f"《{book_name}》封面" if is_cover else entry.get("sentence","")}
             start_time=render._cue_time_at_char(start,subtitles.get("segments") or [],duration)
             end_time=render._cue_time_at_char(end,subtitles.get("segments") or [],duration)
+            piece.update(start=start_time,end=end_time,duration=max(0.0,end_time-start_time))
             if is_cover:
                 piece.update(asset=cover_asset,source_start=0.0,source_end=0.0,
                              playback_rate=1.0,path=preview_path,visual_type="image",

@@ -50,6 +50,9 @@ class BookCoverInsertTests(unittest.TestCase):
         self.assertEqual(2,len(covers))
         self.assertEqual([(0,7),(15,24)],[(item['char_start'],item['char_end']) for item in covers])
         self.assertTrue(all(item['asset']['provider']=='local_book_cover' for item in covers))
+        self.assertEqual([(0,3),(8,12)],[(item['start'],item['end']) for item in covers])
+        self.assertEqual([3,4],[item['duration'] for item in covers])
+        self.assertAlmostEqual(12,sum(item['duration'] for item in result))
 
 
 if __name__=='__main__':unittest.main()
