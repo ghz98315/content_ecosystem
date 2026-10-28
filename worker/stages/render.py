@@ -279,6 +279,7 @@ def _make_ass(
         foot_size-=3
         foot_fill='&H4DFFFFFF'
         foot_border=0
+    subheading_size = SUBTITLE_FONT_SIZE if health_text_style else (56 if landscape_layout else 52)
     narration_fill = '&H0000E6FF' if guoxue_text_style else '&H00FFFFFF'
     narration_bold = 0 if landscape_layout else -1
     header = (
@@ -290,7 +291,7 @@ def _make_ass(
         f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},{narration_fill},&H000000FF,&H00000000,&H90000000,"
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
-        f"Style: Subheading,{subtitle_font},{56 if landscape_layout else 52},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
+        f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
         f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n"
         "Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,50,1\n"
         f"Style: ClassicQuote,{narration_font},86,&H00FFFFFF,&H000000FF,&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,6,1,5,90,90,0,1\n"
@@ -308,9 +309,9 @@ def _make_ass(
     }
     if health_text_style and landscape_layout:
         # Half a subtitle line of clear space between its bottom and the picture.
-        sub_gap=round(56*0.5)
+        sub_gap=round(subheading_size*0.5)
         positions['Subheading']=(2,W//2,picture_top-sub_gap)
-        positions['Heading']=(2,W//2,picture_top-sub_gap-56-24)
+        positions['Heading']=(2,W//2,picture_top-sub_gap-subheading_size-24)
     if footnote_centered:positions['Footnote']=(8,W//2,picture_bottom+28) if landscape_layout else (2,W//2,H-110)
     overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
     if account_name:
@@ -1096,9 +1097,11 @@ def run(stage: dict) -> tuple[str, str | None]:
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
-        health_text_path = os.environ.get('HEALTH_TEXT_FONT_FILE', '').strip()
-        if text_settings.get('health_text_style') and health_text_path:
+        health_text_path = config.HEALTH_TEXT_FONT_FILE
+        if text_settings.get('health_text_style'):
             from PIL import ImageFont
+            if not health_text_path:
+                raise ValueError('健康类副标题与字幕缺少字体配置，请设置 HEALTH_TEXT_FONT_FILE')
             font_path = Path(health_text_path)
             if not font_path.is_file():
                 raise ValueError('健康类副标题与字幕字体文件不存在，请检查 HEALTH_TEXT_FONT_FILE')
@@ -1106,12 +1109,6 @@ def run(stage: dict) -> tuple[str, str | None]:
             text_settings['subtitle_font'] = font_name
             text_settings['narration_font'] = font_name
             shutil.copyfile(font_path, Path(tmpdir)/'fonts'/'health-text.ttf')
-        elif text_settings.get('health_text_style') and os.environ.get('HEALTH_SUBTITLE_FONT_FILE'):
-            from PIL import ImageFont
-            font_path=Path(os.environ['HEALTH_SUBTITLE_FONT_FILE'])
-            if not font_path.is_file():raise ValueError('健康类字幕字体文件不存在，请检查 HEALTH_SUBTITLE_FONT_FILE')
-            text_settings['narration_font']=ImageFont.truetype(str(font_path),SUBTITLE_FONT_SIZE).getname()[0]
-            shutil.copyfile(font_path,Path(tmpdir)/'fonts'/'health-subtitle.ttf')
         text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
         from classic_quote import quote_overlays
         classic_quotes = quote_overlays(str(rewrite_data.get('final_text') or ''), segments, tts_duration) if expected_template == 'guoxue-v1' and isinstance(rewrite_data, dict) else []

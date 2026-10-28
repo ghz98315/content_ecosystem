@@ -17,6 +17,7 @@ OPENAI_API_KEY  = os.environ.get("OPENAI_API_KEY", "")
 # The long-lived Windows supervisor may retain an older process environment.
 # Keep this endpoint in sync with the project's explicitly edited .env file.
 OPENAI_BASE_URL = (dotenv_values(_ENV_FILE).get("OPENAI_BASE_URL") or os.environ.get("OPENAI_BASE_URL", "")).strip()
+HEALTH_TEXT_FONT_FILE = (dotenv_values(_ENV_FILE).get("HEALTH_TEXT_FONT_FILE") or os.environ.get("HEALTH_TEXT_FONT_FILE", "")).strip()
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 DEEPSEEK_TIMEOUT = float(os.environ.get("DEEPSEEK_TIMEOUT", "110"))
