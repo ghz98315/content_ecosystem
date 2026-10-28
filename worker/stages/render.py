@@ -1171,10 +1171,10 @@ def run(stage: dict) -> tuple[str, str | None]:
             prepared_cover = Path(tmpdir) / 'book-cover-pip.png'
             _prepare_book_cover_pip(pip_source, prepared_cover)
             pip_input = 3 if bgm_local else 2
-            # One still frame per second is enough: framesync reuses it while
-            # the 30 fps main picture advances. Avoid full-length 30 fps
-            # scaling of a large cover that appears for only a few seconds.
-            render_inputs.extend(['-loop', '1', '-framerate', '1', '-i', str(prepared_cover)])
+            # Keep timestamps at the main picture's frame rate so a brief
+            # opening overlay is available immediately. The source was
+            # already resized once, so there is no per-frame large-image scale.
+            render_inputs.extend(['-loop', '1', '-framerate', str(FPS), '-i', str(prepared_cover)])
         mix_filter = _audio_mix_filter(
             bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
         )
