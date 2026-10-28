@@ -149,6 +149,18 @@ class RevisionLoopTests(unittest.TestCase):
         self.assertTrue(candidates[0].endswith(OLD))
         self.assertEqual('service_error', data['rewrite_review']['stop_reason'])
 
+    def test_service_failure_does_not_deliver_short_draft(self):
+        with patch('stages.rewrite._request_rewrite', side_effect=[response(NEW[:350] + '。'), ConnectionError('offline')]):
+            with self.assertRaises(ConnectionError):
+                _generate_candidates(SOURCE, CONTEXT)
+
+    def test_all_short_drafts_choose_closest_length_and_mark_failed(self):
+        replies = [response(NEW[:size] + '。') for size in (300, 480, 400, 350)]
+        (candidates, _, data), request = self.generate(replies)
+        self.assertEqual(2, data['rewrite_review']['selected_attempt'])
+        self.assertEqual('length_failed', data['rewrite_review']['status'])
+        self.assertIn('补回省略的案例', request.call_args_list[1].kwargs['messages'][1]['content'])
+
     def test_all_service_failures_keep_original_error(self):
         with patch('stages.rewrite._request_rewrite', side_effect=ConnectionError('proxy unavailable')) as request:
             with self.assertRaisesRegex(ConnectionError, 'proxy unavailable'):

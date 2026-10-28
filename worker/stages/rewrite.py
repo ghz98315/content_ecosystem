@@ -364,6 +364,9 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                 if previous_chars < planned_minimum:
                     feedback += (f'\n上稿有效字数{previous_chars}，距本类写作下限还差{planned_minimum - previous_chars}字；'
                                  f'本轮请按上方信息块预算补全，全文目标约{math.ceil(effective_length(source) * target_ratio)}字。')
+                    feedback += ('\n本轮优先修复篇幅与信息覆盖：保留上稿已有的正确信息，逐项对照原稿，'
+                                 '补回省略的案例、说明过程、事实条件和细节；不得再概括或合并成更短的提纲。'
+                                 '仅压缩重复报幕用语，不压缩其后的解释内容；不能靠编造新事实或重复句凑字。')
             feedback += '\n【可改写区重复片段】\n' + '\n'.join(
                 previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
             repair_paragraphs, editable = repair_scope(previous, hook)
@@ -407,6 +410,10 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                     raise
                 continue
             stop_reason = 'service_error'
+            if last is not None and not minimum <= effective_length(last[0][0]) <= maximum:
+                # Keep the in-progress checkpoint for recovery. A network
+                # failure must not promote an undersized draft to delivery.
+                raise
             break
         choice = response.choices[0]
         raw = (choice.message.content or '').strip()
@@ -502,6 +509,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     delivery_issues = [issue for issue in selected['issues'] if issue not in planning_warnings]
     if delivery_issues:
         final_report['status'] = 'manual_review'
+    if not minimum <= final_report['candidate_chars'] <= maximum:
+        final_report['status'] = 'length_failed'
     structure['rewrite_review'] = {
         **final_report, 'max_revisions': MAX_REVISIONS,
         'planned_min_chars': planned_minimum, 'planning_warnings': planning_warnings,
@@ -873,8 +882,12 @@ def run(stage: dict) -> tuple[str, str | None]:
     db.get_client().table("stages").update({
         "status": "needs_review",
         "output_ref": sp,
-        "error": "存在高风险合规项，请修改后重新确认" if report["status"] == "blocked" else (
+        "error": (f"改写字数未达标：原稿{payload['source_length']}字，当前{lengths[0]}字，"
+                  f"要求{structure['rewrite_review']['min_chars']}-{structure['rewrite_review']['max_chars']}字；"
+                  "已保留草稿，请补足内容或重跑改写，不能作为合格稿确认。")
+            if (structure.get('rewrite_review') or {}).get('status') == 'length_failed' else (
+            "存在高风险合规项，请修改后重新确认" if report["status"] == "blocked" else (
             "自动二创检查未全部达标，请查看对照与返工记录后人工确认"
-            if (structure.get('rewrite_review') or {}).get('status') == 'manual_review' else None),
+            if (structure.get('rewrite_review') or {}).get('status') == 'manual_review' else None)),
     }).eq("id", stage["id"]).execute()
     return "needs_review", sp

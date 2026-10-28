@@ -35,7 +35,9 @@ def attempt_rank(attempt: dict) -> tuple:
         for issue in attempt.get('issues', []))
     too_short = report['candidate_chars'] < report['min_chars']
     too_long = report['candidate_chars'] > report['max_chars']
-    return (incomplete, too_short or too_long,
+    length_distance = max(report['min_chars'] - report['candidate_chars'],
+                          report['candidate_chars'] - report['max_chars'], 0)
+    return (incomplete, too_short or too_long, length_distance,
             len(attempt.get('issues', [])), report['unlocked']['score'],
             report['full']['score'], -attempt['attempt'])
 
