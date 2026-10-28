@@ -85,6 +85,19 @@ def ff() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
+def _book_cover_pip_graph(pip_input: int, picture_ratio: float,
+                          video_filter: str, spans: list[str]) -> str:
+    """Place the unframed book image over roughly half of the visible picture."""
+    picture_height = round(W / picture_ratio)
+    picture_top = (H - picture_height) // 2
+    return (
+        f'[{pip_input}:v]scale=760:570:force_original_aspect_ratio=decrease:flags=lanczos[book];'
+        f"[0:v][book]overlay=(W-w)/2:{picture_top}+(" +
+        f"{picture_height}-h)/2:enable='{'+'.join(spans)}':eof_action=pass[vbook];"
+        f'[vbook]{video_filter}[video]'
+    )
+
+
 @lru_cache(maxsize=1)
 def _nvenc_available() -> bool:
     if config.RENDER_ENCODER == 'cpu':
@@ -1168,13 +1181,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if end > start:
                     spans.append(f'between(t,{start:.3f},{end:.3f})')
             if spans:
-                picture_top = (H - round(W / picture_ratio)) // 2
-                pip_graph = (
-                    f'[{pip_input}:v]scale=230:310:force_original_aspect_ratio=decrease:flags=lanczos,'
-                    f'pad=250:330:(ow-iw)/2:(oh-ih)/2:color=0xF3EBDD[book];'
-                    f"[0:v][book]overlay=W-w-70:{picture_top+35}:enable='{'+'.join(spans)}':eof_action=pass[vbook];"
-                    f'[vbook]{video_filter}[video]'
-                )
+                pip_graph = _book_cover_pip_graph(pip_input,picture_ratio,video_filter,spans)
         def finish_args(bitrate: int, output: str, audio_kbps: int = 64) -> list[str]:
             if pip_graph:
                 video_args = ['-filter_complex', mix_filter + ';' + pip_graph, '-map', '[video]']

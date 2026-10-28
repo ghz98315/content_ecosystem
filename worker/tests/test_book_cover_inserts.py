@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings
+from stages.render import _book_cover_pip_graph
 
 
 class BookCoverInsertTests(unittest.TestCase):
@@ -67,6 +68,13 @@ class BookCoverInsertTests(unittest.TestCase):
         self.assertEqual(1,len(result))
         self.assertEqual(12,result[0]['duration'])
         self.assertEqual([{'start':0,'end':3},{'start':8,'end':12}],result[0]['book_cover_pip']['intervals'])
+
+    def test_pip_is_large_centered_and_has_no_extra_frame(self):
+        graph=_book_cover_pip_graph(3,4/3,'ass=subs.ass:fontsdir=fonts', ['between(t,3.8,6.1)'])
+        self.assertIn('scale=760:570:force_original_aspect_ratio=decrease',graph)
+        self.assertIn('overlay=(W-w)/2:555+(810-h)/2',graph)
+        self.assertNotIn('pad=',graph)
+        self.assertNotIn('color=0xF3EBDD',graph)
 
 
 if __name__=='__main__':unittest.main()
