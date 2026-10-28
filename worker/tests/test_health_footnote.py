@@ -42,6 +42,7 @@ class HealthFootnoteTests(unittest.TestCase):
              subtitle_font='HarmonyOS Sans SC',narration_font='HarmonyOS Sans SC',**settings)
    value=path.read_text(encoding='utf-8')
    self.assertIn('Style: Subheading,HarmonyOS Sans SC,72,',value)
+   self.assertIn('Style: Subheading,HarmonyOS Sans SC,72,&H0000E6FF,&H000000FF,&H00000000,&H80000000,-1,',value)
    self.assertIn('Style: Default,HarmonyOS Sans SC,72,',value)
 
 if __name__=='__main__':unittest.main()

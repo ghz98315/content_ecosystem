@@ -291,7 +291,7 @@ def _make_ass(
         f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},{narration_fill},&H000000FF,&H00000000,&H90000000,"
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
-        f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
+        f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,{-1 if health_text_style else 0},0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
         f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n"
         "Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,50,1\n"
         f"Style: ClassicQuote,{narration_font},86,&H00FFFFFF,&H000000FF,&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,6,1,5,90,90,0,1\n"
@@ -1094,6 +1094,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             if not health_title_path.is_file():raise ValueError('健康类标题字体文件不存在，请检查 HEALTH_TITLE_FONT_FILE')
             text_settings['title_font']=ImageFont.truetype(str(health_title_path),92).getname()[0]
             shutil.copyfile(health_title_path,Path(tmpdir)/'fonts'/'health-title.ttf')
+            font_fallback=False
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
