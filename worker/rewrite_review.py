@@ -15,7 +15,9 @@ PLANNED_MIN_LENGTH_RATIO = 0.95
 PLANNED_TARGET_LENGTH_RATIO = 0.97
 HEALTH_MIN_LENGTH_RATIO = 0.85
 HEALTH_MAX_LENGTH_RATIO = 0.90
-HEALTH_TARGET_LENGTH_RATIO = 0.88
+# The model has repeatedly undershot its requested length on long health
+# scripts. Aim at the upper edge while keeping the 85%-90% acceptance gate.
+HEALTH_TARGET_LENGTH_RATIO = 0.90
 
 
 def length_bounds(source: str, category: str | None = None) -> tuple[int, int]:
