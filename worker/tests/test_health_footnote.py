@@ -39,7 +39,7 @@ class HealthFootnoteTests(unittest.TestCase):
    path=Path(folder)/'health.ass'
    settings=_render_text_settings({'params':{'production_template':'health-v1'}},{},{})
    _make_ass([{'start':0,'end':2,'text':'健康生活'}],str(path),landscape_layout=True,picture_ratio=4/3,duration=2,
-             subtitle_font='HarmonyOS Sans SC',narration_font='HarmonyOS Sans SC',**settings)
+             subtitle_font='HarmonyOS Sans SC',narration_font='HarmonyOS Sans SC',health_subtitle_bold=True,**settings)
    value=path.read_text(encoding='utf-8')
    self.assertIn('Style: Subheading,HarmonyOS Sans SC,72,',value)
    self.assertIn('Style: Subheading,HarmonyOS Sans SC,72,&H0000E6FF,&H000000FF,&H00000000,&H80000000,-1,',value)

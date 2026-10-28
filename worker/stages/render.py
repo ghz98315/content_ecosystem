@@ -240,6 +240,7 @@ def _make_ass(
     picture_ratio: float = 4/3,
     footnote_centered: bool = False,
     health_text_style: bool = False,
+    health_subtitle_bold: bool = False,
     guoxue_text_style: bool = False,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
@@ -291,7 +292,7 @@ def _make_ass(
         f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},{narration_fill},&H000000FF,&H00000000,&H90000000,"
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
-        f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,{-1 if health_text_style else 0},0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
+        f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,{-1 if health_subtitle_bold else 0},0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
         f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n"
         "Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,50,1\n"
         f"Style: ClassicQuote,{narration_font},86,&H00FFFFFF,&H000000FF,&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,6,1,5,90,90,0,1\n"
@@ -1099,6 +1100,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings['subtitle_font'] = kai_font
         text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
         health_text_path = config.HEALTH_TEXT_FONT_FILE
+        text_settings['health_subtitle_bold'] = False
         if text_settings.get('health_text_style'):
             from PIL import ImageFont
             if not health_text_path:
@@ -1110,6 +1112,12 @@ def run(stage: dict) -> tuple[str, str | None]:
             text_settings['subtitle_font'] = font_name
             text_settings['narration_font'] = font_name
             shutil.copyfile(font_path, Path(tmpdir)/'fonts'/'health-text.ttf')
+            bold_path = font_path.with_name(font_path.name.replace('_Regular.', '_Bold.'))
+            if bold_path != font_path and bold_path.is_file():
+                bold_name = ImageFont.truetype(str(bold_path), SUBTITLE_FONT_SIZE).getname()[0]
+                if bold_name == font_name:
+                    shutil.copyfile(bold_path, Path(tmpdir)/'fonts'/'health-subtitle-bold.ttf')
+                    text_settings['health_subtitle_bold'] = True
         text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
         from classic_quote import quote_overlays
         classic_quotes = quote_overlays(str(rewrite_data.get('final_text') or ''), segments, tts_duration) if expected_template == 'guoxue-v1' and isinstance(rewrite_data, dict) else []
