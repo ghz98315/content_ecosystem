@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from rewrite_review import evaluate, format_for_reading, normalized, opening_hook, remainder, length_bounds
+from rewrite_review import evaluate, format_for_reading, normalized, opening_hook, remainder, length_bounds, effective_length
 from stages.rewrite import _generate_candidates, _request_rewrite
 from stages import rewrite
 
@@ -32,6 +32,14 @@ class LocalReviewTests(unittest.TestCase):
         below_limit = evaluate(source, '乙' * 84, '')
         self.assertFalse(any('有效字数偏差' in issue for issue in at_limit['retry_issues']))
         self.assertTrue(any('有效字数偏差' in issue for issue in below_limit['retry_issues']))
+
+    def test_health_requires_ten_to_fifteen_percent_reduction(self):
+        source = '甲' * 100
+        self.assertEqual((85, 90), length_bounds(source, 'health'))
+        for size in (85, 88, 90):
+            self.assertFalse(any('有效字数偏差' in issue for issue in evaluate(source, '乙' * size, '', 'health')['retry_issues']))
+        for size in (84, 91, 100):
+            self.assertTrue(any('有效字数偏差' in issue for issue in evaluate(source, '乙' * size, '', 'health')['retry_issues']))
 
     def test_punctuation_formatting_cannot_hide_reuse(self):
         formatted = SOURCE.replace('甲', ' 甲\n')
@@ -85,7 +93,7 @@ class RevisionLoopTests(unittest.TestCase):
             self.assertEqual(text,upload.call_args.args[1]['manual_draft']['text'])
             saved=update.update.call_args.args[0]
             self.assertNotIn('chosen_index',saved['params'])
-            self.assertIn('至少85字',saved['error'])
+            self.assertIn('应为85-90字',saved['error'])
             audit.assert_not_called()
 
     def test_missing_model_does_not_repeat_provider_requests(self):
@@ -124,6 +132,16 @@ class RevisionLoopTests(unittest.TestCase):
         self.assertEqual(2, request.call_count)
         self.assertEqual('passed', data['rewrite_review']['status'])
         self.assertEqual(1, data['rewrite_review']['revisions_used'])
+
+    def test_health_revises_until_reduction_is_between_ten_and_fifteen_percent(self):
+        target = round(effective_length(SOURCE) * .88) - effective_length(HOOK)
+        health = {**CONTEXT, 'category': 'health'}
+        with patch('stages.rewrite._request_rewrite', side_effect=[response(OLD), response('乙' * target + '。')]) as request:
+            candidates, _, data = _generate_candidates(SOURCE, health)
+        self.assertEqual(2, request.call_count)
+        self.assertGreaterEqual(effective_length(candidates[0]), data['rewrite_review']['min_chars'])
+        self.assertLessEqual(effective_length(candidates[0]), data['rewrite_review']['max_chars'])
+        self.assertIn('10%-15%', request.call_args_list[0].kwargs['messages'][1]['content'])
 
     def test_network_failure_keeps_prior_usable_text(self):
         (candidates, _, data), request = self.generate([response(OLD), RuntimeError('offline')])

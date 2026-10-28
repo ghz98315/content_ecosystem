@@ -13,10 +13,15 @@ MIN_LENGTH_RATIO = 0.85
 MAX_LENGTH_RATIO = 1.10
 PLANNED_MIN_LENGTH_RATIO = 0.95
 PLANNED_TARGET_LENGTH_RATIO = 0.97
+HEALTH_MIN_LENGTH_RATIO = 0.85
+HEALTH_MAX_LENGTH_RATIO = 0.90
+HEALTH_TARGET_LENGTH_RATIO = 0.88
 
 
-def length_bounds(source: str) -> tuple[int, int]:
+def length_bounds(source: str, category: str | None = None) -> tuple[int, int]:
     size = effective_length(source)
+    if category == 'health':
+        return math.ceil(size * HEALTH_MIN_LENGTH_RATIO), math.floor(size * HEALTH_MAX_LENGTH_RATIO)
     return math.ceil(size * MIN_LENGTH_RATIO), math.floor(size * MAX_LENGTH_RATIO)
 
 
@@ -26,8 +31,8 @@ def attempt_rank(attempt: dict) -> tuple:
     incomplete = not attempt.get('complete', True) or any(
         '长度上限' in issue or '被截断' in issue or '结尾不完整' in issue
         for issue in attempt.get('issues', []))
-    too_short = report['candidate_chars'] < math.ceil(report['source_chars'] * MIN_LENGTH_RATIO)
-    too_long = report['candidate_chars'] > math.floor(report['source_chars'] * MAX_LENGTH_RATIO)
+    too_short = report['candidate_chars'] < report['min_chars']
+    too_long = report['candidate_chars'] > report['max_chars']
     return (incomplete, too_short or too_long,
             len(attempt.get('issues', [])), report['unlocked']['score'],
             report['full']['score'], -attempt['attempt'])
@@ -104,7 +109,7 @@ def _measure(source: str, candidate: str) -> dict:
     }
 
 
-def evaluate(source: str, text: str, hook: str | None = None) -> dict:
+def evaluate(source: str, text: str, hook: str | None = None, category: str | None = None) -> dict:
     hook = opening_hook(source) if hook is None else hook
     original_body = remainder(source, hook)
     new_body = remainder(text, hook)
@@ -122,9 +127,10 @@ def evaluate(source: str, text: str, hook: str | None = None) -> dict:
     if full['score'] >= TARGET and locked_floor < TARGET:
         issues.append(f"全文重复指标 {full['score']:.1%}，需低于 {TARGET:.0%}")
     ratio = effective_length(text) / max(1, effective_length(source))
-    minimum, maximum = length_bounds(source)
+    minimum, maximum = length_bounds(source, category)
     if not minimum <= effective_length(text) <= maximum:
-        issues.append(f'有效字数偏差 {(ratio - 1):+.1%}，应在原稿85%-110%范围（{minimum}-{maximum}字）')
+        label = '85%-90%' if category == 'health' else '85%-110%'
+        issues.append(f'有效字数偏差 {(ratio - 1):+.1%}，应在原稿{label}范围（{minimum}-{maximum}字）')
     if not hook_kept or not original_body:
         # Missing rewrite space is actionable manually, never labelled a pass.
         if not original_body:
