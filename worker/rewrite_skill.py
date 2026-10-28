@@ -7,7 +7,7 @@ from pathlib import Path
 from rewrite_review import normalized
 
 ROOT = Path(__file__).resolve().parent.parent / 'skills' / 'book-video-rewrite'
-VERSION = '1.2.3'
+VERSION = '1.3.0'
 DOMAINS = {'guoxue', 'health', 'mixed', 'general', 'scene'}
 LABELS = {'guoxue':'国学','health':'健康','mixed':'国学与健康混合','general':'通用','scene':'山河人文'}
 CLASSICS = ('道德经','论语','庄子','孟子','大学','中庸','易经','黄帝内经')
@@ -63,10 +63,10 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
 def prompt_extension(profile):
     if profile['domain'] == 'scene':
         root = ROOT.parent / 'scene-video-pipeline'
-        rules = (root / 'references' / 'rewrite.md').read_text(encoding='utf-8')
+        rules = (root / 'references' / 'rewrite-production.md').read_text(encoding='utf-8')
         contract = (Path(__file__).parent/'prompts'/'rewrite_skill_contract.txt').read_text(encoding='utf-8').strip()
         text = rules + '\n\n' + contract
-        return text, {**profile, 'version':'scene-1.0', 'rule_files':['scene-video-pipeline/references/rewrite.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
+        return text, {**profile, 'version':'scene-1.1', 'rule_files':['scene-video-pipeline/references/rewrite-production.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
     references = ['guoxue.md','health.md'] if profile['domain']=='mixed' else (
         [profile['domain']+'.md'] if profile['domain'] in ('guoxue','health') else [])
     pieces = [(ROOT/'SKILL.md').read_text(encoding='utf-8')]

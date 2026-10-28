@@ -31,6 +31,12 @@ export interface RewriteReview {
   strategy?: string[];
   comparison_summary?: string[];
   issues?: string[];
+  editorial?: { notice?: string; issues?: string[]; plan?: {
+    content_shape?: string; selected?: string; selection_reason?: string;
+    alternatives?: Array<{id: string; structure: string; outline: string[]; reason: string}>;
+    units?: Array<{entity: string; memory_point: string; entry_angle: string; fact_ids: string[]; target_quote: string}>;
+    hook_risks?: Array<{quote: string; reason: string; suggestion: string}>;
+  }} | null;
   attempts?: Array<{ attempt: number; revision: number; text: string; issues: string[]; strategy?: string[]; similarity?: {full: Measures; unlocked: Measures} }>;
 }
 
@@ -60,8 +66,15 @@ export function RewriteReviewPanel({ report, source, text, evaluatedText }: {
       <div><span>目标</span><strong>低于 {pct(report.threshold)}</strong></div>
       <div><span>开头逐字保留</span><strong>{report.hook_preserved ? '已保留' : '需核对'}</strong></div>
     </div>
-    {report.min_chars != null && <p>生成目标：{report.planned_min_chars != null ? `至少 ${report.planned_min_chars} 字（原稿的95%）` : '原稿的95%'}；执行下限：至少 {report.min_chars} 字（原稿的85%）。生成稿字数偏差 {(report.length_deviation * 100).toFixed(1)}%。人工编辑后以页面当前字数和确认校验为准。</p>}
-    {!!report.planning_warnings?.length && <p className="rewrite-review-warning">本稿未达到95%生成目标，但已按85%执行下限保留供确认：{report.planning_warnings.join('；')}</p>}
+    {report.min_chars != null && <p>生成目标：{report.planned_min_chars != null ? `至少 ${report.planned_min_chars} 字` : '按当前类别预算'}；执行范围：{report.min_chars}{report.max_chars != null ? `–${report.max_chars}` : ' 以上'} 字。生成稿字数偏差 {(report.length_deviation * 100).toFixed(1)}%。人工编辑后以页面当前字数和确认校验为准。</p>}
+    {!!report.planning_warnings?.length && <p className="rewrite-review-warning">本稿未达到规划目标，请结合执行范围确认：{report.planning_warnings.join('；')}</p>}
+    {report.editorial?.plan && <details><summary>城市景点叙事规划与地点依据</summary>
+      <p>选用方案 {report.editorial.plan.selected}：{report.editorial.plan.selection_reason}</p>
+      {report.editorial.plan.alternatives?.map(item => <section key={item.id}><strong>{item.id} · {item.structure}</strong><p>{item.outline.join(' → ')}</p><p>{item.reason}</p></section>)}
+      {report.editorial.plan.units?.map((unit, index) => <p key={index}><strong>{unit.entity}</strong>：{unit.memory_point}；切入：{unit.entry_angle}；依据：{unit.fact_ids.join('、')}；正文：“{unit.target_quote}”</p>)}
+      {!!report.editorial.plan.hook_risks?.length && <section><strong>钩子待核项</strong>{report.editorial.plan.hook_risks.map((risk,index)=><p key={index}>{risk.quote}：{risk.reason}；建议：{risk.suggestion}</p>)}</section>}
+      <small>{report.editorial.notice}</small>
+    </details>}
     {report.locked_floor >= report.threshold && <p className="rewrite-review-warning">锁定钩子本身带来的5字片段复用约为 {pct(report.locked_floor)}，已超过全文目标；此因素不会触发无效返工，正文仍单独检查，全文交由人工评估。</p>}
     {report.stop_reason === 'limit_reached' && <p className="rewrite-review-warning">已达到自动修改上限，已停止返工并保留稿件。请结合下方问题、重构策略和原稿对照确认。</p>}
     {report.stop_reason === 'service_error' && <p className="rewrite-review-warning">后续修改请求失败，已保留此前可用稿件，请人工确认或稍后重跑。</p>}

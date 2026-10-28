@@ -22,6 +22,8 @@ def length_bounds(source: str, category: str | None = None) -> tuple[int, int]:
     size = effective_length(source)
     if category == 'health':
         return math.ceil(size * HEALTH_MIN_LENGTH_RATIO), math.floor(size * HEALTH_MAX_LENGTH_RATIO)
+    if category == 'scene':
+        return math.ceil(size * .90), math.floor(size * MAX_LENGTH_RATIO)
     return math.ceil(size * MIN_LENGTH_RATIO), math.floor(size * MAX_LENGTH_RATIO)
 
 
@@ -129,7 +131,7 @@ def evaluate(source: str, text: str, hook: str | None = None, category: str | No
     ratio = effective_length(text) / max(1, effective_length(source))
     minimum, maximum = length_bounds(source, category)
     if not minimum <= effective_length(text) <= maximum:
-        label = '85%-90%' if category == 'health' else '85%-110%'
+        label = '85%-90%' if category == 'health' else '90%-110%' if category == 'scene' else '85%-110%'
         issues.append(f'有效字数偏差 {(ratio - 1):+.1%}，应在原稿{label}范围（{minimum}-{maximum}字）')
     if not hook_kept or not original_body:
         # Missing rewrite space is actionable manually, never labelled a pass.

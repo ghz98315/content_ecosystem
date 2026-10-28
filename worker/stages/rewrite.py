@@ -16,6 +16,7 @@ import db
 import storage
 from rewrite_review import MAX_REVISIONS, PLANNED_MIN_LENGTH_RATIO, PLANNED_TARGET_LENGTH_RATIO, HEALTH_MIN_LENGTH_RATIO, HEALTH_TARGET_LENGTH_RATIO, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length, attempt_rank, length_bounds
 from rewrite_skill import resolve_domain, prompt_extension, audit_output, DomainConflict
+from rewrite_editorial import scene_plan_audit, health_attribution_issues, repair_scope, apply_paragraph_edits
 from prompt_profiles import (
     author_name,
     derive_keyword,
@@ -353,6 +354,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         stop_reason = 'passed' if next(item for item in history if item['attempt']==selected_attempt)['similarity']['status']=='passed' else 'locked_hook_floor'
     for attempt in range(MAX_REVISIONS + 1 if already_passed else len(history), MAX_REVISIONS + 1):
         feedback = ''
+        repair_paragraphs, editable = [], []
         if history:
             previous = next((item for item in reversed(history) if item.get('text')), history[-1])
             feedback = '\n\n【上一轮稿件】\n' + previous.get('text', '')
@@ -364,6 +366,12 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                                  f'本轮请按上方信息块预算补全，全文目标约{math.ceil(effective_length(source) * target_ratio)}字。')
             feedback += '\n【可改写区重复片段】\n' + '\n'.join(
                 previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
+            repair_paragraphs, editable = repair_scope(previous, hook)
+            if editable:
+                feedback += ('\n【局部修订保护】只返回 paragraph_edits:[{"index":段落编号,"text":"替换正文"}]，'
+                             '不返回 rewritten_remainder；其他段落由程序原样复用。返回与合并后全稿一致的全部元数据。'
+                             f'允许修改编号：{editable}；段落编号从0开始：\n'
+                             + json.dumps(list(enumerate(repair_paragraphs)), ensure_ascii=False))
         history.append({'attempt':attempt+1,'revision':attempt,'text':'','issues':['请求已预留，未收到完整结果'],'complete':False,'state':'reserved'})
         if checkpoint:
             checkpoint(history)
@@ -407,10 +415,17 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         except (ValueError, TypeError):
             obj = {}
         body = str(obj.get('rewritten_remainder') or '').strip() if isinstance(obj, dict) else ''
+        if editable:
+            try:
+                body = apply_paragraph_edits(repair_paragraphs, obj.get('paragraph_edits'), editable)
+            except ValueError as exc:
+                history[-1].update(state='invalid', issues=[str(exc)], text='')
+                if checkpoint: checkpoint(history)
+                continue
         if body:
             # The fixed prefix is assembled in code, not entrusted to the model.
             body = remainder(body, hook) if body.startswith(hook) else body
-            text = hook + '\n\n' + format_for_reading(body)
+            text = hook + '\n\n' + (body if editable else format_for_reading(body))
             candidates = [text]
         else:
             candidates = _parse_candidates(raw)
@@ -434,12 +449,18 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         skill_audit = audit_output(source, text, obj) if skill_profile else None
         if skill_audit:
             issues = list(dict.fromkeys(issues + skill_audit['issues']))
+        editorial = scene_plan_audit(source, text, obj) if context['category'] == 'scene' else None
+        if editorial:
+            issues = list(dict.fromkeys(issues + editorial['issues']))
+        if context['category'] == 'health' or (skill_profile or {}).get('domain') in {'health', 'mixed'}:
+            issues = list(dict.fromkeys(issues + health_attribution_issues(text, hook)))
         strategies = obj.get('rewrite_strategy', []) if isinstance(obj, dict) else []
         strategies = [s.strip()[:240] for s in strategies if isinstance(s, str) and s.strip()][:5] if isinstance(strategies, list) else []
         entry = {'attempt': attempt + 1, 'revision': attempt, 'text': text,
                  'generation_seconds': round(time.monotonic() - request_started, 3),
                  'strategy': strategies, 'issues': issues, 'similarity': similarity,
                  'complete': getattr(choice, 'finish_reason', None) != 'length'}
+        entry['revision_scope'] = {'mode': 'paragraphs' if editable else 'full', 'editable_paragraphs': editable}
         if skill_audit:
             entry['skill_audit'] = skill_audit
         history[-1] = entry
@@ -451,6 +472,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             'source_text': source, 'source_formatted': format_for_reading(source),
             'complete': getattr(choice, 'finish_reason', None) != 'length',
             'quality_warnings': issues,
+            'editorial': editorial,
         })
         if skill_audit:
             structure['rewrite_skill'] = {**skill_profile, **skill_audit}
@@ -487,6 +509,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         'stop_reason': stop_reason, 'attempts': [{key:value for key,value in item.items() if key != 'structure'} for item in history],
         'strategy': selected['strategy'], 'issues': delivery_issues,
         'rewrite_skill': structure.get('rewrite_skill'),
+        'editorial': structure.get('editorial'),
         'comparison_summary': [
             f"开头锁定 {effective_length(hook)} 个有效字符，生成稿由程序原样拼接。",
             f"原稿 {final_report['source_chars']} 字，交付稿 {final_report['candidate_chars']} 字，偏差 {final_report['length_deviation']:+.1%}（不计标点与空白）。",
@@ -741,7 +764,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     if not minimum <= final_chars <= maximum:
                         message = (f'健康类文稿缩减幅度须在10%-15%：原稿{effective_length(original_source)}字，'
                                    f'应为{minimum}-{maximum}字，当前{final_chars}字。请调整后确认。') if context['category']=='health' else (
-                                   f'文稿不得减少超过15%：原稿{effective_length(original_source)}字，至少{minimum}字，当前{final_chars}字。请补回原有信息后确认。')
+                                   f'文稿字数应为{minimum}-{maximum}字：原稿{effective_length(original_source)}字，当前{final_chars}字。请调整后确认。')
                         rw['manual_draft'] = {'index': idx, 'text': final_text}
                         _upload_rewrite(sp, rw)
                         restored_params = {key: value for key, value in params.items() if key not in ('chosen_index', 'final_text')}
@@ -759,6 +782,11 @@ def run(stage: dict) -> tuple[str, str | None]:
                     rw['final_similarity'] = review_rewrite(original_source, final_text, rw.get('hook_text') or opening_hook(original_source), context['category'])
                     rw['final_similarity']['issues'] = rw['final_similarity']['retry_issues']
                     rw['final_similarity']['stop_reason'] = 'manual_confirmed'
+                    if context['category'] == 'scene':
+                        rw['final_similarity']['editorial'] = scene_plan_audit(original_source, final_text, {
+                            'scene_plan': (rw.get('editorial') or {}).get('plan'),
+                            'information_card': (rw.get('rewrite_skill') or {}).get('information_card', []),
+                        })
                 if context["category"] == "social_science":
                     rw["cover_title"] = str(params.get("cover_title") or "").strip()
                     rw["cover_subtitle"] = str(params.get("cover_subtitle") or "").strip()
@@ -837,7 +865,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "hook_strategy": structure["hook_strategy"],
         "cover_options": structure.get('cover_options', []),
         "review_status": (structure.get('rewrite_review') or {}).get('status'),
-        "prompt_version": 'book_skill_v1.2.0' if context.get('rewrite_skill') else ('deep_rewrite_v2' if narration_mode != 'dual_dialogue' else 'dialogue_existing'),
+        "prompt_version": ('rewrite_skill_' + str(context['rewrite_skill'].get('version'))) if context.get('rewrite_skill') else ('deep_rewrite_v2' if narration_mode != 'dual_dialogue' else 'dialogue_existing'),
         "rewrite_domain": (structure.get('rewrite_skill') or {}).get('domain'),
         "skill_version": (structure.get('rewrite_skill') or {}).get('version'),
         "skill_rules_sha256": (structure.get('rewrite_skill') or {}).get('rules_sha256'),
