@@ -227,7 +227,8 @@ def _escape_ass(text: str) -> str:
 
 def _make_ass(
     segments: list[dict], out_path: str, *, title: str = "", subtitle: str = "",
-    footnote: str = "", title_font: str = "KaiTi", duration: float = 0,
+    footnote: str = "", account_name: str = "", title_font: str = "KaiTi", duration: float = 0,
+    classic_quotes: list[dict] | None = None,
     subtitle_y: float = 2 / 3,
     landscape_layout: bool = False,
     subtitle_font: str | None = None, title_color: str = "#BA413B",
@@ -250,6 +251,10 @@ def _make_ass(
         raise ValueError("字幕位置须在画面高度的55%至82%之间")
     if any(len(value) > limit for value, limit in ((title, 32), (subtitle, 48), (footnote, 80 if footnote_centered else 60))):
         raise ValueError("标题、副标题或脚注过长")
+    if len(account_name) > 25 or '\n' in account_name or '\r' in account_name:
+        raise ValueError('账号名称须为25字以内的单行文字')
+    if account_name and not account_name.startswith('@'):
+        account_name = '@' + account_name
     title, subtitle = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle))
     footnote = footnote.replace('\r\n','\n').replace('\r','\n') if footnote_centered else footnote.replace('\n',' ').replace('\r',' ')
     if footnote_centered and len(footnote.split('\n'))>4:
@@ -282,7 +287,10 @@ def _make_ass(
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
         f"Style: Subheading,{subtitle_font},{56 if landscape_layout else 52},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
-        f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n\n"
+        f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n"
+        "Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,50,1\n"
+        f"Style: ClassicQuote,{narration_font},86,&H00FFFFFF,&H000000FF,&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,6,1,5,90,90,0,1\n"
+        "\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
@@ -301,6 +309,22 @@ def _make_ass(
         positions['Heading']=(2,W//2,picture_top-sub_gap-56-24)
     if footnote_centered:positions['Footnote']=(8,W//2,picture_bottom+28) if landscape_layout else (2,W//2,H-110)
     overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
+    if account_name:
+        account_y = picture_bottom - 30 if landscape_layout else H - 70
+        lines.append(f"Dialogue: 4,0:00:00.00,{overlay_end},Account,,0,0,0,,{{\\an3\\pos({W-55},{account_y})}}{_escape_ass(account_name)}\n")
+    if guoxue_text_style:
+        for quote in classic_quotes or []:
+            parts = quote.get('lines', [])
+            if len(parts) != 2:
+                continue
+            start = _fmt_ass_time(float(quote['start']))
+            end = _fmt_ass_time(float(quote['end']))
+            if end <= start:
+                continue
+            units = max(sum(1 if unicodedata.east_asian_width(char) in 'WF' else 0.6 for char in part) for part in parts)
+            size = min(86, int((W - 150) / max(1, units)))
+            content = r'\N'.join(_escape_ass(part) for part in parts)
+            lines.append(f"Dialogue: 3,{start},{end},ClassicQuote,,0,0,0,,{{\\an5\\pos({W//2},{(picture_top+picture_bottom)//2})\\fs{size}\\q2\\fad(250,350)}}{content}\n")
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
         if value:
             placement = ''
@@ -369,6 +393,7 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'title': str(configured.get('title', main)).strip(),
         'subtitle': str(configured.get('subtitle', sub)).strip(),
         'footnote': str(configured.get('footnote', params.get('footnote', health_footnote if is_health else '读书分享'))).strip(),
+        'account_name': str(configured.get('account_name', params.get('account_name', '@一卷经典' if is_guoxue else '@知养书屋' if is_health else ''))).strip(),
         'title_font': str(params.get('title_font') or (os.environ.get('RENDER_TITLE_FONT', 'PlayFont-ChenkunGBT') if is_guoxue else 'KaiTi')),
         'title_color': str(params.get('title_color') or (os.environ.get('RENDER_TITLE_COLOR', '#BA413B') if is_guoxue else '#FFF4D9')),
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
@@ -888,7 +913,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
     is_history = str(task_context.get("content_category") or "health") == "social_science"
-    rewrite_data = _load_json_artifact(task_id, "rewrite") if is_history else {}
+    rewrite_data = _load_json_artifact(task_id, "rewrite") if is_history or expected_template == 'guoxue-v1' else {}
     book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "")
     segments = mark_book_titles_in_cues(segments, book_name)
     author = str(book_data.get("author", "") if isinstance(book_data, dict) else "")
@@ -1082,7 +1107,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             text_settings['narration_font']=ImageFont.truetype(str(font_path),SUBTITLE_FONT_SIZE).getname()[0]
             shutil.copyfile(font_path,Path(tmpdir)/'fonts'/'health-subtitle.ttf')
         text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
-        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, picture_ratio=picture_ratio, **text_settings)
+        from classic_quote import quote_overlays
+        classic_quotes = quote_overlays(str(rewrite_data.get('final_text') or ''), segments, tts_duration) if expected_template == 'guoxue-v1' and isinstance(rewrite_data, dict) else []
+        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, picture_ratio=picture_ratio, classic_quotes=classic_quotes, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
         render_inputs = [

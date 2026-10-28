@@ -25,17 +25,23 @@ def ass_time(seconds: float) -> str:
     return f'{ticks//360000}:{ticks//6000%60:02d}:{ticks//100%60:02d}.{ticks%100:02d}'
 
 
-def write_ass(cues: list[dict], duration: float, footnote: str, path: str):
+def write_ass(cues: list[dict], duration: float, footnote: str, path: str, account_name: str = ''):
     from stages.render import _escape_ass
     if len(footnote)>60 or '\n' in footnote or '\r' in footnote:
         raise ValueError('脚注须为60字以内的单行文字')
+    if len(account_name)>25 or '\n' in account_name or '\r' in account_name:
+        raise ValueError('账号名称须为25字以内的单行文字')
     lines=['[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n',
            '[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n',
            'Style: Narration,Microsoft YaHei,64,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,80,80,410,1\n',
-           'Style: Footnote,Microsoft YaHei,28,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,80,80,150,1\n\n',
+           'Style: Footnote,Microsoft YaHei,28,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,80,80,150,1\n',
+           'Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,70,1\n\n',
            '[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n']
     if footnote:
         lines.append(f'Dialogue: 2,0:00:00.00,{ass_time(duration)},Footnote,,0,0,0,,{_escape_ass(footnote)}\n')
+    if account_name:
+        label=account_name if account_name.startswith('@') else '@'+account_name
+        lines.append(f'Dialogue: 3,0:00:00.00,{ass_time(duration)},Account,,0,0,0,,{_escape_ass(label)}\n')
     for cue in cues:
         start=max(COVER_SECONDS,float(cue['start']))
         end=min(duration,float(cue['end']))
@@ -168,7 +174,8 @@ def run(stage: dict):
             phase['picture_seconds']=round(time.monotonic()-started,3)
             (temp/'concat.txt').write_text(''.join(f"file '{path.as_posix()}'\n" for path in clips),encoding='utf-8')
             r._run_ffmpeg([r.ff(),'-y','-f','concat','-safe','0','-i',str(temp/'concat.txt'),'-c','copy',str(temp/'pictures.mp4')],check=True,capture_output=True)
-            write_ass(cues,duration,footnote,str(temp/'subs.ass'))
+            account_name=str(saved.get('account_name',params.get('account_name',''))).strip()
+            write_ass(cues,duration,footnote,str(temp/'subs.ass'),account_name)
             r._prepare_title_font('Microsoft YaHei',str(temp/'fonts'),use_configured=False)
             bgm,bgm_volume,narration_volume=r._load_bgm_config(task_id)
             args=[r.ff(),'-y','-i',str(temp/'pictures.mp4'),'-i',audio]
@@ -204,7 +211,7 @@ def run(stage: dict):
                 'production_template':'scene-v1','width':W,'height':H,'tts_duration':duration,'image_count':len(images),
                 'cover_frames':15,'cover_duration':0.5,'intro_duration':0,'audio_offset_seconds':0,
                 'cover':'independent_cover','publication_cover':cover_path,'title_visibility':'cover_only',
-                'footnote_visibility':'full_video','text_layout':{'title':title,'subtitle':subtitle,'footnote':footnote},
+                'footnote_visibility':'full_video','text_layout':{'title':title,'subtitle':subtitle,'footnote':footnote,'account_name':account_name},
                 'visual_mode':'stock_video' if stock else 'ai_images',
                 'stock_processing':{'color_style':images[0].get('processing',{}).get('color_style','none'),'feather':0} if stock else None,
                 'motion':'source_motion' if stock else 'alternating_zoom_in_out','zoom_amount':0 if stock else SCENE_ZOOM_AMOUNT,
