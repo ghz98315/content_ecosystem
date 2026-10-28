@@ -222,6 +222,23 @@ def fetch_source(asset):
     if asset.get('provider') == 'local_library':
         from local_materials import resolve_asset
         return resolve_asset(asset)
+    if asset.get('provider') == 'task_artifact':
+        storage_path=str(asset.get('storage_path') or '')
+        if (not storage_path or '\\' in storage_path or '%' in storage_path
+                or any(part in ('','.','..') for part in storage_path.split('/'))):
+            raise ValueError('书籍封面路径无效')
+        CACHE.mkdir(parents=True,exist_ok=True)
+        suffix=Path(storage_path).suffix.lower()
+        if suffix not in ('.jpg','.jpeg','.png','.webp'):
+            raise ValueError('书籍封面格式不支持')
+        path=CACHE/(digest(['task_artifact',storage_path])+suffix)
+        if not path.exists() or path.stat().st_size<=0:
+            downloaded=Path(storage.download_artifact(storage_path,suffix))
+            try: downloaded.replace(path)
+            except OSError:
+                import shutil
+                shutil.copyfile(downloaded,path);downloaded.unlink(missing_ok=True)
+        return path
     url=asset['url']
     if not allowed_url(url): raise ValueError('素材下载地址不在支持的来源范围')
     CACHE.mkdir(parents=True,exist_ok=True);path=CACHE/(digest(url)+'.media')

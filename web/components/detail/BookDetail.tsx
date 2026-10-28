@@ -148,7 +148,7 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
           <section className="book-review-summary" aria-label="书籍信息摘要">
             <div><span>识别书名</span><strong>{data.book_name || "待补充"}</strong><small>{data.confidence === "high" ? "高置信度识别" : data.confidence === "low" ? "低置信度，建议核对" : "人工或历史结果"}</small></div>
             <div><span>作者与国籍</span><strong>{data.author || "待补充"}</strong><small>{data.nationality || "国籍尚未填写"}</small></div>
-            <div><span>书籍封面</span><strong>{coverUrl ? "已上传" : "待上传"}</strong><small>仅使用人工受控封面</small></div>
+            <div><span>书籍封面</span><strong>{coverUrl ? "已确认" : "待上传"}</strong><small>{stage?.params?.content_line === 'health' ? '本地素材成片时用于首尾书名段' : '仅使用人工受控封面'}</small></div>
             <div><span>收尾 CTA</span><strong>{data.cta_text ? `${data.cta_text.length} 字` : "待补充"}</strong><small>{data.cta_text ? "可继续人工编辑" : "后续成片前补充"}</small></div>
           </section>
           {editing && (
@@ -157,7 +157,7 @@ export function BookDetail({ stage, taskId, onRerun }: DetailCommon) {
           <div className="book-review-grid">
           <section className="book-info-panel">
             <div className="book-cover-control">
-              {coverUrl ? <img src={coverUrl} alt="书籍封面参考图" /> : <span className="book-cover-placeholder">封面参考图</span>}
+              {coverUrl ? <img src={coverUrl} alt="已确认书籍封面" /> : <span className="book-cover-placeholder">上传并确认封面</span>}
               {isReview && (
                 <label className="book-cover-upload">
                   <input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {

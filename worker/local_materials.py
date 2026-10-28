@@ -157,9 +157,99 @@ def _unused_start(asset_duration: float, clip_duration: float,
 
 
 def sequence_signature(entries: list[dict]) -> str:
-    sequence = [(item["asset"]["relative_path"], round(item["source_start"], 2),
+    sequence = [(item["asset"].get("relative_path") or item["asset"].get("storage_path"), round(item["source_start"], 2),
                  round(item["source_end"], 2)) for item in entries]
     return hashlib.sha256(json.dumps(sequence, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _book_cover_settings(task_id: str) -> tuple[str, str]:
+    """Return only a user-confirmed cover; never guess a commercial edition."""
+    row = db.retry(lambda: db.get_client().table("stages").select("params")
+                   .eq("task_id", task_id).eq("kind", "book").single().execute()).data or {}
+    params = row.get("params") or {}
+    if params.get("book_confirmed") is not True:
+        return "", ""
+    cover_path = str(params.get("manual_book_cover_path") or "").strip()
+    book_name = str(params.get("manual_book_name") or "").strip().strip("《》")
+    if not book_name:
+        from stages.render import _load_json_artifact
+        payload = _load_json_artifact(task_id, "book") or {}
+        book_name = str(payload.get("book_name") or "").strip().strip("《》")
+    if not cover_path:
+        return "", book_name
+    return cover_path, book_name
+
+
+def _cover_ranges(text: str, subtitles: dict, book_name: str) -> list[tuple[int, int]]:
+    """Use the first and last subtitle phrases that actually say the book name."""
+    plain_name = clean_tts_text(book_name).replace("《", "").replace("》", "")
+    if not plain_name:
+        return []
+    segments = subtitles.get("segments") or []
+    ranges=[];cursor=0
+    for cue in segments:
+        cue_text=clean_tts_text(str(cue.get("text") or ""))
+        count=visible_len(cue_text)
+        start=int(cue.get("char_start",cursor));end=int(cue.get("char_end",start+count))
+        if plain_name in cue_text.replace("《", "").replace("》", ""):
+            ranges.append((start,max(start+1,end)))
+        cursor=max(cursor,end)
+    if not ranges:
+        # Alignment may split a title across two short cues. Fall back to the
+        # manuscript positions and keep a little surrounding spoken context.
+        plain=clean_tts_text(text).replace("《", "").replace("》", "")
+        positions=[];offset=0
+        while True:
+            found=plain.find(plain_name,offset)
+            if found<0:break
+            positions.append((max(0,found-4),min(visible_len(plain),found+len(plain_name)+6)))
+            offset=found+len(plain_name)
+        ranges=positions
+    if not ranges:return []
+    chosen=[ranges[0]]
+    if ranges[-1]!=ranges[0]:chosen.append(ranges[-1])
+    return chosen
+
+
+def add_book_cover_inserts(entries: list[dict], text: str, subtitles: dict,
+                           book_name: str, cover_path: str) -> list[dict]:
+    """Replace only the spoken book-title phrases with the confirmed cover."""
+    ranges=_cover_ranges(text,subtitles,book_name)
+    if not ranges:return entries
+    from stages import render
+    duration=float(subtitles.get("duration") or 0)
+    cover_asset={"id":hashlib.sha256(cover_path.encode()).hexdigest()[:16],
+                 "provider":"task_artifact","media_type":"image",
+                 "storage_path":cover_path,"title":f"《{book_name}》封面",
+                 "page":"任务书籍信息","author":"用户确认","license":"用户确认使用",
+                 "license_url":"","duration":0,"width":0,"height":0}
+    output=[]
+    for entry in entries:
+        left=int(entry["char_start"]);right=int(entry["char_end"])
+        cuts={left,right}
+        for start,end in ranges:
+            if start<right and end>left:cuts.update((max(left,start),min(right,end)))
+        points=sorted(cuts)
+        for start,end in zip(points,points[1:]):
+            if end<=start:continue
+            is_cover=any(start>=low and end<=high for low,high in ranges)
+            piece={**entry,"char_start":start,"char_end":end,"char_count":end-start,
+                   "sentence":f"《{book_name}》封面" if is_cover else entry.get("sentence","")}
+            start_time=render._cue_time_at_char(start,subtitles.get("segments") or [],duration)
+            end_time=render._cue_time_at_char(end,subtitles.get("segments") or [],duration)
+            if is_cover:
+                piece.update(asset=cover_asset,source_start=0.0,source_end=0.0,
+                             playback_rate=1.0,path=cover_path,visual_type="image",
+                             motion="still_photo",book_cover_insert=True,
+                             processing=settings({"color_style":"natural_warm_v1","feather":36}))
+            else:
+                rate=float(entry.get("playback_rate",1))
+                shift=max(0.0,start_time-float(entry.get("start",start_time)))*rate
+                piece["source_start"]=float(entry["source_start"])+shift
+                piece["source_end"]=piece["source_start"]+max(0.0,end_time-start_time)*rate
+            output.append(piece)
+    for index,item in enumerate(output):item["index"]=index
+    return output
 
 
 def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
@@ -282,6 +372,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     # width for both content lines, rather than enlarging it to 1080p.
     require_native = category in {"guoxue", "health"}
     output_width = 720 if require_native else 1080
+    cover_path, book_name = _book_cover_settings(task) if category == "health" else ("", "")
     previous = db.retry(lambda: db.get_client().table("artifacts").select("meta")
                         .eq("type", "video_index").contains("meta", {"source": "local_library"})
                         .neq("task_id", task).order("created_at", desc=True).limit(500).execute()).data or []
@@ -321,6 +412,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         cover_index = max(cover_options)[1]
         entries[0]["cover_path"] = entries[cover_index]["path"]
         entries[0]["cover_source_index"] = cover_index
+        if cover_path and book_name:
+            entries = add_book_cover_inserts(entries, text, subtitles, book_name, cover_path)
     prefix = f"{task}/stock/local-{revision}"
     index_path = prefix + "/index.json"
     storage.upload_bytes(index_path, json.dumps(entries, ensure_ascii=False).encode("utf-8"),
