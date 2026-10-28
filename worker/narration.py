@@ -185,6 +185,23 @@ def subtitle_display_text(text: str) -> str:
                    or char in _SUBTITLE_MEANINGFUL_SYMBOLS or char in _SUBTITLE_END_MARKS)
 
 
+def subtitle_intervals(cues: list[dict], duration: float | None = None, gap: float = 0.2):
+    """Yield readable subtitle intervals with a short visual breath between cues."""
+    for index, cue in enumerate(cues):
+        start = max(0.0, float(cue.get('start', 0)))
+        end = max(start, float(cue.get('end', start)))
+        if duration is not None:
+            end = min(float(duration), end)
+        if index + 1 < len(cues):
+            next_start = max(start, float(cues[index + 1].get('start', end)))
+            if next_start > start:
+                # Keep an unusually short aligned cue visible rather than
+                # deleting its words; normal cues receive the full 0.2s gap.
+                end = min(end, max(start + 0.05, next_start - gap))
+        if end > start:
+            yield cue, start, end
+
+
 def subtitle_visible_len(text: str) -> int:
     return sum(char.isalnum() for char in text or "")
 

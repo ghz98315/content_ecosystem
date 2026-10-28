@@ -3,13 +3,27 @@ import tempfile
 from pathlib import Path
 
 from external_alignment import align, validate_cues
-from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit, strip_subtitle_punctuation, subtitle_display_text, subtitle_visible_len, split_semantic_units
+from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit, strip_subtitle_punctuation, subtitle_display_text, subtitle_visible_len, split_semantic_units, subtitle_intervals
 from stages.tts import _build_subtitle_cues
 from stages.render import _make_ass
 from scene_render import write_ass as write_scene_ass
 
 
 class SubtitleLimitTests(unittest.TestCase):
+    def test_final_captions_leave_two_tenths_between_normal_cues(self):
+        cues = [
+            {'text': '第一句', 'start': 0.0, 'end': 1.0},
+            {'text': '第二句', 'start': 1.0, 'end': 2.0},
+        ]
+        intervals = list(subtitle_intervals(cues, 2.0))
+        self.assertAlmostEqual(0.8, intervals[0][2])
+        self.assertAlmostEqual(1.0, intervals[1][1])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'gap.ass'
+            _make_ass(cues, str(path), duration=2.0)
+            content = path.read_text(encoding='utf-8-sig')
+            self.assertIn('0:00:00.50,0:00:01.30,Default', content)
+
     def test_only_question_and_exclamation_marks_reach_final_video(self):
         raw = "先读《道德经》，再看20%。真的吗？当然！"
         units = split_semantic_units(raw)

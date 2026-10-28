@@ -21,7 +21,7 @@ def quote_overlays(script: str, cues: list[dict], duration: float) -> list[dict]
     found: list[dict] = []
     search_from = 0
     for paragraph in paragraphs:
-        for match in re.finditer(r'[“‘「]([^”’」]{8,36})[”’」]', paragraph):
+        for match in re.finditer(r'[“‘「]([^”’」]{8,80})[”’」]', paragraph):
             prefix = paragraph[:match.start()]
             attributed = re.search(r'《[^》]{1,18}》|古人[说言云]|原典|经典[说云]|先贤[说言云]', prefix[-65:])
             enumerated = re.search(r'第[一二三四五六七八九十百\d]+句(?:是|为|讲|说|谈)', prefix[-24:])
@@ -31,7 +31,7 @@ def quote_overlays(script: str, cues: list[dict], duration: float) -> list[dict]
                 continue
             quote = match.group(1).strip()
             parts = [re.sub(r'[。！？?!：:“”‘’「」]', '', part).strip() for part in re.split(r'[，,；;]', quote)]
-            if len(parts) != 2 or any(not 4 <= len(_plain(part)) <= 13 for part in parts):
+            if len(parts) not in (2, 4) or any(not 4 <= len(_plain(part)) <= 13 for part in parts):
                 continue
             clean = _plain(quote)
             position = spoken.find(clean, search_from)
@@ -54,7 +54,8 @@ def quote_overlays(script: str, cues: list[dict], duration: float) -> list[dict]
             end = max(quote_end, end)
             if end - start < 1:
                 continue
-            found.append({'start': start, 'end': end, 'lines': parts})
+            display_lines = parts if len(parts) == 2 else ['，'.join(parts[:2]), '，'.join(parts[2:])]
+            found.append({'start': start, 'end': end, 'lines': display_lines})
             search_from = position + len(clean)
             if len(found) >= 3:
                 return found

@@ -46,6 +46,18 @@ class ClassicQuoteTests(unittest.TestCase):
             [{'start': 2, 'end': 10, 'lines': ['莫骂酉时妻', '一夜受孤凄']}],
         )
 
+    def test_four_clauses_are_balanced_as_two_lines(self):
+        script = '今天读《家训》。\n\n第一句是“修身以正，持家以俭，待人以诚，处事以稳”。随后逐句解释其中的分寸。'
+        cues = [
+            {'start': 0, 'end': 2, 'text': '今天读《家训》'},
+            {'start': 2, 'end': 7, 'text': '第一句是修身以正持家以俭待人以诚处事以稳'},
+            {'start': 7, 'end': 10, 'text': '随后逐句解释其中的分寸'},
+        ]
+        self.assertEqual(
+            quote_overlays(script, cues, 10),
+            [{'start': 2, 'end': 10, 'lines': ['修身以正，持家以俭', '待人以诚，处事以稳']}],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

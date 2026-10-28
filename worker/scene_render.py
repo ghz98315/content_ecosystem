@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 import config
 import db
 import storage
-from narration import subtitle_display_text
+from narration import subtitle_display_text, subtitle_intervals
 
 W,H,FPS=1080,1920,30
 COVER_SECONDS=0.5
@@ -42,9 +42,8 @@ def write_ass(cues: list[dict], duration: float, footnote: str, path: str, accou
     if account_name:
         label=account_name if account_name.startswith('@') else '@'+account_name
         lines.append(f'Dialogue: 3,0:00:00.00,{ass_time(duration)},Account,,0,0,0,,{_escape_ass(label)}\n')
-    for cue in cues:
-        start=max(COVER_SECONDS,float(cue['start']))
-        end=min(duration,float(cue['end']))
+    for cue,start,end in subtitle_intervals(cues,duration):
+        start=max(COVER_SECONDS,start)
         caption=subtitle_display_text(str(cue.get('text','')))
         if end>start and caption:
             lines.append(f"Dialogue: 1,{ass_time(start)},{ass_time(end)},Narration,,0,0,0,,{_escape_ass(caption)}\n")

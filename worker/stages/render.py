@@ -22,7 +22,7 @@ import storage
 import config
 from production_templates import validate_template, validate_task_template
 from quality import inspect_render_quality
-from narration import enforce_subtitle_limit, mark_book_titles_in_cues, subtitle_display_text
+from narration import enforce_subtitle_limit, mark_book_titles_in_cues, subtitle_display_text, subtitle_intervals
 
 W, H = 1080, 1920
 # Source images are portrait 9:16 and must fill the final portrait canvas.
@@ -328,7 +328,9 @@ def _make_ass(
             units = max(sum(1 if unicodedata.east_asian_width(char) in 'WF' else 0.6 for char in part) for part in parts)
             size = min(86, int((W - 150) / max(1, units)))
             content = r'\N'.join(_escape_ass(part) for part in parts)
-            lines.append(f"Dialogue: 3,{start},{end},ClassicQuote,,0,0,0,,{{\\an5\\pos({W//2},{(picture_top+picture_bottom)//2})\\fs{size}\\q2\\fad(250,350)}}{content}\n")
+            quote_y = min((picture_top + picture_bottom) // 2,
+                          round(H * subtitle_y) - SUBTITLE_FONT_SIZE - size - 45)
+            lines.append(f"Dialogue: 3,{start},{end},ClassicQuote,,0,0,0,,{{\\an5\\pos({W//2},{quote_y})\\fs{size}\\q2\\fad(250,350)}}{content}\n")
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
         if value:
             placement = ''
@@ -341,9 +343,9 @@ def _make_ass(
                 placement = rf'{{\an{alignment}\pos({x},{y})\fs{size}\q2}}'
             escaped = r'\N'.join(_escape_ass(line) for line in value.split('\n')) if style=='Footnote' and footnote_centered else _escape_ass(value)
             lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{placement}{escaped}\n")
-    for seg in segments:
-        start = _fmt_ass_time(float(seg.get("start", 0)))
-        end = _fmt_ass_time(float(seg.get("end", 0)))
+    for seg, start_seconds, end_seconds in subtitle_intervals(segments, duration):
+        start = _fmt_ass_time(start_seconds)
+        end = _fmt_ass_time(end_seconds)
         # Final fence for saved legacy subtitles: only question and exclamation
         # marks are visible, even when an older cue still contains commas.
         text = _escape_ass(subtitle_display_text(str(seg.get("text", ""))))
