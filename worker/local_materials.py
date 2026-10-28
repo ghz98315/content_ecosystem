@@ -270,6 +270,11 @@ def _book_cover_settings(task_id: str) -> tuple[dict | None, str]:
         from stages.render import _load_json_artifact
         payload = _load_json_artifact(task_id, "book") or {}
         book_name = str(payload.get("book_name") or "").strip().strip("《》")
+        if not book_name:
+            # The book stage is skipped for the current production workflow;
+            # the confirmed rewrite carries the selected book title instead.
+            rewrite = _load_json_artifact(task_id, "rewrite") or {}
+            book_name = str(rewrite.get("book_title") or "").strip().strip("《》")
     if cover_path and params.get("book_confirmed") is True:
         return ({"id":hashlib.sha256(cover_path.encode()).hexdigest()[:16],
                  "provider":"task_artifact","media_type":"image","storage_path":cover_path,

@@ -2,13 +2,28 @@ import unittest
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from PIL import Image
 
-from local_materials import add_book_cover_inserts, local_book_cover
+from local_materials import add_book_cover_inserts, local_book_cover, _book_cover_settings
 
 
 class BookCoverInsertTests(unittest.TestCase):
+    def test_skipped_book_stage_uses_confirmed_rewrite_title_for_local_cover(self):
+        cover = {'provider': 'local_book_cover', 'relative_path': '30_健康/越吃越瘦越吃越年轻01.png'}
+        def artifact(_task, kind):
+            return {'book_title': '越吃越瘦越吃越年轻'} if kind == 'rewrite' else {'skipped': True}
+        with patch('local_materials.db.retry', return_value=SimpleNamespace(data={'params': {}})), \
+             patch('stages.render._load_json_artifact', side_effect=artifact), \
+             patch('local_materials.local_book_cover', return_value=cover) as lookup, \
+             patch('local_materials.network_book_cover') as network:
+            found, title = _book_cover_settings('task-1')
+        self.assertEqual('越吃越瘦越吃越年轻', title)
+        self.assertEqual(cover, found)
+        lookup.assert_called_once_with(title)
+        network.assert_not_called()
+
     def test_local_cover_ignores_numeric_version_suffix_and_prefers_01(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);folder=root/'30_健康';folder.mkdir()
