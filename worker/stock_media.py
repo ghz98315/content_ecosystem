@@ -217,6 +217,36 @@ def selection_entries(plan,selections):
     if len({entry['processing']['color_style'] for entry in output})>1:raise ValueError('整条视频请使用同一种调色方案')
     return output
 
+def automatic_selection(plan, rejected=None):
+    """Pick usable, spaced clips without a human selection gate."""
+    rejected=rejected or {}
+    used={};last={};result=[]
+    gap=plan.get('reuse_gap_shots')
+    for index,entry in enumerate(plan['entries']):
+        candidates=[a for a in entry['candidates'] if a['id'] not in rejected.get(index,set())
+                    and (gap is None or index-last.get(a['id'],-999)>int(gap))]
+        pools=([a for a in candidates if a.get('provider')!='commons_catalog'],candidates) if gap is not None else (candidates,)
+        choice=None
+        for pool in pools:
+            for reuse in (False,True):
+                for rate in plan.get('allowed_speeds') or [1]:
+                    if rate not in (1,.5,.3):continue
+                    for asset in pool:
+                        photo=asset.get('media_type')=='image'
+                        if photo and rate!=1:continue
+                        offset=0 if photo or reuse else used.get(asset['id'],0)
+                        if not photo and float(asset['duration'])-offset<entry['duration']*rate+.05:continue
+                        choice={'asset_id':asset['id'],'offset':round(offset,2),'playback_rate':rate}
+                        if not photo:used[asset['id']]=offset+entry['duration']*rate+.15
+                        last[asset['id']]=index
+                        break
+                    if choice:break
+                if choice:break
+            if choice:break
+        if not choice:raise ValueError(f"第{index+1}段没有可用公共素材；请补充素材源后重试")
+        result.append(choice)
+    return result
+
 def fetch_source(asset):
     """Hash-named local file, atomic completion, verified host on every redirect."""
     if asset.get('provider') == 'local_library':
@@ -308,13 +338,39 @@ def run(stage):
     subs=load_audio_timeline(task)
     plan=params.get('stock_plan') or {}
     confirmed=(params.get('stock_confirmed_revision')==plan.get('revision') and bool(plan.get('revision')))
-    if not confirmed or plan.get('text_hash')!=digest(text) or abs(float(plan.get('audio_duration',0))-float(subs['duration']))>.05:
+    if plan.get('text_hash')!=digest(text) or abs(float(plan.get('audio_duration',0))-float(subs['duration']))>.05 or params.get('stock_refresh') or not plan:
         if not plan or plan.get('text_hash')!=digest(text) or abs(float(plan.get('audio_duration',0))-float(subs['duration']))>.05 or params.get('stock_refresh'):
             plan=build_plan(text,subs,str(params.get('content_line') or 'guoxue'),overrides=params.get('stock_query_overrides'),policy=params.get('stock_visual_policy'))
-        saved={**params,'stock_plan':plan,'stock_confirmed_revision':None,'stock_refresh':False}
-        db.retry(lambda:db.get_client().table('stages').update({'params':saved,'status':'needs_review','error':'请预览并确认视频素材清单，确认后开始拼接'}).eq('id',stage['id']).execute())
-        return 'needs_review',None
-    entries=selection_entries(plan,params.get('stock_selection'))
+        confirmed=False
+    auto=not confirmed
+    selections=params.get('stock_selection') if confirmed else automatic_selection(plan)
+    if auto:
+        saved={**params,'stock_plan':plan,'stock_selection':selections,'stock_confirmed_revision':plan['revision'],'stock_refresh':False}
+        db.retry(lambda:db.get_client().table('stages').update({'params':saved}).eq('id',stage['id']).execute())
+    entries=selection_entries(plan,selections)
+    rejected={}
+    if auto:
+        # A broken download must not turn a new task back into a manual gate.
+        # Retry other candidates in the same plan, with a finite bound.
+        for _ in range(sum(len(item['candidates']) for item in plan['entries'])):
+            broken=None
+            for item in entries:
+                try:
+                    local=fetch_source(item['asset'])
+                    if item['asset'].get('media_type')=='image':
+                        from PIL import Image
+                        with Image.open(local) as picture:picture.verify()
+                    elif r._video_duration(str(local))-item['source_start']<item['duration']*item.get('playback_rate',1)-.05:
+                        raise ValueError('源视频实际时长不足')
+                except (httpx.HTTPError,ValueError,OSError):
+                    broken=item;break
+            if broken is None:break
+            rejected.setdefault(broken['index'],set()).add(broken['asset']['id'])
+            selections=automatic_selection(plan,rejected)
+            entries=selection_entries(plan,selections)
+            saved={**saved,'stock_selection':selections}
+            db.retry(lambda:db.get_client().table('stages').update({'params':saved}).eq('id',stage['id']).execute())
+        else:raise ValueError('公共素材候选均不可用，请补充素材源后重试')
     for entry in entries:
         try:
             local=fetch_source(entry['asset'])

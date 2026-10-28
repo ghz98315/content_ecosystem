@@ -51,7 +51,7 @@ function LocalStockDetail({current,onRerun}:{current:Stage;onRerun:(id:string)=>
   const result=await authenticatedFetch('/api/stock-materials',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({stageId:current.id,action:'local_confirm'})});
   const body=await result.json();if(!result.ok)throw new Error(body.error||'确认失败');setMessage('本地素材已确认，开始拼接。');
  }catch(e){setError(e instanceof Error?e.message:'确认失败');}finally{setBusy(false);}};
- return <section className="stock-materials"><h2>本地素材清单</h2><p>原视频留在本机，只上传预览图；主画面左右边缘保持清晰，仅上下羽化。请预览清单后开始拼接。</p>
+ return <section className="stock-materials"><h2>本地素材清单</h2><p>原视频留在本机，只上传预览图；主画面左右边缘保持清晰，仅上下羽化。系统自动选片并继续成片，清单可随时预览。</p>
   {current.status==='processing'&&<p role="status">正在按配音时长挑选本地视频…</p>}
   {current.status==='failed'&&<div role="alert"><p>{current.error}</p><button type="button" onClick={()=>onRerun(current.id)}>重试素材节点</button></div>}
   {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
@@ -59,7 +59,7 @@ function LocalStockDetail({current,onRerun}:{current:Stage;onRerun:(id:string)=>
    {entries[0]?.book_cover_pip&&<p>《{entries[0].book_cover_pip.book_name}》书封将在提到书名时以画中画显示：{entries[0].book_cover_pip.intervals.map(v=>`${v.start.toFixed(1)}–${v.end.toFixed(1)} 秒`).join('、')}。</p>}
    <div className="stock-material-list">{entries.map(item=>{const pip=entries[0]?.book_cover_pip;const showPip=Boolean(pip?.intervals.some(v=>item.start<v.end&&item.end>v.start));return <article className="stock-material-row" key={item.index}><div className="stock-material-script"><h3>段落 {item.index+1} · {item.duration.toFixed(1)} 秒 {item.index===entries[0]?.cover_source_index?'· 封面画面':''}{showPip?' · 书封画中画':''}</h3><p>{item.asset.title}</p><small>{item.asset.width}×{item.asset.height} · 从 {item.source_start.toFixed(1)} 秒截取 · {item.playback_rate} 倍速</small></div><div className="stock-material-preview">{previews[item.index]?<div style={{position:'relative',width:'100%'}}><img src={previews[item.index]} alt={`第 ${item.index+1} 段素材预览`} loading="lazy" style={{maxWidth:'100%',height:'auto',display:'block'}}/>{showPip&&bookPreview&&<img src={bookPreview} alt={`《${pip?.book_name}》书封画中画示意`} style={{position:'absolute',right:'6%',top:'7%',width:'24%',height:'42%',objectFit:'contain',background:'#f3ebdd',padding:4,boxShadow:'0 3px 12px #0008'}}/>}</div>:<span>预览图加载中</span>}</div></article>;})}</div>
    {current.status==='needs_review'&&<button type="button" className="primary-action" disabled={busy} onClick={()=>void confirm()}>{busy?'确认中…':'确认本地素材并开始拼接'}</button>}
-   {current.status==='done'&&<p>本地素材已确认，可继续成片。</p>}
+   {current.status==='done'&&<p>本地素材已选定，正在继续成片。</p>}
   </>}
  </section>;
 }
@@ -83,13 +83,13 @@ export function StockVideoDetail({stage,onRerun}:DetailCommon){
  }
  const reviewing=current?.status==='needs_review';
  return <section className="stock-materials"><h2>公共素材清单</h2>
-  <p>优先40–60秒连续画面，源片较短时允许短镜头；开阔舒展的氛围配画无需逐句对应。先确认选片，再开始拼接；沿用当前类别的标题、字幕和配乐设置。</p>
+  <p>优先40–60秒连续画面，源片较短时允许短镜头；开阔舒展的氛围配画无需逐句对应。系统自动选片并继续拼接，清单可随时预览。</p>
   {current?.params.content_line==='health'&&<p className="stock-notice">健康类主画面4:3：优先开阔自然、阳光活力、自然人物慢镜头；避开临终、病危与血腥画面。原理解说可选非血腥结构示意。标题与标签筛选不能替代实际画面预览，请在确认前检查。</p>}
   {(!plan||current?.status==='processing'||current?.status==='pending')&&<p role="status">{current?.status==='processing'?'正在检索或准备已确认的公共素材…':'等待配音就绪后，按实际时长列出视频素材。'}</p>}
   {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
   {current?.status==='failed'&&<div role="alert"><p>{current.error}</p><button type="button" className="secondary-action" onClick={()=>onRerun(current.id)}>重试素材节点</button></div>}
   {plan&&<>
-   <p>共{plan.entries.length}段 · 配音{Math.round(plan.audio_duration)}秒 · 待确认整份清单</p>
+   <p>共{plan.entries.length}段 · 配音{Math.round(plan.audio_duration)}秒 · {reviewing?'旧任务等待确认':'已自动选片'}</p>
    {plan.notices?.map((notice,index)=><p className="stock-notice" key={index}>{notice}</p>)}
    <div className="stock-processing-controls"><label>统一画面色彩<select disabled={!reviewing||busy} value={selection[0]?.color_style??plan.processing_defaults?.color_style??'none'} onChange={e=>setSelection(items=>items.map(item=>({...item,color_style:e.target.value as 'none'|'natural_warm_v1'})))}><option value="natural_warm_v1">自然通透 · 微暖柔和</option><option value="none">保留原色</option></select></label>
    <label>边缘羽化 {selection[0]?.feather??plan.processing_defaults?.feather??0}px<input type="range" min="0" max="72" step="6" disabled={!reviewing||busy} value={selection[0]?.feather??plan.processing_defaults?.feather??0} onChange={e=>setSelection(items=>items.map(item=>({...item,feather:Number(e.target.value)})))}/></label><small>羽化用于带模糊背景的主画面；字幕、标题和脚注保持清晰。</small></div>

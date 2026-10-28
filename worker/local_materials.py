@@ -566,6 +566,4 @@ def run(stage: dict) -> tuple[str, str | None]:
     storage.add_artifact(task, "image", "video_index", index_path,
                          meta={"visual_mode": "stock_video", "source": "local_library",
                                "count": len(entries), "sequence_signature": signature})
-    db.set_stage(stage["id"], "needs_review", output_ref=index_path,
-                 error="请预览并确认本地素材清单，确认后开始拼接")
-    return "needs_review", index_path
+    return "done", index_path
