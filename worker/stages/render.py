@@ -235,6 +235,7 @@ def _make_ass(
     picture_ratio: float = 4/3,
     footnote_centered: bool = False,
     health_text_style: bool = False,
+    guoxue_text_style: bool = False,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
@@ -269,6 +270,7 @@ def _make_ass(
         foot_size-=3
         foot_fill='&H4DFFFFFF'
         foot_border=0
+    narration_fill = '&H0000E6FF' if guoxue_text_style else '&H00FFFFFF'
     narration_bold = 0 if landscape_layout else -1
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
@@ -276,7 +278,7 @@ def _make_ass(
         "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,"
         "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,"
         "Encoding\n"
-        f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H90000000,"
+        f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},{narration_fill},&H000000FF,&H00000000,&H90000000,"
         f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
         f"Style: Subheading,{subtitle_font},{56 if landscape_layout else 52},{sub_fill},&H000000FF,{sub_outline},&H80000000,0,0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
@@ -372,6 +374,7 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'subtitle_y': float(params.get('subtitle_y', 2 / 3)),
         'footnote_centered': is_health,
         'health_text_style': is_health,
+        'guoxue_text_style': is_guoxue,
     }
 
 
