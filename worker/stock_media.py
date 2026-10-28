@@ -222,6 +222,9 @@ def fetch_source(asset):
     if asset.get('provider') == 'local_library':
         from local_materials import resolve_asset
         return resolve_asset(asset)
+    if asset.get('provider') == 'local_book_cover':
+        from local_materials import resolve_book_cover
+        return resolve_book_cover(asset)
     if asset.get('provider') == 'task_artifact':
         storage_path=str(asset.get('storage_path') or '')
         if (not storage_path or '\\' in storage_path or '%' in storage_path
@@ -238,6 +241,27 @@ def fetch_source(asset):
             except OSError:
                 import shutil
                 shutil.copyfile(downloaded,path);downloaded.unlink(missing_ok=True)
+        return path
+    if asset.get('provider') == 'network_book_cover':
+        url=str(asset.get('url') or '');parsed=urlsplit(url)
+        cover_hosts={'books.google.com','books.googleusercontent.com','covers.openlibrary.org'}
+        if parsed.scheme!='https' or parsed.hostname not in cover_hosts:
+            raise ValueError('网络书籍封面地址不受支持')
+        CACHE.mkdir(parents=True,exist_ok=True);path=CACHE/(digest(url)+'.book-cover')
+        if not path.exists() or path.stat().st_size<=0:
+            with httpx.Client(timeout=30,follow_redirects=False,headers={'User-Agent':'ContentEcosystem/1.0'}) as client:
+                for _ in range(4):
+                    response=client.get(url)
+                    if response.is_redirect:
+                        from urllib.parse import urljoin
+                        url=urljoin(url,response.headers.get('location',''));parsed=urlsplit(url)
+                        if parsed.scheme!='https' or parsed.hostname not in cover_hosts:
+                            raise ValueError('网络书籍封面重定向到不受支持的地址')
+                        continue
+                    response.raise_for_status();break
+                else:raise ValueError('网络书籍封面重定向次数过多')
+                if len(response.content)>10*1024*1024:raise ValueError('网络书籍封面超过10MB')
+                path.write_bytes(response.content)
         return path
     url=asset['url']
     if not allowed_url(url): raise ValueError('素材下载地址不在支持的来源范围')
@@ -359,7 +383,13 @@ def make_video_clip(entry,duration,out_mp4,*,frame_mode='portrait',picture_ratio
     options=settings(entry.get('processing'));pre=source_filters(options)
     initial=f'[0:v]setpts=(PTS-STARTPTS)/{rate},{pre+"," if pre else ""}fps={r.FPS}'
     mask=None;extra=[]
-    if frame_mode=='landscape_blur':
+    if entry.get('book_cover_insert'):
+        h=round(r.W/picture_ratio);y=(r.H-h)//2
+        graph=(f'{initial},split=2[b][f];[b]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,'
+               f'boxblur=18:2,scale={r.W}:{r.H},eq=brightness=-0.12[bg];'
+               f'[f]scale={r.W-140}:{h-80}:force_original_aspect_ratio=decrease:flags=lanczos[cover];'
+               f'[bg][cover]overlay=(W-w)/2:{y}+(H-h)/2:shortest=1,setsar=1,format=yuv420p[v]')
+    elif frame_mode=='landscape_blur':
         h=round(r.W/picture_ratio);y=(r.H-h)//2
         graph=(f'{initial},split=2[b][f];[b]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,'
                f'boxblur=16:2,scale={r.W}:{r.H},eq=brightness=-0.08[bg];'

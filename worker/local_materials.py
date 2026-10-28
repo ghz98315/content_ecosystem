@@ -12,10 +12,12 @@ import re
 import subprocess
 import tempfile
 import uuid
+from urllib.parse import urlencode, urlsplit
 from pathlib import Path
 
+import httpx
 import imageio_ffmpeg
-from PIL import Image, ImageFilter, ImageStat
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 import db
 import storage
@@ -70,6 +72,102 @@ def resolve_asset(asset: dict) -> Path:
     if expected_size is not None and path.stat().st_size != int(expected_size):
         raise ValueError("本地素材已改变，请重新检查并选片")
     return path
+
+
+def resolve_book_cover(asset: dict) -> Path:
+    root = library_root()
+    relative = str(asset.get("relative_path") or "")
+    if not relative or Path(relative).is_absolute() or ".." in Path(relative).parts:
+        raise ValueError("本地书籍封面路径无效")
+    path = (root / relative).resolve(strict=True)
+    health_root = (root / FOLDERS["health"][0]).resolve(strict=True)
+    if (not path.is_relative_to(health_root) or path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp")
+            or not path.is_file()):
+        raise ValueError("书籍封面不在健康类素材目录")
+    expected_size = asset.get("bytes")
+    if expected_size is not None and path.stat().st_size != int(expected_size):
+        raise ValueError("本地书籍封面已改变，请重新执行素材节点")
+    return path
+
+
+def _book_key(value: str) -> str:
+    return re.sub(r"[\W_]+|第[一二三四五六七八九十百\d]+版$|(?:0?[1-9]|[12]\d)$", "", value,
+                  flags=re.UNICODE).casefold()
+
+
+def local_book_cover(book_name: str) -> dict | None:
+    key = _book_key(book_name)
+    if not key:
+        return None
+    folder = library_root() / FOLDERS["health"][0]
+    candidates=[]
+    for path in folder.iterdir():
+        if not path.is_file() or path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+            continue
+        stem_key=_book_key(path.stem)
+        if key not in stem_key and stem_key not in key:
+            continue
+        try:
+            with Image.open(path) as picture:width,height=picture.size
+        except (OSError,ValueError):
+            continue
+        exact=int(stem_key==key);first=int(bool(re.search(r"(?:^|\D)0?1$",path.stem)))
+        candidates.append(((exact,first,width*height,-len(path.stem)),path,width,height))
+    if not candidates:return None
+    _,path,width,height=max(candidates,key=lambda item:item[0])
+    relative=path.relative_to(library_root()).as_posix()
+    return {"id":"local-book-"+hashlib.sha256(relative.encode()).hexdigest()[:12],
+            "provider":"local_book_cover","media_type":"image","relative_path":relative,
+            "title":f"《{book_name}》封面","page":"本地健康素材库","author":"用户提供",
+            "license":"按本地素材库授权记录","license_url":"","duration":0,
+            "width":width,"height":height,"bytes":path.stat().st_size}
+
+
+def network_book_cover(book_name: str) -> dict | None:
+    """Public bibliographic fallback; local covers always take precedence."""
+    query=urlencode({"q":f'intitle:"{book_name}"',"maxResults":5,"printType":"books"})
+    wanted=_book_key(book_name);ranked=[]
+    headers={"User-Agent":"ContentEcosystem/1.0 (book-cover lookup)"}
+    try:
+        with httpx.Client(timeout=15,follow_redirects=False,headers=headers) as client:
+            response=client.get("https://www.googleapis.com/books/v1/volumes?"+query)
+            response.raise_for_status();items=response.json().get("items") or []
+        for item in items:
+            info=item.get("volumeInfo") or {};title=str(info.get("title") or "")
+            links=info.get("imageLinks") or {};url=str(links.get("extraLarge") or links.get("large")
+                or links.get("medium") or links.get("small") or links.get("thumbnail") or "").replace("http://","https://",1)
+            parsed=urlsplit(url)
+            if parsed.scheme!="https" or parsed.hostname not in {"books.google.com","books.googleusercontent.com"}:continue
+            score=(int(_book_key(title)==wanted),int(wanted in _book_key(title)),-abs(len(title)-len(book_name)))
+            ranked.append((score,item,info,url))
+    except (httpx.HTTPError,ValueError,KeyError):
+        ranked=[]
+    if ranked:
+        _,item,info,url=max(ranked,key=lambda row:row[0])
+        return {"id":"google-books-"+str(item.get("id") or hashlib.sha256(url.encode()).hexdigest()[:12]),
+                "provider":"network_book_cover","media_type":"image","url":url,
+                "title":str(info.get("title") or book_name),"page":str(info.get("infoLink") or "https://books.google.com/"),
+                "author":"、".join(info.get("authors") or []),"license":"书籍信息源封面；发布前请核对版本与使用权",
+                "license_url":"https://developers.google.com/books/docs/v1/using","duration":0,"width":0,"height":0}
+    # Open Library is an independent fallback when Google is unavailable or
+    # rate-limited. Request only the fields needed for a single lookup.
+    search=urlencode({"title":book_name,"fields":"key,title,author_name,cover_i","limit":5})
+    with httpx.Client(timeout=15,follow_redirects=False,headers=headers) as client:
+        response=client.get("https://openlibrary.org/search.json?"+search)
+        response.raise_for_status();docs=response.json().get("docs") or []
+    options=[]
+    for doc in docs:
+        cover=doc.get("cover_i");title=str(doc.get("title") or "")
+        if not cover:continue
+        score=(int(_book_key(title)==wanted),int(wanted in _book_key(title)),-abs(len(title)-len(book_name)))
+        options.append((score,doc,title,int(cover)))
+    if not options:return None
+    _,doc,title,cover=max(options,key=lambda row:row[0])
+    url=f"https://covers.openlibrary.org/b/id/{cover}-L.jpg?default=false"
+    return {"id":f"openlibrary-{cover}","provider":"network_book_cover","media_type":"image","url":url,
+            "title":title or book_name,"page":"https://openlibrary.org"+str(doc.get("key") or ""),
+            "author":"、".join(doc.get("author_name") or []),"license":"Open Library 书籍目录封面；发布前请核对版本与使用权",
+            "license_url":"https://openlibrary.org/dev/docs/api/covers","duration":0,"width":0,"height":0}
 
 
 def probe(path: Path) -> tuple[float, int, int]:
@@ -162,22 +260,26 @@ def sequence_signature(entries: list[dict]) -> str:
     return hashlib.sha256(json.dumps(sequence, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _book_cover_settings(task_id: str) -> tuple[str, str]:
-    """Return only a user-confirmed cover; never guess a commercial edition."""
+def _book_cover_settings(task_id: str) -> tuple[dict | None, str]:
     row = db.retry(lambda: db.get_client().table("stages").select("params")
                    .eq("task_id", task_id).eq("kind", "book").single().execute()).data or {}
     params = row.get("params") or {}
-    if params.get("book_confirmed") is not True:
-        return "", ""
     cover_path = str(params.get("manual_book_cover_path") or "").strip()
     book_name = str(params.get("manual_book_name") or "").strip().strip("《》")
     if not book_name:
         from stages.render import _load_json_artifact
         payload = _load_json_artifact(task_id, "book") or {}
         book_name = str(payload.get("book_name") or "").strip().strip("《》")
-    if not cover_path:
-        return "", book_name
-    return cover_path, book_name
+    if cover_path and params.get("book_confirmed") is True:
+        return ({"id":hashlib.sha256(cover_path.encode()).hexdigest()[:16],
+                 "provider":"task_artifact","media_type":"image","storage_path":cover_path,
+                 "title":f"《{book_name}》封面","page":"任务书籍信息","author":"用户确认",
+                 "license":"用户确认使用","license_url":"","duration":0,"width":0,"height":0},book_name)
+    if not book_name:return None,""
+    local=local_book_cover(book_name)
+    if local:return local,book_name
+    try:return network_book_cover(book_name),book_name
+    except (httpx.HTTPError,ValueError,KeyError):return None,book_name
 
 
 def _cover_ranges(text: str, subtitles: dict, book_name: str) -> list[tuple[int, int]]:
@@ -212,17 +314,12 @@ def _cover_ranges(text: str, subtitles: dict, book_name: str) -> list[tuple[int,
 
 
 def add_book_cover_inserts(entries: list[dict], text: str, subtitles: dict,
-                           book_name: str, cover_path: str) -> list[dict]:
+                           book_name: str, cover_asset: dict, preview_path: str) -> list[dict]:
     """Replace only the spoken book-title phrases with the confirmed cover."""
     ranges=_cover_ranges(text,subtitles,book_name)
     if not ranges:return entries
     from stages import render
     duration=float(subtitles.get("duration") or 0)
-    cover_asset={"id":hashlib.sha256(cover_path.encode()).hexdigest()[:16],
-                 "provider":"task_artifact","media_type":"image",
-                 "storage_path":cover_path,"title":f"《{book_name}》封面",
-                 "page":"任务书籍信息","author":"用户确认","license":"用户确认使用",
-                 "license_url":"","duration":0,"width":0,"height":0}
     output=[]
     for entry in entries:
         left=int(entry["char_start"]);right=int(entry["char_end"])
@@ -239,7 +336,7 @@ def add_book_cover_inserts(entries: list[dict], text: str, subtitles: dict,
             end_time=render._cue_time_at_char(end,subtitles.get("segments") or [],duration)
             if is_cover:
                 piece.update(asset=cover_asset,source_start=0.0,source_end=0.0,
-                             playback_rate=1.0,path=cover_path,visual_type="image",
+                             playback_rate=1.0,path=preview_path,visual_type="image",
                              motion="still_photo",book_cover_insert=True,
                              processing=settings({"color_style":"natural_warm_v1","feather":36}))
             else:
@@ -372,7 +469,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     # width for both content lines, rather than enlarging it to 1080p.
     require_native = category in {"guoxue", "health"}
     output_width = 720 if require_native else 1080
-    cover_path, book_name = _book_cover_settings(task) if category == "health" else ("", "")
+    cover_asset, book_name = _book_cover_settings(task) if category == "health" else (None, "")
     previous = db.retry(lambda: db.get_client().table("artifacts").select("meta")
                         .eq("type", "video_index").contains("meta", {"source": "local_library"})
                         .neq("task_id", task).order("created_at", desc=True).limit(500).execute()).data or []
@@ -412,8 +509,26 @@ def run(stage: dict) -> tuple[str, str | None]:
         cover_index = max(cover_options)[1]
         entries[0]["cover_path"] = entries[cover_index]["path"]
         entries[0]["cover_source_index"] = cover_index
-        if cover_path and book_name:
-            entries = add_book_cover_inserts(entries, text, subtitles, book_name, cover_path)
+        if cover_asset and book_name:
+            try:
+                from stock_media import fetch_source
+                source=fetch_source(cover_asset)
+                preview=Path(directory)/"book-cover.jpg"
+                with Image.open(source) as picture:
+                    picture=ImageOps.exif_transpose(picture).convert("RGB")
+                    picture.thumbnail((720,720),Image.Resampling.LANCZOS)
+                    canvas=Image.new("RGB",(720,720),(236,229,215))
+                    canvas.paste(picture,((720-picture.width)//2,(720-picture.height)//2))
+                    canvas.save(preview,"JPEG",quality=90)
+                preview_path=f"{task}/stock/local-{revision}/book-cover.jpg"
+                storage.upload(preview_path,str(preview),"image/jpeg")
+                storage.add_artifact(task,"image","image",preview_path,
+                                     meta={"visual_mode":"stock_video","source":"book_cover",
+                                           "provider":cover_asset.get("provider"),"book_name":book_name})
+                entries = add_book_cover_inserts(entries, text, subtitles, book_name,
+                                                 cover_asset, preview_path)
+            except (OSError,ValueError,httpx.HTTPError) as exc:
+                print(f"  [local-materials] 书封插片跳过：{type(exc).__name__}: {exc}",flush=True)
     prefix = f"{task}/stock/local-{revision}"
     index_path = prefix + "/index.json"
     storage.upload_bytes(index_path, json.dumps(entries, ensure_ascii=False).encode("utf-8"),
