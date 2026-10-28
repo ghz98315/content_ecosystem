@@ -85,13 +85,22 @@ def ff() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
+def _prepare_book_cover_pip(source: str | Path, destination: str | Path) -> None:
+    """Resize a still cover once instead of scaling it for every video frame."""
+    from PIL import Image, ImageOps
+    with Image.open(source) as original:
+        cover = ImageOps.exif_transpose(original)
+        cover.thumbnail((760, 570), Image.Resampling.LANCZOS)
+        cover.save(destination, format='PNG')
+
+
 def _book_cover_pip_graph(pip_input: int, picture_ratio: float,
                           video_filter: str, spans: list[str]) -> str:
     """Place the unframed book image over roughly half of the visible picture."""
     picture_height = round(W / picture_ratio)
     picture_top = (H - picture_height) // 2
     return (
-        f'[{pip_input}:v]scale=760:570:force_original_aspect_ratio=decrease:flags=lanczos[book];'
+        f'[{pip_input}:v]format=rgba[book];'
         f"[0:v][book]overlay=(W-w)/2:{picture_top}+(" +
         f"{picture_height}-h)/2:enable='{'+'.join(spans)}':eof_action=pass[vbook];"
         f'[vbook]{video_filter}[video]'
@@ -1159,8 +1168,13 @@ def run(stage: dict) -> tuple[str, str | None]:
         if pip_intervals:
             from stock_media import fetch_source
             pip_source = fetch_source(book_pip['asset'])
+            prepared_cover = Path(tmpdir) / 'book-cover-pip.png'
+            _prepare_book_cover_pip(pip_source, prepared_cover)
             pip_input = 3 if bgm_local else 2
-            render_inputs.extend(['-loop', '1', '-framerate', str(FPS), '-i', str(pip_source)])
+            # One still frame per second is enough: framesync reuses it while
+            # the 30 fps main picture advances. Avoid full-length 30 fps
+            # scaling of a large cover that appears for only a few seconds.
+            render_inputs.extend(['-loop', '1', '-framerate', '1', '-i', str(prepared_cover)])
         mix_filter = _audio_mix_filter(
             bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
         )
