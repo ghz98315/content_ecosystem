@@ -36,7 +36,11 @@ ZOOM_OVERSAMPLE = 4
 ZOOM_AMOUNT = 0.10
 LANDSCAPE_ZOOM_AMOUNT = 0.16
 LANDSCAPE_WORK_SCALE = 2
-LANDSCAPE_RENDER_SCALE = 2
+# Keep a 2x source workspace for stable subpixel motion, then render the
+# zoompan directly at delivery resolution. Rendering at 2x and immediately
+# shrinking to 1080p quadrupled the filtered pixels without adding visible
+# detail to the delivered frame.
+LANDSCAPE_RENDER_SCALE = 1
 DISCLAIMER_GAP_LINES = 4
 TITLE_FONT_SIZE = 84
 AUTHOR_FONT_SIZE = 52
@@ -982,7 +986,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             revision = db.get_client().table('artifacts').select('created_at').eq('task_id',task_id).eq('type','video_index' if stock else 'image_index').order('created_at',desc=True).limit(1).execute().data
             if revision:
                 cached = picture_cache.cache_path(task_id, {
-                    'version':'stock-source-motion-v2' if stock else 'subpixel-linear-zoom-16-v3', 'index_revision':revision[0]['created_at'],
+                    'version':'stock-source-motion-v2' if stock else 'subpixel-linear-zoom-16-v4', 'index_revision':revision[0]['created_at'],
                     'feather_edges':'vertical' if stock else None,
                     'images':images, 'timeline':timeline, 'durations':durations,
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),

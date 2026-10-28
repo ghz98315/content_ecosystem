@@ -23,10 +23,14 @@ def quote_overlays(script: str, cues: list[dict], duration: float) -> list[dict]
     for paragraph in paragraphs:
         for match in re.finditer(r'[“‘「]([^”’」]{8,36})[”’」]', paragraph):
             prefix = paragraph[:match.start()]
-            if not re.search(r'《[^》]{1,18}》|古人[说言云]|原典|经典[说云]|先贤[说言云]', prefix[-65:]):
+            attributed = re.search(r'《[^》]{1,18}》|古人[说言云]|原典|经典[说云]|先贤[说言云]', prefix[-65:])
+            enumerated = re.search(r'第[一二三四五六七八九十百\d]+句(?:是|为|讲|说|谈)', prefix[-24:])
+            # In a Guoxue script, enumerated source sayings may rely on the book
+            # attribution established at the beginning of the manuscript.
+            if not attributed and not (enumerated and re.search(r'《[^》]{1,18}》', script[:300])):
                 continue
             quote = match.group(1).strip()
-            parts = [part.strip() for part in re.split(r'[，,；;]', quote)]
+            parts = [re.sub(r'[。！？?!：:“”‘’「」]', '', part).strip() for part in re.split(r'[，,；;]', quote)]
             if len(parts) != 2 or any(not 4 <= len(_plain(part)) <= 13 for part in parts):
                 continue
             clean = _plain(quote)

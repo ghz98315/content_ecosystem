@@ -212,12 +212,19 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       const response = await authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(videoPath)}&download=${encodeURIComponent(fileName)}`);
       const payload = await response.json();
       if (!response.ok || !payload.signedUrl) throw new Error(payload.error || "下载链接生成失败");
+      // A cross-origin signed URL may ignore the anchor's download attribute
+      // and expose its percent-encoded Content-Disposition name. Download the
+      // blob on this page so Chinese filenames remain readable on Windows.
+      const videoResponse = await fetch(payload.signedUrl);
+      if (!videoResponse.ok) throw new Error("视频文件下载失败，请重试");
+      const objectUrl = URL.createObjectURL(await videoResponse.blob());
       const link = document.createElement("a");
-      link.href = payload.signedUrl;
+      link.href = objectUrl;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
     } catch (error) {
       setDownloadError(error instanceof Error ? error.message : "视频下载失败，请重试");
     } finally {

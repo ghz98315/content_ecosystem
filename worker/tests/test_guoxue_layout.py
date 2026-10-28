@@ -6,10 +6,14 @@ from pathlib import Path
 
 from guoxue_visuals import grid_prompt
 from stages.image import _guoxue_storyboard, _char_count
-from stages.render import _make_ass, _prepare_title_font, H, _landscape_composition_graph, _is_landscape_art, _render_text_settings, _encoder_args, _storage_safe_video_bitrate
+from stages.render import _make_ass, _prepare_title_font, H, _landscape_composition_graph, _is_landscape_art, _render_text_settings, _encoder_args, _storage_safe_video_bitrate, LANDSCAPE_WORK_SCALE, LANDSCAPE_RENDER_SCALE
 
 
 class GuoxueLayoutTests(unittest.TestCase):
+    def test_motion_keeps_oversampled_source_but_renders_at_delivery_scale(self):
+        self.assertEqual(2, LANDSCAPE_WORK_SCALE)
+        self.assertEqual(1, LANDSCAPE_RENDER_SCALE)
+
     def test_history_cover_uses_shared_titles_and_preserves_explicit_blank(self):
         from stages.render import _history_cover_text
         old={'cover_confirmed':True,'cover_title':'旧主标题','cover_subtitle':'旧副标题'}

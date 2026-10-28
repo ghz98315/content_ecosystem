@@ -33,6 +33,19 @@ class ClassicQuoteTests(unittest.TestCase):
         self.assertEqual(quote_overlays('“酒中不语真君子，财上分明大丈夫”', cues, 4), [])
         self.assertEqual(quote_overlays('《增广贤文》：“酒中不语真君子，财上分明大丈夫”', cues, 4), [])
 
+    def test_enumerated_book_saying_uses_manuscript_attribution(self):
+        script = '今天读《增广贤文》。\n\n第一句是“莫骂酉时妻，一夜受孤凄”。这句话提醒人回家少带怨气。'
+        cues = [
+            {'start': 0, 'end': 2, 'text': '今天读《增广贤文》'},
+            {'start': 2, 'end': 5, 'text': '第一句是莫骂酉时妻'},
+            {'start': 5, 'end': 7, 'text': '一夜受孤凄'},
+            {'start': 7, 'end': 10, 'text': '这句话提醒人回家少带怨气'},
+        ]
+        self.assertEqual(
+            quote_overlays(script, cues, 10),
+            [{'start': 2, 'end': 10, 'lines': ['莫骂酉时妻', '一夜受孤凄']}],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
