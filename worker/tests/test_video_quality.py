@@ -858,6 +858,14 @@ class TtsInputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "无法保持完整的词语"):
             split_semantic_units("Supercalifragilistic", max_chars=14)
 
+    def test_book_title_closing_mark_is_a_valid_ten_character_cut(self):
+        text = "归根到底，《越吃越瘦越吃越年轻》不是单纯教您挑一份食谱，而是换个角度看待吃饭。"
+        units = split_semantic_units(text, max_chars=10, protected_terms=("越吃越瘦越吃越年轻",))
+        captions = [unit["text"] for unit in units]
+        self.assertIn("《越吃越瘦越吃越年轻》", captions)
+        self.assertTrue(all(unit["char_count"] <= 10 for unit in units))
+        self.assertEqual(strip_subtitle_punctuation(text), strip_subtitle_punctuation("".join(captions)))
+
     def test_subtitles_use_semantic_breaks_with_terminal_punctuation(self):
         text = "先把最重要的事情说清楚，然后再解释为什么这样做。最后给出一个可以执行的方法。"
         units = split_semantic_units(text, max_chars=12)

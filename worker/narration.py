@@ -313,6 +313,11 @@ def _boundary_kind(text: str, end: int, word_boundaries: set[int]) -> str:
         return "major"
     if previous in _SOURCE_SUBTITLE_BREAKS:
         return "minor"
+    # Jieba may omit the boundary immediately after a closing book-title mark.
+    # A complete 《...》 is a valid screen by itself even when its lexical
+    # content is kept indivisible by _protected_boundaries.
+    if previous == "》" and "《" in text[:end]:
+        return "word"
     if end in word_boundaries:
         return "word"
     return "forced"
