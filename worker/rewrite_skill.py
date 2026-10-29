@@ -7,7 +7,7 @@ from pathlib import Path
 from rewrite_review import normalized
 
 ROOT = Path(__file__).resolve().parent.parent / 'skills' / 'book-video-rewrite'
-VERSION = '1.3.0'
+VERSION = '1.4.0'
 DOMAINS = {'guoxue', 'health', 'mixed', 'general', 'scene'}
 LABELS = {'guoxue':'国学','health':'健康','mixed':'国学与健康混合','general':'通用','scene':'山河人文'}
 CLASSICS = ('道德经','论语','庄子','孟子','大学','中庸','易经','黄帝内经')
