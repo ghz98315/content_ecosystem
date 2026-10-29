@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings
+from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings, book_cover_pip_intervals
 from stages.render import _book_cover_pip_graph, _prepare_book_cover_pip
 
 
@@ -34,6 +34,14 @@ class BookCoverInsertTests(unittest.TestCase):
                 result=local_book_cover('《少食生活》')
             self.assertIsNotNone(result)
             self.assertEqual('30_健康/少食生活01.png',result['relative_path'])
+
+    def test_local_cover_reads_nested_common_image_formats(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);folder=root/'30_健康'/'书籍封面';folder.mkdir(parents=True)
+            Image.new('RGB',(300,500),'red').save(folder/'自在生活.bmp')
+            with patch('local_materials.library_root',return_value=root):
+                result=local_book_cover('自在生活')
+            self.assertEqual('30_健康/书籍封面/自在生活.bmp',result['relative_path'])
 
     def test_first_and_last_spoken_title_use_confirmed_cover(self):
         text='今天读养生书。中间讲饮食和运动。最后再回到养生书。'
@@ -67,7 +75,12 @@ class BookCoverInsertTests(unittest.TestCase):
         result=add_book_cover_pip(entries,text,{'segments':cues,'duration':12},'养生书',cover,'task/book.jpg')
         self.assertEqual(1,len(result))
         self.assertEqual(12,result[0]['duration'])
-        self.assertEqual([{'start':0,'end':3},{'start':8,'end':12}],result[0]['book_cover_pip']['intervals'])
+        self.assertEqual([{'start':0.0,'end':5.0},{'start':7.0,'end':12.0}],result[0]['book_cover_pip']['intervals'])
+
+    def test_cover_is_still_required_when_title_is_not_spoken(self):
+        timeline={'segments':[{'text':'今天谈饮食','start':0,'end':3,'char_start':0,'char_end':5}], 'duration':30}
+        self.assertEqual([{'start':0.0,'end':5.0},{'start':25.0,'end':30.0}],
+                         book_cover_pip_intervals('今天谈饮食',timeline,'自在生活'))
 
     def test_pip_is_large_centered_and_has_no_extra_frame(self):
         graph=_book_cover_pip_graph(3,4/3,'ass=subs.ass:fontsdir=fonts', ['between(t,3.8,6.1)'])

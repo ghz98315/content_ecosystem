@@ -1153,18 +1153,23 @@ def run(stage: dict) -> tuple[str, str | None]:
         if bgm_local:
             render_inputs.extend(["-stream_loop", "-1", "-i", bgm_local])
         book_pip = images[0].get('book_cover_pip') if local_stock and images else None
+        if local_stock and expected_template == 'health-v1' and not book_pip:
+            # A cover added after video selection must still be used when the
+            # existing clips are re-rendered. No video sourcing is repeated.
+            from local_materials import _book_cover_settings
+            late_cover, late_name = _book_cover_settings(task_id, local_only=True)
+            if late_cover and late_cover.get('provider') == 'local_book_cover':
+                book_pip = {'asset': late_cover, 'book_name': late_name, 'intervals': []}
         pip_intervals = book_pip.get('intervals') if isinstance(book_pip, dict) else None
-        if pip_intervals and isinstance(subs_data, dict):
-            # Audio can be replaced while the selected video remains. Reattach
-            # the cover to the new subtitle timeline instead of stale seconds.
-            from local_materials import _cover_ranges
+        if book_pip and isinstance(subs_data, dict):
+            # Re-align the cover after an audio change and hold it long enough
+            # to be visible; the prior saved timings are only a preview.
+            from local_materials import book_cover_pip_intervals
             cover_text = str(subs_data.get('text') or (rewrite_data or {}).get('final_text') or '')
-            ranges = _cover_ranges(cover_text, subs_data, str(book_pip.get('book_name') or ''))
-            pip_intervals = [
-                {'start': _cue_time_at_char(start, subs_data.get('segments') or [], tts_duration),
-                 'end': _cue_time_at_char(end, subs_data.get('segments') or [], tts_duration)}
-                for start, end in ranges
-            ]
+            pip_intervals = book_cover_pip_intervals(cover_text,
+                {**subs_data, 'duration': tts_duration}, str(book_pip.get('book_name') or ''))
+        if local_stock and expected_template == 'health-v1' and book_pip and book_pip['asset'].get('provider') == 'local_book_cover' and not pip_intervals:
+            raise ValueError('本地书封已找到，但画中画时段未生成')
         if pip_intervals:
             from stock_media import fetch_source
             pip_source = fetch_source(book_pip['asset'])
@@ -1334,6 +1339,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
             "cover_frames": COVER_FRAMES,
             "visual_mode": 'stock_video' if stock else 'ai_images',
+            "book_cover_pip": bool(pip_graph),
+            "book_cover_pip_intervals": pip_intervals if pip_graph else [],
             "stock_processing": {"color_style":images[0].get('processing',{}).get('color_style','none'),"feather":images[0].get('processing',{}).get('feather',0),"feather_edges":"vertical"} if stock else None,
             "motion": 'source_motion' if stock else ("alternating_zoom_in_out" if landscape_layout else "zoom_in"),
             "zoom_amount": 0 if stock else (LANDSCAPE_ZOOM_AMOUNT if landscape_layout else ZOOM_AMOUNT),

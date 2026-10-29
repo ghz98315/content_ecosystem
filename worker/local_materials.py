@@ -48,6 +48,7 @@ EXCLUDED_FOR_GUOXUE = {
     "13437499187602832.mp4",
     "13437498192327096.mp4", "13437498919637988.mp4",
 }
+BOOK_COVER_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.gif', '.avif', '.heic', '.heif'}
 
 
 def library_root() -> Path:
@@ -81,7 +82,7 @@ def resolve_book_cover(asset: dict) -> Path:
         raise ValueError("本地书籍封面路径无效")
     path = (root / relative).resolve(strict=True)
     health_root = (root / FOLDERS["health"][0]).resolve(strict=True)
-    if (not path.is_relative_to(health_root) or path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp")
+    if (not path.is_relative_to(health_root) or path.suffix.lower() not in BOOK_COVER_EXTENSIONS
             or not path.is_file()):
         raise ValueError("书籍封面不在健康类素材目录")
     expected_size = asset.get("bytes")
@@ -101,8 +102,8 @@ def local_book_cover(book_name: str) -> dict | None:
         return None
     folder = library_root() / FOLDERS["health"][0]
     candidates=[]
-    for path in folder.iterdir():
-        if not path.is_file() or path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+    for path in folder.rglob('*'):
+        if not path.is_file() or path.suffix.lower() not in BOOK_COVER_EXTENSIONS:
             continue
         stem_key=_book_key(path.stem)
         if key not in stem_key and stem_key not in key:
@@ -260,7 +261,7 @@ def sequence_signature(entries: list[dict]) -> str:
     return hashlib.sha256(json.dumps(sequence, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _book_cover_settings(task_id: str) -> tuple[dict | None, str]:
+def _book_cover_settings(task_id: str, *, local_only: bool = False) -> tuple[dict | None, str]:
     row = db.retry(lambda: db.get_client().table("stages").select("params")
                    .eq("task_id", task_id).eq("kind", "book").single().execute()).data or {}
     params = row.get("params") or {}
@@ -283,6 +284,7 @@ def _book_cover_settings(task_id: str) -> tuple[dict | None, str]:
     if not book_name:return None,""
     local=local_book_cover(book_name)
     if local:return local,book_name
+    if local_only:return None,book_name
     try:return network_book_cover(book_name),book_name
     except (httpx.HTTPError,ValueError,KeyError):return None,book_name
 
@@ -357,26 +359,37 @@ def add_book_cover_inserts(entries: list[dict], text: str, subtitles: dict,
 
 def add_book_cover_pip(entries: list[dict], text: str, subtitles: dict,
                        book_name: str, cover_asset: dict, preview_path: str) -> list[dict]:
-    """Keep the source clips intact and display a cover over spoken title ranges."""
+    """Required local-cover substep: keep clips intact and display the cover."""
     if not entries:
         return entries
+    intervals = book_cover_pip_intervals(text, subtitles, book_name)
+    entries[0]["book_cover_pip"] = {
+        "book_name": book_name, "asset": cover_asset,
+        "path": preview_path, "intervals": intervals,
+    }
+    return entries
+
+
+def book_cover_pip_intervals(text: str, subtitles: dict, book_name: str) -> list[dict]:
+    """Hold each cover long enough to see it; use opening/ending if title is absent."""
     ranges = _cover_ranges(text, subtitles, book_name)
-    if not ranges:
-        return entries
     from stages import render
     duration = float(subtitles.get("duration") or 0)
     intervals = []
     for start, end in ranges:
         begin = render._cue_time_at_char(start, subtitles.get("segments") or [], duration)
         finish = render._cue_time_at_char(end, subtitles.get("segments") or [], duration)
-        if finish > begin:
-            intervals.append({"start": round(begin, 3), "end": round(finish, 3)})
-    if intervals:
-        entries[0]["book_cover_pip"] = {
-            "book_name": book_name, "asset": cover_asset,
-            "path": preview_path, "intervals": intervals,
-        }
-    return entries
+        center = (begin + finish) / 2
+        low = max(0.0, center - 2.5)
+        high = min(duration, max(finish, low + 5.0))
+        low = max(0.0, min(low, high - min(5.0, duration)))
+        if high > low:
+            intervals.append({"start": round(low, 3), "end": round(high, 3)})
+    if not intervals and duration > 0:
+        intervals = [{"start": 0.0, "end": round(min(5.0, duration), 3)}]
+        if duration > 12:
+            intervals.append({"start": round(duration - 5.0, 3), "end": round(duration, 3)})
+    return intervals
 
 
 def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
@@ -558,12 +571,17 @@ def run(stage: dict) -> tuple[str, str | None]:
                 entries = add_book_cover_pip(entries, text, subtitles, book_name,
                                              cover_asset, preview_path)
             except (OSError,ValueError,httpx.HTTPError) as exc:
-                print(f"  [local-materials] 书封插片跳过：{type(exc).__name__}: {exc}",flush=True)
+                if cover_asset.get('provider') == 'local_book_cover':
+                    raise ValueError(f'本地书封已找到但画中画准备失败：{exc}') from exc
+                print(f"  [local-materials] 网络书封暂不可用：{type(exc).__name__}: {exc}",flush=True)
+        if category == 'health' and cover_asset and cover_asset.get('provider') == 'local_book_cover' and not entries[0].get('book_cover_pip'):
+            raise ValueError('本地书封已找到，但画中画步骤未完成')
     prefix = f"{task}/stock/local-{revision}"
     index_path = prefix + "/index.json"
     storage.upload_bytes(index_path, json.dumps(entries, ensure_ascii=False).encode("utf-8"),
                          "application/json")
     storage.add_artifact(task, "image", "video_index", index_path,
                          meta={"visual_mode": "stock_video", "source": "local_library",
-                               "count": len(entries), "sequence_signature": signature})
+                               "count": len(entries), "sequence_signature": signature,
+                               "book_cover_pip": bool(entries[0].get('book_cover_pip'))})
     return "done", index_path
