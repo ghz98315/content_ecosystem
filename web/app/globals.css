@@ -277,6 +277,9 @@ textarea:focus-visible, select:focus-visible {
 .task-source-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 8px 24px; border-bottom: 1px solid var(--border); background: var(--bg-surface); color: var(--text-secondary); font-size: 11px; }
 .task-source-summary span { min-width: 0; }
 .task-source-summary b { margin-right: 5px; color: var(--text-disabled); font-weight: 600; }
+.task-category-control { display: inline-flex; align-items: center; gap: 8px; }
+.task-category-control select { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+.task-category-control .secondary-action { padding: 5px 10px; }
 .task-source-url { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-progress-track { display: block; height: 5px; overflow: hidden; border-radius: 999px; background: var(--bg-surface); }
 .task-progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--sage); transition: width .35s ease; }

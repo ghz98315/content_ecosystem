@@ -51,6 +51,7 @@ export default function TaskDetail() {
   const [selected, setSelected] = useState<StageKind>("ingest");
   const [workspaceView, setWorkspaceView] = useState<"flow" | "preflight">("flow");
   const [actionBusy, setActionBusy] = useState(false);
+  const [categoryChoice, setCategoryChoice] = useState<"guoxue-v1" | "health-v1">("guoxue-v1");
   const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -80,6 +81,8 @@ export default function TaskDetail() {
     if (request !== loadVersion.current) return;
     if (taskResult.error && taskResult.error.code !== "PGRST116") setLoadError(taskResult.error.message);
     if (taskResult.data) setTask(taskResult.data as Task);
+    if (taskResult.data?.content_category === "guoxue") setCategoryChoice("guoxue-v1");
+    if (taskResult.data?.content_category === "health") setCategoryChoice("health-v1");
     if (stageResult.error) setLoadError(current => current || stageResult.error.message);
     if (stageResult.data) setStages(stageResult.data as Stage[]);
     if (tasksResult.data) setTasks(tasksResult.data as Task[]);
@@ -191,6 +194,25 @@ export default function TaskDetail() {
     }
   };
 
+  const changeCategory = async () => {
+    if (actionBusy || !task) return;
+    setActionBusy(true);
+    try {
+      const response = await authenticatedFetch('/api/task-category', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: task.id, templateId: categoryChoice }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || '类别保存失败');
+      setAction('内容类别已更新，后续画面和成片将使用新模板');
+      await load();
+    } catch (error) {
+      setAction(error instanceof Error ? error.message : '类别保存失败', false);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   if (!userId) return <AppShell><div className="page-loading">正在连接工作区...</div></AppShell>;
   if (loading && !task) return <AppShell><div className="page-loading"><div className="skeleton loading-line" /><div className="skeleton loading-block" /></div></AppShell>;
   if (loadError && !task) return <AppShell><div className="state-panel error-state" role="alert"><strong>任务加载失败</strong><span>{loadError}</span><button className="secondary-action" onClick={load}>重试</button></div></AppShell>;
@@ -199,6 +221,10 @@ export default function TaskDetail() {
   const sceneLine = stages.some(stage=>stage.params.production_template==='scene-v1');
   const stageLabel = (kind: StageKind) => kind==='rewrite'&&stages.some(stage=>stage.params.input_mode==='ready_script') ? '确认成稿' : kind==='image'&&stages.some(stage=>stage.params.visual_mode==='stock_video') ? '视频素材' : sceneLine && kind==='book' ? '发布信息' : STAGES.find(item=>item.kind===kind)?.label;
   const activeStage = stages.find(stage => stage.status === 'processing') || stages.find(stage => stage.status === 'needs_review');
+  const imageStage = stages.find(stage => stage.kind === 'image');
+  const renderStage = stages.find(stage => stage.kind === 'render');
+  const rewriteStage = stages.find(stage => stage.kind === 'rewrite');
+  const canChangeCategory = ['pending', 'needs_review'].includes(task.status) && imageStage?.status === 'pending' && renderStage?.status === 'pending' && (rewriteStage?.status === 'pending' || (rewriteStage?.status === 'done' && rewriteStage.params.input_mode === 'ready_script')) && !stages.some(stage => stage.status === 'processing');
   return <AppShell tasks={tasks} currentTaskId={id} activity={activeStage ? <><span className={`task-signal signal-${activeStage.status}`}/>{stageLabel(activeStage.kind)} · {nodeClock(activeStage, clock.records, clock.now).label}</> : undefined}>
     <div className="task-workspace">
       <div className="task-header">
@@ -210,6 +236,8 @@ export default function TaskDetail() {
         {sourceSummary.map(([label, value]) => <span key={label}><b>{label}</b>{value}</span>)}
         <span className="task-source-url"><b>来源链接</b>{task.source_url || "-"}</span>
         {sourceTags.length > 0 && <span className="task-source-tags"><b>来源标签</b>{sourceTags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ")}</span>}
+        <span><b>内容类别</b>{task.content_category === 'guoxue' ? '国学类' : task.content_category === 'health' ? '健康类' : task.content_category || '未设置'}</span>
+        {canChangeCategory && <span className="task-category-control"><b>调整类别</b><select value={categoryChoice} onChange={event => setCategoryChoice(event.target.value as 'guoxue-v1' | 'health-v1')} aria-label="选择内容类别"><option value="guoxue-v1">国学类</option><option value="health-v1">健康类</option></select><button type="button" className="secondary-action" disabled={actionBusy || categoryChoice === `${task.content_category}-v1`} onClick={changeCategory}>保存类别</button></span>}
       </div></details>
       {notice && <div className={`task-notice ${notice.ok ? "is-ok" : "is-error"}`} role="status">{notice.text}</div>}
       <WorkflowTiming task={task} stages={stages} clock={clock} />
