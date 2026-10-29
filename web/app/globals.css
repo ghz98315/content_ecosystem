@@ -280,6 +280,13 @@ textarea:focus-visible, select:focus-visible {
 .task-category-control { display: inline-flex; align-items: center; gap: 8px; }
 .task-category-control select { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
 .task-category-control .secondary-action { padding: 5px 10px; }
+.account-page { max-width: 720px; margin: 36px auto; padding: 0 24px; }
+.account-page h1 { margin: 8px 0 24px; }
+.account-card { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding: 28px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-surface); }
+.account-card h2, .account-card p { margin: 0; }
+.account-card label { display: flex; flex-direction: column; gap: 7px; width: min(100%, 420px); }
+.account-card input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); }
+.account-card small { overflow-wrap: anywhere; color: var(--text-secondary); }
 .task-source-url { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-progress-track { display: block; height: 5px; overflow: hidden; border-radius: 999px; background: var(--bg-surface); }
 .task-progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--sage); transition: width .35s ease; }

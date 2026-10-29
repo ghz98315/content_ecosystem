@@ -7,7 +7,7 @@ import { Icon } from './Icon';
 const GROUPS = [
   { label: '创作', items: [{ href: '/', label: '内容项目', icon: 'projects' }, { href: '/video-collection', label: '视频采集', icon: 'collection' }, { href: '/xhs', label: '知识图文', icon: 'knowledge' }] },
   { label: '素材', items: [{ href: '/book-library', label: '书籍库', icon: 'book' }, { href: '/voice-cloning', label: '音色管理', icon: 'voice' }] },
-  { label: '运营', items: [{ href: '/performance', label: '发布数据', icon: 'performance' }] },
+  { label: '运营', items: [{ href: '/performance', label: '发布数据', icon: 'performance' }, { href: '/account', label: '账号管理', icon: 'projects' }] },
 ];
 export function Sidebar({ tasks, currentTaskId, onCreateTask, owner = '', connection = '连接中' }: { tasks: Task[]; currentTaskId?: string; onCreateTask?: () => void; owner?: string; connection?: string }) {
   const pathname = usePathname();
