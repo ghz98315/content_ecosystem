@@ -302,7 +302,7 @@ def _make_ass(
         foot_size-=3
         foot_fill='&H4DFFFFFF'
         foot_border=0
-    subheading_size = SUBTITLE_FONT_SIZE if health_text_style else (56 if landscape_layout else 52)
+    subheading_size = round(SUBTITLE_FONT_SIZE * 1.3) if health_text_style else (56 if landscape_layout else 52)
     narration_fill = '&H0000E6FF' if guoxue_text_style else '&H00FFFFFF'
     narration_bold = 0 if landscape_layout else -1
     header = (
@@ -360,7 +360,7 @@ def _make_ass(
             placement = ''
             if landscape_layout or (style=='Footnote' and footnote_centered):
                 alignment, x, y = positions[style]
-                base_size = {'Heading': 92, 'Subheading': 56, 'Footnote': foot_size}[style]
+                base_size = {'Heading': 92, 'Subheading': subheading_size if health_text_style else 56, 'Footnote': foot_size}[style]
                 units = max(sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in line) for line in value.split('\n'))
                 spacing = 2 if style == 'Heading' else 0
                 size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
