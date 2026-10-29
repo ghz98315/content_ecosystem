@@ -13,11 +13,10 @@ MIN_LENGTH_RATIO = 0.85
 MAX_LENGTH_RATIO = 1.10
 PLANNED_MIN_LENGTH_RATIO = 0.95
 PLANNED_TARGET_LENGTH_RATIO = 0.97
-HEALTH_MIN_LENGTH_RATIO = 0.85
-HEALTH_MAX_LENGTH_RATIO = 0.90
-# The model has repeatedly undershot its requested length on long health
-# scripts. Aim at the upper edge while keeping the 85%-90% acceptance gate.
-HEALTH_TARGET_LENGTH_RATIO = 0.90
+HEALTH_MIN_LENGTH_RATIO = 1.00
+HEALTH_MAX_LENGTH_RATIO = 1.10
+# Plan slightly above the original to offset long-form model undershoot.
+HEALTH_TARGET_LENGTH_RATIO = 1.08
 
 
 def length_bounds(source: str, category: str | None = None) -> tuple[int, int]:
@@ -135,7 +134,7 @@ def evaluate(source: str, text: str, hook: str | None = None, category: str | No
     ratio = effective_length(text) / max(1, effective_length(source))
     minimum, maximum = length_bounds(source, category)
     if not minimum <= effective_length(text) <= maximum:
-        label = '85%-90%' if category == 'health' else '90%-110%' if category == 'scene' else '85%-110%'
+        label = '100%-110%' if category == 'health' else '90%-110%' if category == 'scene' else '85%-110%'
         issues.append(f'有效字数偏差 {(ratio - 1):+.1%}，应在原稿{label}范围（{minimum}-{maximum}字）')
     if not hook_kept or not original_body:
         # Missing rewrite space is actionable manually, never labelled a pass.

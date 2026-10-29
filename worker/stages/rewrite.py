@@ -302,7 +302,7 @@ def _length_budget(source: str, hook: str, category: str = 'general') -> str:
     lines = [
         f'全文写作目标约{target}字（含已锁定钩子{hook_chars}字），正文目标约{body_target}字；'
         f'自动改写的目标下限{planned_minimum}字，',
-        (f'健康类硬性范围为原稿85%-90%，下限{minimum}字、上限{maximum}字。'
+        (f'健康类硬性范围为原稿100%-110%，下限{minimum}字、上限{maximum}字。'
          if category == 'health' else
          f'仅在返工次数用尽时可按执行下限{minimum}字交付，上限{maximum}字。'),
         '以下按原稿信息块预留篇幅，顺序可以重组；每块的事实与限定必须有去处，不能用空话凑字：',
@@ -389,7 +389,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                     f"原视频标题：{context.get('title', '')}\n补充要求：{notes or '无'}\n"
                     f"必须保留的书名与数字：{'、'.join(protected_terms(source)) or '无'}\n"
                     f"原稿有效字数{effective_length(source)}字；本轮写作须达到{planned_minimum}-{maximum}字，"
-                    + ("健康类缩减幅度必须为10%-15%。" if context['category']=='health' else
+                    + ("健康类不得比原稿短，可在原意范围内扩写0%-10%。" if context['category']=='health' else
                        f"仅在自动返工次数用尽后可按{minimum}字执行下限交付。")
                     + f"程序拼接的钩子有{hook_chars}字，本轮 rewritten_remainder 应为{max(0, planned_minimum-hook_chars)}-{max(0, maximum-hook_chars)}字。\n"
                     f'【写作前字数与信息覆盖规划】\n{budget}\n'
@@ -773,7 +773,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     minimum, maximum = length_bounds(original_source, context['category'])
                     final_chars = effective_length(final_text)
                     if not minimum <= final_chars <= maximum:
-                        message = (f'健康类文稿缩减幅度须在10%-15%：原稿{effective_length(original_source)}字，'
+                        message = (f'健康类文稿须为原稿的100%-110%：原稿{effective_length(original_source)}字，'
                                    f'应为{minimum}-{maximum}字，当前{final_chars}字。请调整后确认。') if context['category']=='health' else (
                                    f'文稿字数应为{minimum}-{maximum}字：原稿{effective_length(original_source)}字，当前{final_chars}字。请调整后确认。')
                         rw['manual_draft'] = {'index': idx, 'text': final_text}
