@@ -41,6 +41,18 @@ export default function AccountPage() {
     setMessage(error ? `登录邮件发送失败：${error.message}` : `登录邮件已发送到 ${target}，请打开邮件中的链接。`);
   };
 
+  const register = async () => {
+    const target = email.trim().toLowerCase();
+    if (!target) return;
+    setBusy(true); setMessage("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: target,
+      options: { shouldCreateUser: true, emailRedirectTo: `${window.location.origin}/account` },
+    });
+    setBusy(false);
+    setMessage(error ? `注册邮件发送失败：${error.message}` : `注册验证邮件已发送到 ${target}，请点击邮件中的链接完成注册。`);
+  };
+
   const signOut = async () => {
     setBusy(true); setMessage("");
     const { error } = await supabase.auth.signOut();
@@ -59,6 +71,7 @@ export default function AccountPage() {
       <small>当前工作区 ID：{user.id}</small>
       <p>已有绑定好的账号？可用邮箱登录。登录其他账号后，当前未绑定的匿名项目不会自动转移。</p>
       <button className="secondary-action" disabled={busy || !email.trim()} onClick={signIn}>使用此邮箱登录已有账号</button>
+      <button className="secondary-action" disabled={busy || !email.trim()} onClick={register}>注册新账号</button>
     </section> : user ? <section className="account-card">
       <h2>已登录</h2><p>{user.email || "已绑定账号"}</p><small>工作区 ID：{user.id}</small>
       <button className="secondary-action" disabled={busy} onClick={signOut}>退出登录</button>
@@ -67,6 +80,7 @@ export default function AccountPage() {
       <p>输入已绑定的邮箱，使用邮件中的登录链接进入原工作区。</p>
       <label>邮箱地址<input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)}/></label>
       <button className="primary-action" disabled={busy || !email.trim()} onClick={signIn}>{busy ? "发送中…" : "发送登录邮件"}</button>
+      <button className="secondary-action" disabled={busy || !email.trim()} onClick={register}>{busy ? "发送中…" : "注册新账号"}</button>
     </section>}
     {message && <p className="task-notice" role="status">{message}</p>}
   </main></AppShell>;
