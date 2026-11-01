@@ -97,10 +97,6 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
       setErr("最终文案不能为空");
       return;
     }
-    if (data?.source_text && textLength(finalText) < Math.ceil(textLength(data.source_text) * 0.85)) {
-      setErr(`文稿不得减少超过15%，至少需 ${Math.ceil(textLength(data.source_text) * 0.85)} 字，请补回原有信息后确认。`);
-      return;
-    }
     const isHistory = task.content_category === "social_science";
     setBusy(true);
     setErr(null);
@@ -149,7 +145,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
     }, 0);
   };
   const actions = isReview ? (
-    <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null || lengthTooShort}>
+    <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null}>
       {busy ? "提交中…" : "确认改写稿 →"}
     </TextBtn>
   ) : undefined;
@@ -168,7 +164,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
             <div><span>合规状态</span><strong>{data.imported_final_script ? '用户确认稿' : report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{data.imported_final_script ? '未运行二创或自动改写检查' : report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
           </section>
           {data.rewrite_review && <RewriteReviewPanel report={{ ...data.rewrite_review, ...(isDone ? data.final_similarity : {}) }} source={data.source_formatted || data.source_text || ''} text={activeText} evaluatedText={isDone && data.final_similarity ? data.final_text || '' : data.candidates[selected ?? 0] || ''} />}
-          {isReview && lengthTooShort && <p role="alert">当前规则要求 {minimumLength}{maximumLength != null ? `–${maximumLength}` : ' 以上'} 字，当前 {activeLength} 字。请调整文稿后确认。</p>}
+          {isReview && lengthTooShort && <p role="alert">当前稿件 {activeLength} 字，目标 {minimumLength}{maximumLength != null ? `–${maximumLength}` : ' 字以上'}。请核对是否遗漏信息；若确认可用，可直接人工确认继续。</p>}
           {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "preserved" ? "原文锁定钩子" : data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
 
           {(data.hook_text || data.body_text || data.tail_text) && <section className="rewrite-lock-status" aria-label="改写结构" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-hover)" }}>

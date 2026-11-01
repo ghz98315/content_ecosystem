@@ -9,6 +9,7 @@ import re
 import time
 import uuid
 from difflib import SequenceMatcher
+from types import SimpleNamespace
 
 import config
 import compliance
@@ -32,16 +33,21 @@ _MAX_COSYVOICE_INSTRUCTION_UNITS = 100
 
 
 def _request_rewrite(**kwargs):
-    """Retry proxy timeout responses without regenerating a different stage."""
-    for attempt in range(config.REWRITE_RETRIES + 1):
-        try:
-            return _llm().chat.completions.create(**kwargs)
-        except Exception as exc:
-            if 'model_not_found' in str(exc).lower():
-                raise
-            if not any(code in str(exc) for code in ("502", "503", "504", "524")) or attempt >= config.REWRITE_RETRIES:
-                raise
-            time.sleep(min(60, 2 ** (attempt + 1)))
+    """Stream long replies so the gateway need not buffer an entire rewrite."""
+    parts = []
+    finish_reason = None
+    stream = _llm().chat.completions.create(**kwargs, stream=True)
+    for chunk in stream:
+        for choice in chunk.choices or []:
+            content = getattr(getattr(choice, 'delta', None), 'content', None)
+            if content:
+                parts.append(content)
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+    if not parts:
+        raise RuntimeError('改写服务未返回正文，请稍后重试')
+    return SimpleNamespace(choices=[SimpleNamespace(
+        message=SimpleNamespace(content=''.join(parts)), finish_reason=finish_reason)])
 
 
 def _llm():
@@ -406,11 +412,9 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             if checkpoint:
                 checkpoint(history)
             if last is None:
-                if db.is_transient_error(exc):
-                    raise
-                if attempt == MAX_REVISIONS or 'model_not_found' in str(exc).lower():
-                    raise
-                continue
+                # A provider outage is not an editorial defect. Do not spend
+                # all four revision attempts on the same gateway timeout.
+                raise RuntimeError(f'改写服务连接或响应超时：{type(exc).__name__}。请稍后重跑改写节点') from exc
             stop_reason = 'service_error'
             if last is not None and not minimum <= effective_length(last[0][0]) <= maximum:
                 # Keep the in-progress checkpoint for recovery. A network
@@ -772,16 +776,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     original_source = rw.get('source_text') or source
                     minimum, maximum = length_bounds(original_source, context['category'])
                     final_chars = effective_length(final_text)
-                    if not minimum <= final_chars <= maximum:
-                        message = (f'健康类文稿须为原稿的100%-110%：原稿{effective_length(original_source)}字，'
-                                   f'应为{minimum}-{maximum}字，当前{final_chars}字。请调整后确认。') if context['category']=='health' else (
-                                   f'文稿字数应为{minimum}-{maximum}字：原稿{effective_length(original_source)}字，当前{final_chars}字。请调整后确认。')
-                        rw['manual_draft'] = {'index': idx, 'text': final_text}
-                        _upload_rewrite(sp, rw)
-                        restored_params = {key: value for key, value in params.items() if key not in ('chosen_index', 'final_text')}
-                        db.get_client().table('stages').update({'status':'needs_review', 'error':message,
-                            'params':restored_params, 'output_ref':sp}).eq('id',stage['id']).execute()
-                        return 'needs_review', sp
+                    rw['manual_length_override'] = not minimum <= final_chars <= maximum
                     rw.pop('manual_draft', None)
                 rw.update({
                     "chosen": idx,
@@ -886,7 +881,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "output_ref": sp,
         "error": (f"改写字数未达标：原稿{payload['source_length']}字，当前{lengths[0]}字，"
                   f"要求{structure['rewrite_review']['min_chars']}-{structure['rewrite_review']['max_chars']}字；"
-                  "已保留草稿，请补足内容或重跑改写，不能作为合格稿确认。")
+                  "已保留草稿，请核对信息完整性；人工确认可继续使用。")
             if (structure.get('rewrite_review') or {}).get('status') == 'length_failed' else (
             "存在高风险合规项，请修改后重新确认" if report["status"] == "blocked" else (
             "自动二创检查未全部达标，请查看对照与返工记录后人工确认"
