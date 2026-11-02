@@ -954,7 +954,15 @@ def run(stage: dict) -> tuple[str, str | None]:
             raise ValueError("配音临时文件不存在，已停止渲染")
         audio_local = os.path.join(tmpdir, "tts.mp3")
         shutil.copyfile(audio_path, audio_local)
-        bgm_local = storage.download_artifact(bgm_path, os.path.splitext(bgm_path)[1] or ".mp3") if bgm_path else None
+        if bgm_path:
+            try:
+                bgm_local = storage.download_artifact(bgm_path, os.path.splitext(bgm_path)[1] or ".mp3")
+            except Exception as exc:
+                if '404' in str(exc) or 'Object not found' in str(exc):
+                    raise ValueError(f'背景音乐文件缺失：{bgm_path}。请同步新项目的预设音乐后重试成片节点') from exc
+                raise
+        else:
+            bgm_local = None
         if not images:
             db.set_stage(stage["id"], "failed", error="图片列表为空")
             return "failed", None
