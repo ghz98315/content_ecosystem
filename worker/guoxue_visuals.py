@@ -9,15 +9,13 @@ BASE = (
     '米灰与暖米白熟宣纸细腻肌理，精细柔韧墨线勾勒人物，松树枝干用苍劲墨笔，山水淡墨层染；'
     '低饱和淡彩，以灰褐、米白、墨黑为主，少量青绿和远山灰蓝点缀，避免通幅浓黄滤镜。'
     '柔和月光或自然天光，层次清楚、淡雅通透、静谧含蓄，保留纸面呼吸感。'
-    '人物面容写实温厚，古代文士束发髻、宽袖交领素色长袍，衣纹细线清晰，手部自然；'
-    '服饰、木案、卷轴、笔砚、松竹与远山属于统一古代语境，不出现近现代服饰和器物。'
-    '这是文案哲理的古代生活视觉演绎，不把现代生活事件伪装成史实，不在图中重现社保房贷等现代物件。'
+    '人物面容写实温厚，衣纹细线清晰，手部自然；人物服饰、建筑与器物必须服从各镜头明确的时代。'
+    '古代原典、近代故事和当代生活分别使用对应年代的场景，不把当代事件伪装成古代史实。'
     '前景案头器物、中景文士动作、后景松竹月色或山水形成疏密纵深；完整交代人物和环境。'
 )
 NEGATIVE = (
-    '严禁Nike、Swoosh、Adidas、品牌Logo、商标、运动鞋、球鞋、胶底鞋、背包、双肩包、斜挎包、'
-    '塑料水杯、保温杯、矿泉水瓶、现代手表、T恤、卫衣、牛仔裤、西装、现代塑料制品；'
-    '严禁近现代碎花棉衣、现代建筑、古今混搭、无关帝王宫廷；严禁写实摄影、真人照片、3D渲染、日系二次元、'
+    '严禁Nike、Swoosh、Adidas、品牌Logo、商标、无关产品植入；'
+    '严禁与本镜时代不符的服饰建筑、古今混搭、无关帝王宫廷；严禁写实摄影、真人照片、3D渲染、日系二次元、'
     '厚涂油画、刺眼荧光色、破败斑驳、大面积死黑、苍白无色、畸形手脚、乱码、水印、悬浮文字和UI。'
 )
 SPACES = (
@@ -30,7 +28,37 @@ SPACES = (
 )
 
 
-def scene_direction(text: str, index: int) -> str:
+def infer_era(text: str) -> str:
+    """Prefer the scene's lived period over a quoted classic's publication era."""
+    value = re.sub(r'《[^》]*》', '', text or '')
+    if re.search(r'社保|房贷|手机|微信|互联网|地铁|高楼|上班|换工作|现代|当代|今天|如今|现在|子女', value):
+        return '现代'
+    if re.search(r'民国|近代|抗战|中山装|旗袍|租界|五四', value):
+        return '民国'
+    if re.search(r'春秋|战国|先秦|孔子|老子|庄子|孟子', value):
+        return '先秦'
+    for pattern, era in ((r'秦朝|秦代|秦始皇','秦'),(r'汉朝|汉代|汉武帝','汉'),
+                         (r'唐朝|唐代|唐玄宗','唐'),(r'宋朝|宋代|宋人','宋'),
+                         (r'明朝|明代|明人','明'),(r'清朝|清代|清人','清')):
+        if re.search(pattern, value): return era
+    return '未明确'
+
+
+def scene_direction(text: str, index: int, default_era: str = '未明确') -> str:
+    era = infer_era(text)
+    if era == '未明确': era = default_era
+    if era == '现代':
+        setting = '21世纪中国日常生活；按文案选家庭、城市街道、公园或工作空间，现代服饰和器物真实自然，禁止古装'
+    elif era == '民国':
+        setting = '民国时期中国生活；青砖街巷、近代居室与符合年代的衣着器物，不出现现代电子设备或古代宫廷'
+    elif era != '未明确':
+        setting = f'{era}时代中国生活；按该时代的衣着、建筑与器物表现原典或历史情节，不混入其他朝代或现代物件'
+    else:
+        setting = '年代未明的生活寓意画面；使用不带明确朝代标识的庭院、山水和人物，不猜测具体史实'
+    if era in ('现代', '民国'):
+        return (f'时代与场景：{setting}。依据本镜正文安排人物动作与具体环境，'
+                '采用远景建立空间、中景呈现互动或近景表现细节；光影随室内外与时刻自然匹配。'
+                f'本镜含义（只据此设计画面，不绘制文字）：{text}')
     rules = (
         (r'买菜|集市|街坊|摊位|邻居|市集', 1),
         (r'田地|农作|耕种|丰收|稻田|麦田', 2),
@@ -46,8 +74,8 @@ def scene_direction(text: str, index: int) -> str:
         selected = (0, 3, 4, 5)[index % 4]
     name, details = SPACES[selected]
     return (
-        f'场景空间：{name}，{details}。依据本镜正文表现有意义的人物动作、手部细节和克制微表情；'
-        '服饰和人物身份保持连续，避免所有镜头重复同一书斋读书动作；仅用符合古代语境的卷轴、笔砚、茶盏与竹篮。'
+        f'时代与场景：{setting}。场景空间：{name}，{details}。依据本镜正文表现有意义的人物动作、手部细节和克制微表情；'
+        '服饰和人物身份保持连续，避免所有镜头重复同一书斋读书动作；器物与服饰符合本镜年代。'
         f'本镜含义（只据此设计画面，不绘制这些文字）：{text}'
     )
 
@@ -56,13 +84,15 @@ def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 2, asp
     if grid_cells not in (2, 3):
         raise ValueError('国学宫格仅支持2x2或3x3')
     cell_count = grid_cells * grid_cells
-    directions = [scene_direction(text, i) for i, text in enumerate(scenes)]
+    eras = [infer_era(text) for text in scenes]
+    default_era = next((era for era in eras if era != '未明确'), '未明确') if len(set(era for era in eras if era != '未明确')) <= 1 else '未明确'
+    directions = [scene_direction(text, i, default_era) for i, text in enumerate(scenes)]
     if cover and directions:
-        directions[0] = ('独立封面视觉：凝聚全文哲理共鸣，古代文士或长者通过自然动作与克制神态表现主题，'
-                         '前景笔砚卷轴、中景人物、后景松竹月色或古朴庭院，疏朗构图；不是正文第一个镜头的重复。'
+        directions[0] = ('独立封面视觉：凝聚全文哲理共鸣，以文案对应时代的人物动作与神态表现主题；'
+                         '前中后景疏朗，主体清晰；不是正文第一个镜头的重复。'
                          + directions[0])
     while len(directions) < cell_count:
-        directions.append('传统庭院与远山生活空镜，清朗自然天光，无文字、无现代物件。')
+        directions.append(f'{default_era}时代的生活环境空镜，清朗自然天光，无文字，不混入其他时代物件。')
     grid_label = '四宫格' if grid_cells == 2 else '九宫格'
     return (
         f'生成一张{aspect}源图，严格{grid_cells}行{grid_cells}列{grid_label}，{cell_count}个等大格子按行从左至右对应下列镜头。'
@@ -74,7 +104,7 @@ def grid_prompt(scenes: list[str], cover: bool = False, grid_cells: int = 2, asp
         + '\n'.join(f'{i+1}. {value}' for i, value in enumerate(directions[:cell_count]))
         + '\n参考图只决定笔触、宣纸肌理、设色和光影：灰米纸底、浓淡墨线、松树苍劲枝干、肤色温和、灰蓝远山。'
         '每格根据分镜重新构图；不要复制参考图的人物姿态、月亮位置、书中文字或单幅构图。'
-        f'超高细节，古典工笔淡墨，细腻宣纸墨韵，低饱和淡彩，松竹山水与文人生活气韵，{aspect}构图。'
+        f'超高细节，工笔淡墨，细腻宣纸墨韵，低饱和淡彩，人物与生活环境符合本镜年代，{aspect}构图。'
     )
 
 
