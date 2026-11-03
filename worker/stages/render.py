@@ -1160,24 +1160,20 @@ def run(stage: dict) -> tuple[str, str | None]:
         ]
         if bgm_local:
             render_inputs.extend(["-stream_loop", "-1", "-i", bgm_local])
-        book_pip = images[0].get('book_cover_pip') if local_stock and images else None
-        if local_stock and expected_template == 'health-v1' and not book_pip:
-            # A cover added after video selection must still be used when the
-            # existing clips are re-rendered. No video sourcing is repeated.
-            from local_materials import _book_cover_settings
-            late_cover, late_name = _book_cover_settings(task_id, local_only=True)
-            if late_cover and late_cover.get('provider') == 'local_book_cover':
-                book_pip = {'asset': late_cover, 'book_name': late_name, 'intervals': []}
+        # Resolve at render time as well: an existing image/stock selection can
+        # be reused after a narration change without regenerating pictures.
+        from local_materials import shared_book_cover_settings
+        cover_text = str(subs_data.get('text') or (rewrite_data or {}).get('final_text') or '')
+        late_cover, late_name = shared_book_cover_settings(task_id, cover_text)
+        book_pip = ({'asset': late_cover, 'book_name': late_name, 'intervals': []}
+                    if late_cover else None)
         pip_intervals = book_pip.get('intervals') if isinstance(book_pip, dict) else None
         if book_pip and isinstance(subs_data, dict):
             # Re-align the cover after an audio change and hold it long enough
             # to be visible; the prior saved timings are only a preview.
             from local_materials import book_cover_pip_intervals
-            cover_text = str(subs_data.get('text') or (rewrite_data or {}).get('final_text') or '')
             pip_intervals = book_cover_pip_intervals(cover_text,
                 {**subs_data, 'duration': tts_duration}, str(book_pip.get('book_name') or ''))
-        if local_stock and expected_template == 'health-v1' and book_pip and book_pip['asset'].get('provider') == 'local_book_cover' and not pip_intervals:
-            raise ValueError('本地书封已找到，但画中画时段未生成')
         if pip_intervals:
             from stock_media import fetch_source
             pip_source = fetch_source(book_pip['asset'])

@@ -49,6 +49,7 @@ EXCLUDED_FOR_GUOXUE = {
     "13437498192327096.mp4", "13437498919637988.mp4",
 }
 BOOK_COVER_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.gif', '.avif', '.heic', '.heif'}
+SHARED_BOOK_COVER_FOLDER = '90_书籍封面'
 
 
 def library_root() -> Path:
@@ -81,10 +82,12 @@ def resolve_book_cover(asset: dict) -> Path:
     if not relative or Path(relative).is_absolute() or ".." in Path(relative).parts:
         raise ValueError("本地书籍封面路径无效")
     path = (root / relative).resolve(strict=True)
-    health_root = (root / FOLDERS["health"][0]).resolve(strict=True)
-    if (not path.is_relative_to(health_root) or path.suffix.lower() not in BOOK_COVER_EXTENSIONS
+    allowed_roots = [(root / SHARED_BOOK_COVER_FOLDER).resolve()]
+    legacy_health = root / FOLDERS['health'][0]
+    if legacy_health.is_dir(): allowed_roots.append(legacy_health.resolve())
+    if (not any(path.is_relative_to(folder) for folder in allowed_roots) or path.suffix.lower() not in BOOK_COVER_EXTENSIONS
             or not path.is_file()):
-        raise ValueError("书籍封面不在健康类素材目录")
+        raise ValueError("书籍封面不在允许的素材目录")
     expected_size = asset.get("bytes")
     if expected_size is not None and path.stat().st_size != int(expected_size):
         raise ValueError("本地书籍封面已改变，请重新执行素材节点")
@@ -100,9 +103,10 @@ def local_book_cover(book_name: str) -> dict | None:
     key = _book_key(book_name)
     if not key:
         return None
-    folder = library_root() / FOLDERS["health"][0]
     candidates=[]
-    for path in folder.rglob('*'):
+    root = library_root()
+    folders = [root / SHARED_BOOK_COVER_FOLDER, root / FOLDERS['health'][0]]
+    for path in (path for folder in folders if folder.is_dir() for path in folder.rglob('*')):
         if not path.is_file() or path.suffix.lower() not in BOOK_COVER_EXTENSIONS:
             continue
         stem_key=_book_key(path.stem)
@@ -113,13 +117,14 @@ def local_book_cover(book_name: str) -> dict | None:
         except (OSError,ValueError):
             continue
         exact=int(stem_key==key);first=int(bool(re.search(r"(?:^|\D)0?1$",path.stem)))
-        candidates.append(((exact,first,width*height,-len(path.stem)),path,width,height))
+        shared = int(path.is_relative_to(root / SHARED_BOOK_COVER_FOLDER))
+        candidates.append(((exact,shared,first,width*height,-len(path.stem)),path,width,height))
     if not candidates:return None
     _,path,width,height=max(candidates,key=lambda item:item[0])
     relative=path.relative_to(library_root()).as_posix()
     return {"id":"local-book-"+hashlib.sha256(relative.encode()).hexdigest()[:12],
             "provider":"local_book_cover","media_type":"image","relative_path":relative,
-            "title":f"《{book_name}》封面","page":"本地健康素材库","author":"用户提供",
+            "title":f"《{book_name}》封面","page":"本地书籍封面素材库","author":"用户提供",
             "license":"按本地素材库授权记录","license_url":"","duration":0,
             "width":width,"height":height,"bytes":path.stat().st_size}
 
@@ -287,6 +292,25 @@ def _book_cover_settings(task_id: str, *, local_only: bool = False) -> tuple[dic
     if local_only:return None,book_name
     try:return network_book_cover(book_name),book_name
     except (httpx.HTTPError,ValueError,KeyError):return None,book_name
+
+
+def book_cover_relevant(text: str, book_name: str) -> bool:
+    """Show a cover only where the narration actually recommends this book."""
+    if not book_name or not text:
+        return False
+    plain = clean_tts_text(text)
+    title = clean_tts_text(book_name).strip('《》')
+    if title and title in plain.replace('《', '').replace('》', '') and re.search(r'翻(?:开|看|一翻)|读(?:一读|读|这本)|看(?:一看|看|这本)|带回家|放在(?:床头|茶几|手边)|推荐|橱窗|购买|入手', plain):
+        return True
+    return False
+
+
+def shared_book_cover_settings(task_id: str, text: str) -> tuple[dict | None, str]:
+    """Use the common local cover library only for a spoken book recommendation."""
+    _, book_name = _book_cover_settings(task_id, local_only=True)
+    if not book_cover_relevant(text, book_name):
+        return None, book_name
+    return local_book_cover(book_name), book_name
 
 
 def _cover_ranges(text: str, subtitles: dict, book_name: str) -> list[tuple[int, int]]:
@@ -512,7 +536,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     # width for both content lines, rather than enlarging it to 1080p.
     require_native = category in {"guoxue", "health"}
     output_width = 720 if require_native else 1080
-    cover_asset, book_name = _book_cover_settings(task) if category == "health" else (None, "")
+    cover_asset, book_name = shared_book_cover_settings(task, text)
     previous = db.retry(lambda: db.get_client().table("artifacts").select("meta")
                         .eq("type", "video_index").contains("meta", {"source": "local_library"})
                         .neq("task_id", task).order("created_at", desc=True).limit(500).execute()).data or []
@@ -574,7 +598,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if cover_asset.get('provider') == 'local_book_cover':
                     raise ValueError(f'本地书封已找到但画中画准备失败：{exc}') from exc
                 print(f"  [local-materials] 网络书封暂不可用：{type(exc).__name__}: {exc}",flush=True)
-        if category == 'health' and cover_asset and cover_asset.get('provider') == 'local_book_cover' and not entries[0].get('book_cover_pip'):
+        if cover_asset and not entries[0].get('book_cover_pip'):
             raise ValueError('本地书封已找到，但画中画步骤未完成')
     prefix = f"{task}/stock/local-{revision}"
     index_path = prefix + "/index.json"

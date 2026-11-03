@@ -182,9 +182,29 @@ def run(stage: dict):
                 local=storage.download_artifact(bgm)
                 shutil.move(local,temp/'music.mp3')
                 args+=['-stream_loop','-1','-i',str(temp/'music.mp3')]
+            from local_materials import shared_book_cover_settings, book_cover_pip_intervals
+            from stock_media import fetch_source
+            rewrite=r._load_json_artifact(task_id,'rewrite') or {}
+            cover_text=str(subs.get('text') or rewrite.get('final_text') or '')
+            cover_asset,book_name=shared_book_cover_settings(task_id,cover_text)
+            pip_intervals=[]
+            if cover_asset:
+                pip_intervals=book_cover_pip_intervals(cover_text,{**subs,'duration':duration},book_name)
+            if pip_intervals:
+                r._prepare_book_cover_pip(fetch_source(cover_asset),temp/'book-cover-pip.png')
+                pip_input=3 if bgm else 2
+                args+=['-loop','1','-framerate',str(FPS),'-i',str(temp/'book-cover-pip.png')]
             target=r._storage_safe_video_bitrate(duration,max_bytes=storage.upload_limit_bytes())
-            args+=['-filter_complex',r._audio_mix_filter(bool(bgm),bgm_volume,narration_volume,duration),
-                   '-vf','ass=subs.ass:fontsdir=fonts',*r._encoder_args(target_kbps=target),'-map','0:v:0',
+            audio_filter=r._audio_mix_filter(bool(bgm),bgm_volume,narration_volume,duration)
+            if pip_intervals:
+                spans=[f"between(t,{item['start']:.3f},{item['end']:.3f})" for item in pip_intervals]
+                video_filter=(f'[{pip_input}:v]format=rgba[book];'
+                              f"[0:v][book]overlay=(W-w)/2:(H-h)/2:enable='{'+'.join(spans)}':eof_action=pass[vbook];"
+                              '[vbook]ass=subs.ass:fontsdir=fonts[video]')
+                video_args=['-filter_complex',audio_filter+';'+video_filter,'-map','[video]']
+            else:
+                video_args=['-filter_complex',audio_filter,'-vf','ass=subs.ass:fontsdir=fonts','-map','0:v:0']
+            args+=[*video_args,*r._encoder_args(target_kbps=target),
                    '-map','[audio]' if bgm else '[narration]','-c:a','aac','-b:a','64k','-t',str(duration),'-movflags','+faststart',str(temp/'final.mp4')]
             encoded_at=time.monotonic()
             r._run_ffmpeg(args,check=True,capture_output=True,cwd=str(temp))
@@ -217,6 +237,7 @@ def run(stage: dict):
                 'motion_curve':'linear','motion_work_scale':SCENE_ZOOM_WORK_SCALE,'layout':'scene_fullscreen',
                 'quality_status':quality['status'],'quality_report':quality_path,'phase_seconds':phase,
                 'processing_seconds':round(time.monotonic()-started,3),'file_size_bytes':(temp/'final.mp4').stat().st_size,
+                'book_cover_pip':bool(pip_intervals),'book_cover_pip_intervals':pip_intervals,
                 'bgm_enabled':bool(bgm),'bgm_volume':bgm_volume if bgm else None,'narration_volume':narration_volume})
             if quality['status']=='failed':
                 db.set_stage(stage['id'],'needs_review',output_ref=final_path,error='场景成片自动质检发现问题，请查看报告')

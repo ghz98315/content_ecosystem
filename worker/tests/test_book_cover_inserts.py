@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings, book_cover_pip_intervals
+from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings, book_cover_pip_intervals, book_cover_relevant, shared_book_cover_settings, resolve_book_cover
 from stages.render import _book_cover_pip_graph, _prepare_book_cover_pip
 
 
@@ -42,6 +42,25 @@ class BookCoverInsertTests(unittest.TestCase):
             with patch('local_materials.library_root',return_value=root):
                 result=local_book_cover('自在生活')
             self.assertEqual('30_健康/书籍封面/自在生活.bmp',result['relative_path'])
+
+    def test_shared_cover_is_preferred_and_validated_for_all_content_lines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            shared=root/'90_书籍封面';shared.mkdir()
+            health=root/'30_健康';health.mkdir()
+            Image.new('RGB',(300,500),'red').save(health/'道德经01.png')
+            Image.new('RGB',(400,600),'blue').save(shared/'道德经.png')
+            with patch('local_materials.library_root',return_value=root):
+                found=local_book_cover('道德经')
+                self.assertEqual('90_书籍封面/道德经.png',found['relative_path'])
+                self.assertEqual(shared/'道德经.png',resolve_book_cover(found))
+
+    def test_shared_cover_requires_book_recommendation_and_skips_missing_cover(self):
+        self.assertTrue(book_cover_relevant('这本《道德经》放在手边，闲时翻看。','道德经'))
+        self.assertFalse(book_cover_relevant('今天讲《道德经》中的一个故事。','道德经'))
+        with patch('local_materials._book_cover_settings',return_value=(None,'道德经')), \
+             patch('local_materials.local_book_cover',return_value=None):
+            self.assertEqual((None,'道德经'),shared_book_cover_settings('task','把《道德经》放在床头翻看'))
 
     def test_first_and_last_spoken_title_use_confirmed_cover(self):
         text='今天读养生书。中间讲饮食和运动。最后再回到养生书。'
