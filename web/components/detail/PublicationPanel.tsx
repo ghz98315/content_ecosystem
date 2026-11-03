@@ -53,8 +53,19 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
     if (dirty && !window.confirm('重新生成会替换当前未保存草稿，是否继续？')) return;
     setBusy('generate'); setError(''); setMessage('正在根据最终确认稿生成…');
     try {
-      const response = await authenticatedFetch('/api/publication', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, action: 'generate', sourceHash: data?.sourceHash }) });
-      const result = await publicationResponse<{ copy: PublicationCopy; sourceHash: string }>(response, '发布文案生成失败');
+      let result: { copy: PublicationCopy; sourceHash: string } | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await authenticatedFetch('/api/publication', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, action: 'generate', sourceHash: data?.sourceHash }) });
+          result = await publicationResponse<{ copy: PublicationCopy; sourceHash: string }>(response, '发布文案生成失败');
+          break;
+        } catch (failure) {
+          const retryable = failure instanceof Error && /(?:HTTP\s*(?:502|503|504)|暂不可用（(?:502|503|504)）|生成超时|服务返回了非 JSON 响应)/.test(failure.message);
+          if (!retryable || attempt === 1) throw failure;
+          setMessage('发布服务暂时中断，正在自动重试…');
+        }
+      }
+      if (!result) throw new Error('发布文案生成失败，请稍后重试');
       setCopy(result.copy); setTagsInput(result.copy.tags.map((tag: string) => `#${tag}`).join(' ')); setDraftHash(result.sourceHash); setDirty(true); setMessage('已生成草稿，检查后点击保存发布文案');
     } catch (err) { setError(err instanceof Error ? err.message : '生成失败'); setMessage(''); }
     finally { setBusy(''); }
