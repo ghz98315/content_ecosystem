@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
-import { characterCount, PublicationCopy, PUBLICATION_FIELDS, publicationText, validatePublication } from '@/lib/publication';
+import { characterCount, PublicationCopy, PUBLICATION_FIELDS, publicationText, publicationDescriptionAndTags, splitPublicationDescriptionAndTags, validatePublication } from '@/lib/publication';
 import { publicationResponse } from '@/lib/publicationResponse';
 
 type RecordEntry = { id: string; created_at: string; meta: { copy: PublicationCopy; source_hash: string } };
@@ -17,7 +17,7 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
-  const [tagsInput, setTagsInput] = useState('');
+  const [descriptionTagsInput, setDescriptionTagsInput] = useState('');
   const cacheKey = `publication-draft:${taskId}`;
 
   useEffect(() => {
@@ -27,12 +27,12 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
       const response = await authenticatedFetch(`/api/publication?taskId=${taskId}`);
       const result = await publicationResponse<Loaded>(response, '发布文案读取失败');
       if (!active) return;
-      setData(result); setCopy(result.record?.meta.copy || null); setTagsInput((result.record?.meta.copy.tags || []).map((tag: string) => `#${tag}`).join(' ')); setDraftHash(result.record?.meta.source_hash || result.sourceHash || ''); setDirty(false);
+      setData(result); setCopy(result.record?.meta.copy || null); setDescriptionTagsInput(result.record?.meta.copy ? publicationDescriptionAndTags(result.record.meta.copy) : ''); setDraftHash(result.record?.meta.source_hash || result.sourceHash || ''); setDirty(false);
       try {
         const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
         if (cached && (cached.baseId || null) === (result.record?.id || null)) {
           if (cached.copy && PUBLICATION_FIELDS.every(field => typeof cached.copy[field.key] === 'string') && Array.isArray(cached.copy.cover_options) && Array.isArray(cached.copy.publish_titles) && Array.isArray(cached.copy.tags) && Array.isArray(cached.copy.replies) && typeof cached.sourceHash === 'string') {
-            setCopy(cached.copy); setTagsInput(cached.copy.tags.map((tag: string) => `#${tag}`).join(' ')); setDraftHash(cached.sourceHash); setDirty(true); setMessage('已恢复本标签页的未保存草稿');
+            setCopy(cached.copy); setDescriptionTagsInput(publicationDescriptionAndTags(cached.copy)); setDraftHash(cached.sourceHash); setDirty(true); setMessage('已恢复本标签页的未保存草稿');
           }
         }
       } catch { /* An incomplete local draft never replaces the saved version. */ }
@@ -66,7 +66,7 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
         }
       }
       if (!result) throw new Error('发布文案生成失败，请稍后重试');
-      setCopy(result.copy); setTagsInput(result.copy.tags.map((tag: string) => `#${tag}`).join(' ')); setDraftHash(result.sourceHash); setDirty(true); setMessage('已生成草稿，检查后点击保存发布文案');
+      setCopy(result.copy); setDescriptionTagsInput(publicationDescriptionAndTags(result.copy)); setDraftHash(result.sourceHash); setDirty(true); setMessage('已生成草稿，检查后点击保存发布文案');
     } catch (err) { setError(err instanceof Error ? err.message : '生成失败'); setMessage(''); }
     finally { setBusy(''); }
   }
@@ -100,12 +100,17 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
     {copy && <>
       <fieldset className="publication-choices"><legend>封面主副标题 · 三选一</legend><div className="cover-choice-grid">{copy.cover_options.map((option, index) => <button type="button" key={index} disabled={Boolean(busy)} aria-pressed={copy.cover_title === option.title && copy.cover_subtitle === option.subtitle} onClick={() => edit({ ...copy, cover_title: option.title, cover_subtitle: option.subtitle })}><small>方案 {String(index + 1).padStart(2, '0')}</small><strong>{option.title}</strong><span>{option.subtitle}</span></button>)}</div></fieldset>
       <fieldset className="publication-choices"><legend>发布标题 · 三选一</legend><div className="publish-choice-list">{copy.publish_titles.map((title, index) => <button type="button" key={index} disabled={Boolean(busy)} aria-pressed={copy.publish_title === title} onClick={() => edit({ ...copy, publish_title: title })}><small>{String(index + 1).padStart(2, '0')}</small><span>{title}</span></button>)}</div></fieldset>
-      <div className="publication-fields">{PUBLICATION_FIELDS.map(field => <label key={field.key} className={field.key.includes('comment') || field.key === 'description' ? 'publication-wide' : ''}>
+      <div className="publication-fields">{PUBLICATION_FIELDS.slice(0, 3).map(field => <label key={field.key}>
         <span>{scene&&field.key==='purchase_comment'?'商品转化评论（无商品可留空）':field.label}<small>{characterCount(copy[field.key])}/{field.max}字</small></span>
         <textarea aria-label={field.label} rows={field.rows} value={copy[field.key]} disabled={Boolean(busy)} onChange={event => edit({ ...copy, [field.key]: event.target.value })} />
         <button type="button" onClick={() => void clipboard(copy[field.key])}>复制{field.label}</button>
       </label>)}
-      <label className="publication-wide"><span>话题标签<small>最多8个，以空格或 # 分隔</small></span><input aria-label="话题标签" disabled={Boolean(busy)} value={tagsInput} onChange={event => { setTagsInput(event.target.value); edit({ ...copy, tags: event.target.value.split(/[\s#]+/).filter(Boolean) }); }} /><button onClick={() => void clipboard(copy.tags.map(tag => `#${tag}`).join(' '))}>复制话题标签</button></label>
+      <label className="publication-wide"><span>发布简介与话题标签<small>简介最多200字；末行用 #话题 分隔，最多8个</small></span><textarea aria-label="发布简介与话题标签" rows={5} disabled={Boolean(busy)} value={descriptionTagsInput} onChange={event => { const value = event.target.value; setDescriptionTagsInput(value); edit({ ...copy, ...splitPublicationDescriptionAndTags(value) }); }} /><button type="button" onClick={() => void clipboard(descriptionTagsInput)}>复制简介与标签</button></label>
+      {PUBLICATION_FIELDS.slice(4).map(field => <label key={field.key} className="publication-wide">
+        <span>{scene&&field.key==='purchase_comment'?'商品转化评论（无商品可留空）':field.label}<small>{characterCount(copy[field.key])}/{field.max}字</small></span>
+        <textarea aria-label={field.label} rows={field.rows} value={copy[field.key]} disabled={Boolean(busy)} onChange={event => edit({ ...copy, [field.key]: event.target.value })} />
+        <button type="button" onClick={() => void clipboard(copy[field.key])}>复制{field.label}</button>
+      </label>)}
       </div>
       <div className="publication-replies"><div className="section-heading"><strong>回复建议</strong><small>按实际评论选用，每条50字以内，最多5条</small></div>
         {copy.replies.map((reply, index) => <label key={index}><span>{index + 1}</span><textarea aria-label={`回复建议${index + 1}`} rows={2} disabled={Boolean(busy)} value={reply} onChange={event => edit({ ...copy, replies: copy.replies.map((item, i) => i === index ? event.target.value : item) })} /><small>{characterCount(reply)}/50字</small><button onClick={() => void clipboard(reply)}>复制</button><button disabled={Boolean(busy)} aria-label={`移除回复建议${index + 1}`} onClick={() => edit({ ...copy, replies: copy.replies.filter((_, i) => i !== index) })}>移除</button></label>)}

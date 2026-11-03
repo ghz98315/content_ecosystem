@@ -14,7 +14,7 @@ export interface PublicationCopy {
 export const PUBLICATION_FIELDS = [
   { key: 'cover_title', label: '封面主标题', max: 24, rows: 1 },
   { key: 'cover_subtitle', label: '封面副标题', max: 36, rows: 1 },
-  { key: 'publish_title', label: '发布标题', max: 40, rows: 1 },
+  { key: 'publish_title', label: '发布标题', max: 16, rows: 1 },
   { key: 'description', label: '发布简介', max: 200, rows: 3 },
   { key: 'interaction_comment', label: '互动评论', max: 100, rows: 3 },
   { key: 'purchase_comment', label: '橱窗购书评论', max: 100, rows: 3 },
@@ -27,7 +27,7 @@ export const PUBLICATION_PROMPT = `你是一位中文短视频宣发编辑，为
 根据内容类型保持对应语气：国学克制温润、贴近日常；健康清楚审慎；历史社科准确、有人物和事件依据。
 要求：
 1. cover_options：恰好3组配套的封面主副标题，分别从生活共鸣、价值启发、问题悬念切入，三个方案有明确区别，每组title建议6至12字、最多24字，subtitle建议8至20字、最多36字。二者互相补充，不夸张恐吓。cover_title和cover_subtitle默认采用第一组。
-2. publish_titles：恰好3个自然、有内容依据且角度不同的发布标题，每个最多40字；publish_title默认采用第一个。description：200字以内的简明简介，概括本期价值，不重复堆砌标题，不加话题标签。
+2. publish_titles：恰好3个自然、有内容依据且角度不同的发布标题，每个包含标点、空格及其他符号在内最多16字；publish_title默认采用第一个，也必须不超过16字。description：200字以内的简明简介，概括本期价值，不重复堆砌标题，不加话题标签。
 3. tags：3至8个相关话题，不带#，可参考来源标签，剔除无关或没有依据的标签。
 4. interaction_comment：100字以内，具体价值或生活痛点 + 一个容易回答的问题，邀请听众分享真实经历，不编造评论者身份。
 5. purchase_comment：100字以内，先用一句正文支持的具体价值或收获吸引读者，再自然引导到主页橱窗选购。“读经典、学智慧”这类空泛表达不能单独作为价值。正文明确提到书名才可以写该书名；没提到就使用“相关书籍”等概括表达。不得虚构已上架、折扣、销量或购买效果。
@@ -45,7 +45,7 @@ export function validatePublication(input: unknown, allowEmptyPurchase = false):
   const result: Record<string, unknown> = {};
   const singleLine = (value: unknown, max: number) => typeof value === 'string' && value.trim() && characterCount(value.trim()) <= max && !/[\r\n]/.test(value);
   if (!Array.isArray(raw.cover_options) || raw.cover_options.length !== 3 || raw.cover_options.some(option => !option || !singleLine(option.title, 24) || !singleLine(option.subtitle, 36))) throw new Error('请提供3组封面主副标题，每组主标题24字以内、副标题36字以内');
-  if (!Array.isArray(raw.publish_titles) || raw.publish_titles.length !== 3 || raw.publish_titles.some(title => !singleLine(title, 40))) throw new Error('请提供3个发布标题，每个40字以内');
+  if (!Array.isArray(raw.publish_titles) || raw.publish_titles.length !== 3 || raw.publish_titles.some(title => !singleLine(title, 16))) throw new Error('请提供3个发布标题，每个含符号不超过16字');
   const coverOptions = raw.cover_options.map(option => ({ title: option.title.trim(), subtitle: option.subtitle.trim() }));
   const publishTitles = raw.publish_titles.map(title => title.trim());
   if (new Set(coverOptions.map(option => `${option.title}\n${option.subtitle}`)).size !== 3 || new Set(publishTitles).size !== 3) throw new Error('3个标题方案须有区别，不能完全重复');
@@ -63,8 +63,20 @@ export function validatePublication(input: unknown, allowEmptyPurchase = false):
 }
 
 export function publicationText(copy: PublicationCopy) {
-  return [...PUBLICATION_FIELDS.slice(0, 4).map(field => `${field.label}：${copy[field.key]}`),
-    `话题标签：${copy.tags.map(tag => `#${tag}`).join(' ')}`,
+  return [...PUBLICATION_FIELDS.slice(0, 3).map(field => `${field.label}：${copy[field.key]}`),
+    `发布简介与话题标签：\n${publicationDescriptionAndTags(copy)}`,
     ...PUBLICATION_FIELDS.slice(4).map(field => `${field.label}：${copy[field.key]}`),
     ...copy.replies.map((reply, index) => `回复建议${index + 1}：${reply}`)].join('\n\n');
+}
+
+export function publicationDescriptionAndTags(copy: Pick<PublicationCopy, 'description' | 'tags'>) {
+  return `${copy.description}\n${copy.tags.map(tag => `#${tag}`).join(' ')}`;
+}
+
+export function splitPublicationDescriptionAndTags(value: string) {
+  const lines = value.replace(/\r/g, '').split('\n');
+  const last = lines.at(-1) || '';
+  const hasTags = /^\s*(?:#[^\s#]+\s*)+$/.test(last);
+  return { description: (hasTags ? lines.slice(0, -1) : lines).join('\n'),
+    tags: hasTags ? last.split(/[\s#]+/).filter(Boolean) : [] };
 }
