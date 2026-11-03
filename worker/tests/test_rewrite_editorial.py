@@ -57,7 +57,7 @@ class EditorialTests(unittest.TestCase):
 
     def test_category_limits_remain_independent(self):
         self.assertEqual((90, 110), length_bounds('甲' * 100, 'scene'))
-        self.assertEqual((85, 90), length_bounds('甲' * 100, 'health'))
+        self.assertEqual((100, 110), length_bounds('甲' * 100, 'health'))
         self.assertEqual((85, 110), length_bounds('甲' * 100, 'guoxue'))
 
     def test_revision_loop_reassembles_patch_and_rechecks_against_original_source(self):

@@ -14,6 +14,15 @@ SKILL_REFERENCE_ROOT = (
 )
 ACTIVE_CATEGORIES = {"guoxue", "health", "social_science", "education", "scene"}
 
+SPOKEN_STYLE_RULES = (
+    "【口播正文边界】面向45岁以上听众，像有生活阅历的熟人自然讲述。"
+    "正文不得出现原稿、参考文案、改写后的文案、依据原稿保留、未独立核验、医学事实、因果证据等制作或审稿措辞；"
+    "这些判断只写在审核元数据中。开头锁定钩子原样保留，不擅自改动。"
+    "医学诊断、用药、治愈或替代治疗的无依据建议，不写入口播；"
+    "一般饮食、散步等生活内容自然表达，不反复报幕书籍来源。"
+    "不编造第一人称亲历、床头常备的习惯、购书后的效果或子女的反应。"
+)
+
 
 def normalize_category(value: object) -> str:
     category = str(value or "health").strip().lower()

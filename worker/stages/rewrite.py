@@ -18,7 +18,9 @@ import storage
 from rewrite_review import MAX_REVISIONS, PLANNED_MIN_LENGTH_RATIO, PLANNED_TARGET_LENGTH_RATIO, HEALTH_MIN_LENGTH_RATIO, HEALTH_TARGET_LENGTH_RATIO, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length, attempt_rank, length_bounds
 from rewrite_skill import resolve_domain, prompt_extension, audit_output, DomainConflict
 from rewrite_editorial import scene_plan_audit, health_attribution_issues, repair_scope, apply_paragraph_edits
+from spoken_style import spoken_style_issues
 from prompt_profiles import (
+    SPOKEN_STYLE_RULES,
     author_name,
     derive_keyword,
     load_prompt,
@@ -324,6 +326,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     """Initial generation plus at most three content revisions, then human review."""
     hook = opening_hook(source)
     prompt = load_prompt(context['category'], 'initial_dedup')
+    prompt += '\n\n' + SPOKEN_STYLE_RULES
     skill_profile = context.get('rewrite_skill')
     if skill_profile:
         extension, skill_profile = prompt_extension(skill_profile)
@@ -459,6 +462,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         if missing_terms:
             issues.append('未原样保留书名或数字：' + '、'.join(missing_terms))
         issues = list(dict.fromkeys(issues))
+        issues = list(dict.fromkeys(issues + spoken_style_issues(text, hook)))
         skill_audit = audit_output(source, text, obj) if skill_profile else None
         if skill_audit:
             issues = list(dict.fromkeys(issues + skill_audit['issues']))
@@ -546,6 +550,7 @@ def _generate_candidates(
     source_len = _text_len(source)
     prompt_kind = _rewrite_prompt_kind(context["category"], mode, narration_mode)
     prompt = load_prompt(context["category"], prompt_kind, use_shared=False)
+    prompt += '\n\n' + SPOKEN_STYLE_RULES
     source_label = "首发版本最终确认稿" if mode == "repost_dedup" else "已清洗正文"
     tolerance_label = "10%" if context["category"] == "social_science" else ("8%" if mode == "repost_dedup" else "12%")
     terms = "、".join(protected_terms(source)) or "无额外词语"
@@ -607,6 +612,8 @@ def _generate_candidates(
         last_issues = _candidate_issues(
             candidates, source, getattr(choice, "finish_reason", None), mode, context["category"], narration_mode
         )
+        if candidates:
+            last_issues = list(dict.fromkeys(last_issues + spoken_style_issues(candidates[0])))
         if narration_mode == "dual_dialogue" and not structure.get("delivery_plan"):
             last_issues.append("双人播客未输出与对话稿一致的逐轮语气指令")
         if candidates:
