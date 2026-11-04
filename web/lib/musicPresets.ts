@@ -9,6 +9,7 @@ export type MusicPreset = {
   defaultVolume: number;
   sourceUrl: string;
   credit: string;
+  userProvided?: boolean;
 };
 
 const attribution = (title: string, sourceUrl: string) =>
@@ -20,6 +21,10 @@ const preset = (id: string, category: MusicCategory, label: string, mood: string
 };
 
 export const MUSIC_PRESETS: readonly MusicPreset[] = [
+  { id:'guoxue-yougu', category:'guoxue', label:'国风幽谷静心曲', mood:'国风 · 静心', path:'music-presets/guoxue-yougu.mp3', defaultVolume:0.15, sourceUrl:'', credit:'用户提供音频，请按实际授权范围使用。', userProvided:true },
+  { id:'guoxue-1030', category:'guoxue', label:'国学类背景音乐1030', mood:'国学 · 舒缓', path:'music-presets/guoxue-1030.mp3', defaultVolume:0.15, sourceUrl:'', credit:'用户提供音频，请按实际授权范围使用。', userProvided:true },
+  { id:'health-yekong', category:'health', label:'夜空的寂静 — 赵海洋', mood:'钢琴 · 宁静', path:'music-presets/health-yekong.mp3', defaultVolume:0.15, sourceUrl:'', credit:'《夜空的寂静》— 赵海洋。请按实际授权范围使用。', userProvided:true },
+  { id:'health-qiudesi', category:'health', label:'秋的思念 — 赵海洋', mood:'钢琴 · 温柔', path:'music-presets/health-qiudesi.mp3', defaultVolume:0.15, sourceUrl:'', credit:'《秋的思念》— 赵海洋。请按实际授权范围使用。', userProvided:true },
   preset('guoxue-ripples', 'guoxue', 'Ripples', '古筝独奏感 · 沉静', 'USUAN1100691', 0.15),
   preset('guoxue-ishikari-lore', 'guoxue', 'Ishikari Lore', '弹拨与笛声 · 叙事', 'USUAN1100192', 0.07),
   preset('guoxue-finding-movement', 'guoxue', 'Finding Movement', '弹拨与弦乐 · 温和', 'USUAN1100693', 0.07),

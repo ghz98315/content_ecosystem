@@ -80,7 +80,7 @@ export default function HomePage() {
       title: inputMode === 'ready_script' ? (scriptTitle.trim() || script.split(/[。！？\n]/)[0].slice(0, 36) || '已导入成稿') : null,
       bgm_path: MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)?.path || null,
       bgm_volume:0.15,
-      bgm_authorization_confirmed: Boolean(MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)),
+      bgm_authorization_confirmed: !MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)?.userProvided,
       tts_rate:"-8%",
       status: "configuring",
       content_category: databaseCategory(templateId),

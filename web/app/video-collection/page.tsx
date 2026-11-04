@@ -305,7 +305,7 @@ function VideoCollectionContent() {
       content_category: databaseCategory(productionTemplateId),
       bgm_volume: Number(bgmVolume),
       bgm_path: defaultPreset?.path || null,
-      bgm_authorization_confirmed: Boolean(defaultPreset),
+      bgm_authorization_confirmed: Boolean(defaultPreset && !defaultPreset.userProvided),
       narration_mode: ttsSource === 'automatic' ? narrationMode : 'single',
       tts_secondary_voice_profile_id: ttsSource === 'automatic' && narrationMode === 'dual_dialogue' ? secondaryProfile?.id || null : null,
       tts_secondary_provider: ttsSource === 'automatic' && narrationMode === 'dual_dialogue' ? secondaryProfile?.provider || null : null,

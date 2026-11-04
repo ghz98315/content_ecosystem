@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: '无效的素材路径' }, { status: 400 });
     const prefix = path.split('/')[0];
     if (MUSIC_PRESET_PATHS.has(path)) {
-      // The six licensed library tracks are shared, read-only preset assets.
+      // Shared, read-only preset assets; source and usage terms are shown in the UI.
     } else if (prefix === 'voice-samples') {
       const { data: profile } = await sb.from('voice_profiles').select('id').eq('owner',auth.user.id).eq('sample_path',path).limit(1);
       if (path.split('/')[1] !== auth.user.id && !profile?.length)
