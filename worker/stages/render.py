@@ -305,7 +305,7 @@ def _make_ass(
         foot_fill='&H4DFFFFFF'
         foot_border=0
     subheading_size = round(SUBTITLE_FONT_SIZE * 1.3) if health_text_style else (56 if landscape_layout else 52)
-    narration_fill = '&H0000E6FF' if guoxue_text_style else '&H00FFFFFF'
+    narration_fill = '&H0000E6FF' if (guoxue_text_style or health_text_style) else '&H00FFFFFF'
     narration_bold = 0 if landscape_layout else -1
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
