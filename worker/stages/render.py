@@ -91,7 +91,9 @@ def _prepare_book_cover_pip(source: str | Path, destination: str | Path) -> None
     with Image.open(source) as original:
         cover = ImageOps.exif_transpose(original)
         cover.thumbnail((760, 570), Image.Resampling.LANCZOS)
-        cover.save(destination, format='PNG')
+        canvas = Image.new('RGBA', (760, 570), (0, 0, 0, 0))
+        canvas.alpha_composite(cover.convert('RGBA'), ((760-cover.width)//2, (570-cover.height)//2))
+        canvas.save(destination, format='PNG')
 
 
 def _book_cover_pip_graph(pip_input: int, picture_ratio: float,
@@ -100,7 +102,7 @@ def _book_cover_pip_graph(pip_input: int, picture_ratio: float,
     picture_height = round(W / picture_ratio)
     picture_top = (H - picture_height) // 2
     return (
-        f'[{pip_input}:v]format=rgba[book];'
+        f"[{pip_input}:v]zoompan=z='min(1.18,1+0.002*on)':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=1:s=760x570:fps={FPS},format=rgba[book];"
         f"[0:v][book]overlay=(W-w)/2:{picture_top}+(" +
         f"{picture_height}-h)/2:enable='{'+'.join(spans)}':eof_action=pass[vbook];"
         f'[vbook]{video_filter}[video]'

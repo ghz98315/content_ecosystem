@@ -198,7 +198,7 @@ def run(stage: dict):
             audio_filter=r._audio_mix_filter(bool(bgm),bgm_volume,narration_volume,duration)
             if pip_intervals:
                 spans=[f"between(t,{item['start']:.3f},{item['end']:.3f})" for item in pip_intervals]
-                video_filter=(f'[{pip_input}:v]format=rgba[book];'
+                video_filter=(f"[{pip_input}:v]zoompan=z='min(1.18,1+0.002*on)':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=1:s=760x570:fps={FPS},format=rgba[book];"
                               f"[0:v][book]overlay=(W-w)/2:(H-h)/2:enable='{'+'.join(spans)}':eof_action=pass[vbook];"
                               '[vbook]ass=subs.ass:fontsdir=fonts[video]')
                 video_args=['-filter_complex',audio_filter+';'+video_filter,'-map','[video]']
