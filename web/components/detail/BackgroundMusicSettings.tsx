@@ -54,17 +54,21 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
     } catch(err) {setError(err instanceof Error?err.message:'音乐上传失败');}
     finally {setBusy(false);}
   }
-  async function save(remove=false) {
+  async function save(remove=false, rerender=false) {
     setBusy(true);setError('');setMessage('');
     try {
       if(!remove && path && !authorized)throw new Error('请确认音乐使用授权后保存');
-      const {data:render,error:readError}=await supabase.from('stages').select('status').eq('task_id',taskId).eq('kind','render').single();
+      const {data:render,error:readError}=await supabase.from('stages').select('id,status').eq('task_id',taskId).eq('kind','render').single();
       if(readError)throw readError;
       if(render.status==='processing')throw new Error('视频正在合成，请完成后再修改音乐');
       const {error}=await supabase.from('tasks').update({bgm_path:remove?null:path || null,bgm_volume:volume,narration_volume:narration,bgm_authorization_confirmed:remove?false:authorized}).eq('id',taskId);
       if(error)throw error;
       if(remove){setPath('');setAuthorized(false);}
-      setMessage(render.status==='done'?'已保存，重新执行成片节点后应用音乐设置。':'已保存，将在成片时加入音乐；也可不添加音乐继续。');
+      if(rerender && ['done','failed','needs_review'].includes(render.status)) {
+        const {error:rerunError}=await supabase.rpc('rerun_stage',{p_stage_id:render.id});
+        if(rerunError)throw new Error(`配乐已保存，但重新成片未启动：${rerunError.message}`);
+        setMessage('配乐已保存并重新排队成片；沿用现有素材、配音与字幕。');
+      } else setMessage(render.status==='done'?'已保存，重新成片后应用音乐设置。':'已保存，将在成片时加入音乐。');
     } catch(err) {setError(err instanceof Error?err.message:'音乐设置保存失败');}
     finally {setBusy(false);}
   }
@@ -80,6 +84,7 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
       <label>配音音量 {narration.toFixed(2)}<input type="range" min="0.50" max="1.50" step="0.05" value={narration} disabled={!ready || busy} onChange={event=>{setNarration(Number(event.target.value));setMessage('有未保存修改');}} /></label>
       <label><input type="checkbox" checked={authorized} disabled={!path || busy || Boolean(selectedPreset && !selectedPreset.userProvided)} onChange={event=>setAuthorized(event.target.checked)} />{selectedPreset && !selectedPreset.userProvided ? '预设音乐已按 CC BY 4.0 授权，请按上方提示署名' : '我确认已取得该音乐的使用授权'}</label>
       <button type="button" disabled={!ready || busy} onClick={()=>void save()}>保存音乐设置</button>
+      <button type="button" disabled={!ready || busy} onClick={()=>void save(false,true)}>保存配乐并重新成片</button>
       {path && <button type="button" disabled={busy} onClick={()=>void save(true)}>移除背景音乐</button>}
     </div>
     {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
