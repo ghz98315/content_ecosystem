@@ -111,6 +111,7 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
   const current = payload?.current;
   const review = current?.review;
   const mismatchedRecording = review?.match_report?.state === 'unrelated';
+  const subtitleFormatFailure = /字幕无法在限定字数内完成切分|无法保持完整的词语/.test(review?.error || '');
   const suggestionsReady = review?.difference_method === 'speech_sequence_v2'
     && review?.difference_base_text === current?.subtitle_text;
   const changedText = draft.trim() !== (current?.subtitle_text || '').trim();
@@ -134,9 +135,12 @@ export function ExternalNarrationPanel({ stage }: { stage: Stage | undefined }) 
       {busy && <progress aria-label="配音文件上传或提交中" />}
       {(current?.state === 'queued' || stage?.status === 'processing') && <p role="status">正在识别人声、自动校正识别偏差并对齐字幕，完成后自动继续。</p>}
       {review?.error && <p role="alert">处理失败：{review.error}{mismatchedRecording && <><br />当前录音：{current?.original_name}<br />录音识别开头：{review.match_report?.audio_opening}…<br />确认稿开头：{review.match_report?.script_opening}…<br />请上传这条任务对应的录音。</>}{!mismatchedRecording && '。可以重新上传或重新对齐。'}</p>}
-      {review?.error && current && !mismatchedRecording && <button type="button" className="secondary-action" disabled={!canEdit} onClick={() => void perform(async () => {
-        await action('realign', { id: current.id, text: draft.trim() }); setNotice('已复用当前录音重新自动对齐，无需再次上传。');
-      })}>复用当前录音重试对齐</button>}
+      {review?.error && current && !mismatchedRecording && <>
+        {subtitleFormatFailure && <p role="status">已识别到文稿中的排版符号或超长词。系统会自动清理格式，并在必要时按不超过 10 字安全拆分，无需重新录音。</p>}
+        <button type="button" className="secondary-action" disabled={!canEdit} onClick={() => void perform(async () => {
+          await action('realign', { id: current.id, text: draft.trim() }); setNotice('已复用当前录音重新自动对齐，无需再次上传。');
+        })}>{subtitleFormatFailure ? '自动修复字幕格式并重新对齐' : '复用当前录音重试对齐'}</button>
+      </>}
       {review?.audio_expired_at && <p role="status">配音文件已按 48 小时保留规则清理；如需重新成片，请重新上传配音。</p>}
       {review?.pause_optimization?.applied && <p role="status">已自动缩短 {review.pause_optimization.shortened_count} 处超过 1 秒的静音停顿，共缩短约 {review.pause_optimization.removed_seconds?.toFixed(1)} 秒；字幕与成片使用处理后的配音。</p>}
       {review?.pause_optimization?.note && <p role="status">{review.pause_optimization.note}</p>}

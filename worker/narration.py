@@ -74,6 +74,27 @@ def clean_tts_text(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def clean_subtitle_text(text: str) -> str:
+    """Remove presentation-only Markdown before timing or displaying captions.
+
+    External narration may be read from a copy of the approved script.  Those
+    scripts sometimes retain Markdown emphasis (for example ``**“一句话。”**``).
+    The marks are not spoken or displayed, and leaving them between a terminal
+    punctuation mark and the next character used to make the dynamic splitter
+    believe that no legal final boundary existed.
+    """
+    source = html.unescape(str(text or "")).replace("\r\n", "\n").replace("\r", "\n")
+    # These are formatting delimiters in approved scripts, never subtitle
+    # content.  Keep ordinary punctuation and line breaks as semantic hints.
+    source = re.sub(r"\*\*|__|`+", "", source)
+    # Quote marks are decorative in this subtitle format (they are not drawn
+    # by ``subtitle_display_text``).  Remove them before segmentation so a
+    # terminal mark such as ``。\u201d`` remains a valid final boundary.
+    source = source.translate(str.maketrans('', '', '“”‘’"\''))
+    source = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", source)
+    return source.strip()
+
+
 def visible_len(text: str) -> int:
     return len(re.sub(r"\s+", "", text or ""))
 
@@ -216,7 +237,7 @@ def has_disallowed_subtitle_punctuation(text: str) -> bool:
 
 def pause_after_text(text: str) -> float:
     """Return the requested pause represented by trailing punctuation."""
-    compact = re.sub(r"\s+", "", text or "")
+    compact = re.sub(r"\s+", "", clean_subtitle_text(text))
     trailing = re.search(r"([，。！？；：、,.!?;:“”‘’\"'—…]+)$", compact)
     if not trailing:
         return 0.0
@@ -392,7 +413,7 @@ def split_semantic_units(
     """Split at punctuation or Chinese word boundaries, never raw width first."""
     if max_chars < 1:
         raise ValueError("max_chars must be positive")
-    compact = re.sub(r"\s+", "", text or "")
+    compact = re.sub(r"\s+", "", clean_subtitle_text(text))
     if not compact:
         return []
 
@@ -403,9 +424,10 @@ def split_semantic_units(
         source_length = visible_len(raw)
         display = subtitle_display_text(raw)
         display_length = subtitle_visible_len(display)
-        if kind == "forced":
-            preview = display[:max_chars + 2]
-            raise ValueError(f"字幕存在超过{max_chars}字且无法保持完整的词语：{preview}")
+        # A single unbroken title, English token or imported source word can
+        # exceed the screen limit.  The hard limit wins: use the least-bad
+        # boundary selected by the global scorer rather than failing the whole
+        # narration job.  Normal short phrases still use semantic cuts.
         if display and source_length:
             units.append({
                 "text": display,

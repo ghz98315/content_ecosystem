@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 from external_alignment import align, validate_cues
-from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit, strip_subtitle_punctuation, subtitle_display_text, subtitle_visible_len, split_semantic_units, subtitle_intervals
+from narration import SUBTITLE_MAX_CHARS, clean_subtitle_text, enforce_subtitle_limit, strip_subtitle_punctuation, subtitle_display_text, subtitle_visible_len, split_semantic_units, subtitle_intervals
 from stages.tts import _build_subtitle_cues
 from stages.render import _make_ass
 from scene_render import write_ass as write_scene_ass
@@ -95,6 +95,13 @@ class SubtitleLimitTests(unittest.TestCase):
     def test_short_complete_clause_is_not_fragmented(self):
         units = split_semantic_units("原本就在十字以内。")
         self.assertEqual(["原本就在十字以内"], [unit["text"] for unit in units])
+
+    def test_markdown_emphasis_is_removed_before_external_style_caption_split(self):
+        raw = '**“女人若想过好这一生，一定要有自己的房间。”**'
+        self.assertNotIn('*', clean_subtitle_text(raw))
+        units = split_semantic_units(raw)
+        self.assertEqual('女人若想过好这一生，一定要有自己的房间。', ''.join(unit['source_text'] for unit in units))
+        self.assertTrue(all(unit['char_count'] <= SUBTITLE_MAX_CHARS for unit in units))
 
     def test_degree_adverb_stays_with_its_phrase(self):
         units = split_semantic_units("庄子曾经讲过一个很奇怪的故事，为什么喝醉的人摔不死？")

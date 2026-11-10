@@ -854,9 +854,11 @@ class TtsInputTests(unittest.TestCase):
         self.assertGreaterEqual(units[-1]["char_count"], 4)
         self.assertTrue(any("人工智能技术" in unit["text"] for unit in units))
 
-    def test_subtitle_rejects_an_unsplittable_overlong_word(self):
-        with self.assertRaisesRegex(ValueError, "无法保持完整的词语"):
-            split_semantic_units("Supercalifragilistic", max_chars=14)
+    def test_subtitle_safely_splits_an_unsplittable_overlong_word(self):
+        units = split_semantic_units("Supercalifragilistic", max_chars=14)
+        self.assertEqual("Supercalifragilistic", "".join(unit['text'] for unit in units))
+        self.assertTrue(all(unit['char_count'] <= 14 for unit in units))
+        self.assertTrue(any(unit['boundary'] == 'forced' for unit in units))
 
     def test_book_title_closing_mark_is_a_valid_ten_character_cut(self):
         text = "归根到底，《越吃越瘦越吃越年轻》不是单纯教您挑一份食谱，而是换个角度看待吃饭。"

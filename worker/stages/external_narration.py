@@ -14,7 +14,7 @@ import storage
 import imageio_ffmpeg
 from external_pause import POLICY as PAUSE_POLICY, cap_internal_pauses
 from external_alignment import align, comparable, differences, recording_match_report, validate_cues
-from narration import SUBTITLE_MAX_CHARS, enforce_subtitle_limit
+from narration import SUBTITLE_MAX_CHARS, clean_subtitle_text, enforce_subtitle_limit
 
 
 def _finish(stage: dict, state: str, review: dict, audio: str | None = None, subtitle: str | None = None):
@@ -37,7 +37,16 @@ def run(stage: dict) -> tuple[str, None]:
         row = db.retry(lambda: db.get_client().table('external_narrations').select('*').eq('id',params['external_id']).eq('stage_id',stage['id']).single().execute()).data
         if not row:
             raise ValueError('配音版本不存在')
-        text = row['subtitle_text']
+        raw_text = row['subtitle_text']
+        text = clean_subtitle_text(raw_text)
+        # Keep old drafts and future retries on the same canonical subtitle
+        # source.  This makes pasted Markdown harmless and avoids asking the
+        # user to upload the same recording again solely for formatting marks.
+        if text != raw_text:
+            db.retry(lambda: db.get_client().table('external_narrations').update({
+                'subtitle_text': text,
+            }).eq('id', row['id']).eq('stage_id', stage['id']).execute())
+            row['subtitle_text'] = text
         previous = row.get('review') or {}
         original = storage.download_artifact(row['original_path'], Path(row['original_path']).suffix)
         if Path(original).stat().st_size != row['size_bytes']:
