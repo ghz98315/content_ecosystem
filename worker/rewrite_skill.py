@@ -7,9 +7,9 @@ from pathlib import Path
 from rewrite_review import normalized
 
 ROOT = Path(__file__).resolve().parent.parent / 'skills' / 'book-video-rewrite'
-VERSION = '1.4.0'
+VERSION = '1.5.0'
 DOMAINS = {'guoxue', 'health', 'mixed', 'general', 'scene'}
-LABELS = {'guoxue':'国学','health':'健康','mixed':'国学与健康混合','general':'通用','scene':'山河人文'}
+LABELS = {'guoxue':'国学','health':'女性成长与健康生活','mixed':'国学与健康混合','general':'通用','scene':'山河人文'}
 CLASSICS = ('道德经','论语','庄子','孟子','大学','中庸','易经','黄帝内经')
 MEDICAL = ('血压','血糖','糖尿病','胆固醇','心血管','临床','药物','服药','治疗','疾病','营养','饮食','睡眠','运动')
 
@@ -19,6 +19,9 @@ class DomainConflict(ValueError):
 
 def resolve_domain(source: str, explicit='auto', templates=(), category='health'):
     explicit = str(explicit or 'auto')
+    if category == 'social_science':
+        return {'domain':'history', 'label':'历史社科', 'reason':'历史社科生产线',
+                'evidence':{'templates':sorted(set(templates))}, 'version':'history-1.0'}
     if category == 'scene' and explicit not in {'auto','scene'}:
         raise DomainConflict('山河人文生产线请使用山河人文二创规则')
     if category == 'scene' and explicit == 'auto':
@@ -61,6 +64,11 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
 
 
 def prompt_extension(profile):
+    if profile['domain'] == 'history':
+        rules = (ROOT / 'references' / 'history.md').read_text(encoding='utf-8')
+        contract = (Path(__file__).parent/'prompts'/'rewrite_skill_contract.txt').read_text(encoding='utf-8').strip()
+        text = rules + '\n\n' + contract + '\n历史社科的 tail_text 由程序填充，模型只输出可改写中段。'
+        return text, {**profile, 'version':'history-1.0', 'rule_files':['history.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
     if profile['domain'] == 'scene':
         root = ROOT.parent / 'scene-video-pipeline'
         rules = (root / 'references' / 'rewrite-production.md').read_text(encoding='utf-8')

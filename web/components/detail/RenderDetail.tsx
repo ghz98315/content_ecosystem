@@ -2,6 +2,7 @@
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 
 import { BackgroundMusicSettings } from "./BackgroundMusicSettings";
+import { StockCoverSettings } from './StockCoverSettings';
 import { VideoTextSettings } from "./VideoTextSettings";
 import { PublicationPanel } from "./PublicationPanel";
 import { PRODUCTION_TEMPLATES } from "@/lib/productionTemplates";
@@ -321,6 +322,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
       )}
 
       <VideoTextSettings taskId={taskId} showRerender renderStatus={stage?.status} />
+      <StockCoverSettings taskId={taskId} rerender={['done','failed','needs_review'].includes(stage?.status || '')} />
       {coverUrl && <section className="book-info-panel" style={{padding:16,marginBottom:16}}><h3>发布封面</h3><a href={coverUrl} target="_blank" rel="noreferrer">打开并下载静态封面</a><img src={coverUrl} alt="当前成片独立发布封面" style={{display:'block',width:216,maxWidth:'100%',marginTop:12}} /></section>}
       <PublicationPanel taskId={taskId} scene={stage?.params?.production_template==='scene-v1'} />
 

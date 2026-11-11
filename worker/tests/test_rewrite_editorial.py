@@ -72,10 +72,13 @@ class EditorialTests(unittest.TestCase):
                  'similarity': report, 'issues': ['可改写部分重复指标 20%'], 'strategy': [], 'complete': True}
         reply = SimpleNamespace(choices=[SimpleNamespace(finish_reason='stop', message=SimpleNamespace(
             content=json.dumps({'paragraph_edits': [{'index': 1, 'text': '戊' * 110 + '。'}]}, ensure_ascii=False)))])
-        context = {'category': 'social_science', 'rewrite_resume': [saved]}
+        context = {'category': 'education', 'rewrite_resume': [saved]}
         with patch('stages.rewrite._request_rewrite', return_value=reply) as request:
             candidates, _, structure = _generate_single_candidates(source, context, '', 'initial_dedup')
         self.assertEqual(1, request.call_count)
+        prompt = request.call_args.kwargs['messages'][1]['content']
+        fixed = report['source_chars'] - 110
+        self.assertIn(f"替换后合计须为{report['planned_min_chars'] - fixed}-{report['max_chars'] - fixed}字", prompt)
         self.assertEqual([hook, paragraphs[0], '戊' * 110 + '。', paragraphs[2]], candidates[0].split('\n\n'))
         self.assertEqual('paragraphs', structure['rewrite_review']['attempts'][-1]['revision_scope']['mode'])
         self.assertEqual(source, structure['source_text'])

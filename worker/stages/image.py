@@ -26,6 +26,7 @@ import db
 import storage
 from narration import clean_tts_text
 from image_style_profiles import get_profile, historical_era_lock, history_visual_safe
+from history_visuals import STYLE as HISTORY_PERIOD_STYLE, image_prompt as history_image_prompt, request_history_adjustment, request_history_plan
 from guoxue_visuals import STYLE_ID as GUOXUE_STYLE, grid_prompt as guoxue_grid_prompt, single_prompt as guoxue_single_prompt
 
 # ── 医疗安全关键词 → 生活隐喻 ──────────────────────────────────────────────
@@ -282,6 +283,35 @@ def _history_storyboard(text: str) -> tuple[list[dict], dict]:
         "max_images": max_images,
         "checks": {"cover_representative": True, "beats_match_copy": True, "no_redundancy": True, "within_three_images_per_minute": True},
     }
+
+
+def _load_history_visual_plan(task_id: str, storyboard: list[dict]) -> tuple[list[dict], str]:
+    scenes = [shot['text'] for shot in storyboard]
+    signature = hashlib.sha256(json.dumps(scenes, ensure_ascii=False).encode()).hexdigest()[:20]
+    path = f'{task_id}/styles/history_period_film_4x3_v1/plan-{signature}.json'
+    existing = db.retry(lambda: db.get_client().table('artifacts').select('id')
+                        .eq('task_id', task_id).eq('type', 'history_prompt_plan')
+                        .eq('storage_path', path).limit(1).execute()).data
+    if existing:
+        try:
+            local = Path(storage.download_artifact(path, '.json'))
+        except Exception as exc:
+            if '404' not in str(exc) and 'Object not found' not in str(exc):
+                raise
+        else:
+            try:
+                plan = json.loads(local.read_text(encoding='utf-8'))
+                if isinstance(plan, list) and len(plan) == len(scenes) and all(
+                    isinstance(row, dict) and row.get('index') == index and row.get('scene') and row.get('era')
+                    for index, row in enumerate(plan, 1)
+                ):
+                    return plan, signature
+            finally:
+                local.unlink(missing_ok=True)
+    plan = request_history_plan(config.rewrite_client(), config.REWRITE_MODEL, scenes)
+    storage.upload_bytes(path, json.dumps(plan, ensure_ascii=False).encode(), 'application/json')
+    storage.add_artifact(task_id, 'image', 'history_prompt_plan', path, meta={'count': len(plan), 'aspect':'4:3'})
+    return plan, signature
 
 
 def _guoxue_storyboard(text: str) -> list[dict]:
@@ -920,14 +950,23 @@ def process_replacement_request(request: dict) -> str:
     aspect = str(entry.get('cell_ratio') or ((stage_row.data or {}).get('params') or {}).get('image_aspect_ratio') or '4:3')
     visual_style, reference_mode, _generation_mode, _preset_id = _image_prompt_settings({"params": (stage_row.data or {}).get("params") or {}})
     client, image_model = config.image_client(provider)
-    prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
-    prompt = (guoxue_single_prompt(prompt_scene, aspect=aspect) if visual_style == GUOXUE_STYLE else
-              _build_grid_prompt([prompt_scene], visual_style=visual_style, reference_mode=reference_mode, aspect=aspect))
+    history_period = visual_style == HISTORY_PERIOD_STYLE
+    if history_period:
+        prompt_scene = str(entry.get('prompt_scene') or '依据叙事时代的中性环境空镜')
+        if note:
+            adjustment = request_history_adjustment(config.rewrite_client(), config.REWRITE_MODEL, note)
+            if adjustment:
+                prompt_scene += f'；补充构图要求：{adjustment}'
+        prompt = history_image_prompt([prompt_scene], start=image_index + 1, grid=1)
+    else:
+        prompt_scene = scene if not note else f"{scene}。额外修正要求：{note}"
+        prompt = (guoxue_single_prompt(prompt_scene, aspect=aspect) if visual_style == GUOXUE_STYLE else
+                  _build_grid_prompt([prompt_scene], visual_style=visual_style, reference_mode=reference_mode, aspect=aspect))
     raw = _generate_grid_bytes(client, image_model, prompt, stage_id=request["stage_id"], batch_key=f"replacement_{image_index:03d}_{request['id']}",
                                size=aspect if visual_style == GUOXUE_STYLE or aspect == '4:3' else None,
                                resolution='4k' if visual_style == GUOXUE_STYLE else None,
                                image_urls=[_guoxue_reference_data_url()] if visual_style == GUOXUE_STYLE else None)
-    piece = _split_grid(raw, 1, grid_cells=1 if visual_style == GUOXUE_STYLE else None,
+    piece = _split_grid(raw, 1, grid_cells=1 if history_period or visual_style == GUOXUE_STYLE else None,
                         cell_ratio={'1:1':1.0,'4:3':4/3,'9:16':9/16}.get(aspect,_CELL_RATIO))[0]
     path = _replacement_path(task_id, image_index)
     storage.upload_bytes(path, piece, "image/png")
@@ -1089,13 +1128,22 @@ def run(stage: dict) -> tuple[str, str | None]:
     task_context = db.get_task_prompt_context(task_id)
     content_category = str(task_context.get("content_category") or "health")
     is_history = content_category == "social_science"
+    history_period = is_history and visual_style == HISTORY_PERIOD_STYLE
     if str(task_context.get("narration_mode") or "single") == "dual_dialogue":
         return _run_dialogue_visual(stage, text, content_category, client, image_model)
     history_analysis = None
+    period_plan = []
+    period_signature = ''
     if visual_style == GUOXUE_STYLE:
         storyboard = _guoxue_storyboard(text)
     elif is_history:
         storyboard, history_analysis = _history_storyboard(text)
+        if history_period and storyboard:
+            period_plan, period_signature = _load_history_visual_plan(task_id, storyboard)
+            for shot, plan in zip(storyboard, period_plan):
+                shot['prompt_scene'] = plan['scene']
+            history_analysis['checks'] = {'numbered_prompts_complete': True}
+            history_analysis['visual_aspect'] = '4:3'
         if history_analysis:
             analysis_path = f"{task_id}/history_director_analysis.json"
             storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
@@ -1121,7 +1169,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     guoxue_aspect = (stage.get('params') or {}).get('image_aspect_ratio', '4:3') if visual_style == GUOXUE_STYLE else None
     output_aspect = guoxue_aspect or (stage.get('params') or {}).get('image_aspect_ratio', '9:16')
     output_ratio = {'1:1':1.0,'4:3':4/3,'9:16':9/16}[output_aspect]
-    if visual_style != GUOXUE_STYLE and output_aspect == '4:3':
+    if history_period:
+        asset_root += f'/styles/history_period_film_4x3_v1/{period_signature}'
+    elif visual_style != GUOXUE_STYLE and output_aspect == '4:3':
         asset_root += '/styles/health_4x3_v2'
     guoxue_cell_ratio = 1.0 if guoxue_aspect == '1:1' else 4/3
     guoxue_reference = _guoxue_reference_data_url() if visual_style == GUOXUE_STYLE else None
@@ -1134,8 +1184,6 @@ def run(stage: dict) -> tuple[str, str | None]:
     existing_paths = set(existing_artifacts)
     image_paths: list[str] = []
     meta_list: list[dict] = []
-    # Historical scenes use the same 3x3 source-grid contract as every other
-    # category.  Only their output cell ratio is vertical.
     batch_size = grid_cells * grid_cells
     # Reserve the first grid cell for a separate cover; narration ranges stay intact.
     batch_starts = ([0] + list(range(batch_size - 1, len(storyboard), batch_size))
@@ -1219,12 +1267,13 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "image_model": image_model,
             })
         else:
-            scenes = [shot['text'] for shot in batch]
+            scenes = [shot.get('prompt_scene', shot['text']) for shot in batch]
             if with_cover:
                 scenes = [text] + scenes
-            grid_prompt = (guoxue_grid_prompt([_visual_scene(s) for s in scenes], cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
+            grid_prompt = (history_image_prompt(scenes, start=batch_start + 1) if history_period else
+                           guoxue_grid_prompt([_visual_scene(s) for s in scenes], cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
                            if visual_style == GUOXUE_STYLE else _build_grid_prompt(scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
-            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}" if visual_text or generation_id or visual_style == GUOXUE_STYLE
+            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}" if history_period or visual_text or generation_id or visual_style == GUOXUE_STYLE
                          else f"grid_{batch_number:03d}")
             try:
                 raw = _generate_grid_bytes(
@@ -1237,7 +1286,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if not _is_safety_block(exc):
                     raise
                 fallback_scenes = _safe_fallback_scenes(len(batch) + int(with_cover), content_category)
-                grid_prompt = (guoxue_grid_prompt(fallback_scenes, cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
+                grid_prompt = (history_image_prompt([f"{plan['era']}；相符年代的无字器物与环境空镜" for plan in period_plan[batch_start:batch_start + len(batch)]], start=batch_start + 1)
+                               if history_period else guoxue_grid_prompt(fallback_scenes, cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
                                if visual_style == GUOXUE_STYLE else
                                _build_grid_prompt(fallback_scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
                 raw = _generate_grid_bytes(
@@ -1296,6 +1346,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             path = expected_paths[i]
             storage.upload_bytes(path, piece_bytes, "image/png")
             shot = batch[i]
+            scene_prompt = history_image_prompt([shot['prompt_scene']], start=idx + 1, grid=1) if history_period else actual_prompt
             storage.add_artifact(task_id, "image", "image", path, meta={
                 "sentence": shot["text"], "index": idx,
                 "batch": batch_number,
@@ -1306,15 +1357,15 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "cell_ratio": output_aspect,
                 "cell_edge_inset_ratio": _CELL_EDGE_INSET_RATIO,
                 "split_version": _IMAGE_SPLIT_VERSION,
-                "prompt": actual_prompt,
-                "prompt_scene": shot["text"],
+                "prompt": scene_prompt,
+                "prompt_scene": shot.get('prompt_scene', shot['text']),
                 "image_model": image_model,
                 "beat_role": shot.get("beat_role"),
                 "history_director_analysis": is_history,
                 "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
             })
             image_paths.append(path)
-            meta_list.append({**shot, "cell_ratio": output_aspect, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": actual_prompt, "prompt_scene": shot["text"], "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
+            meta_list.append({**shot, "cell_ratio": output_aspect, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": scene_prompt, "prompt_scene": shot.get('prompt_scene', shot['text']), "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")

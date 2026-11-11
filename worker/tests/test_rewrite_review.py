@@ -16,7 +16,7 @@ HOOK = '您是否也遇到过？先别急着下结论。咱们慢慢说清楚。
 OLD = '甲乙丙丁戊己庚辛壬癸' * 60 + '。'
 NEW = '春夏秋冬东西南北山川' * 60 + '。'
 SOURCE = HOOK + OLD
-CONTEXT = {'category': 'social_science', 'keyword': '测试主题', 'title': '测试'}
+CONTEXT = {'category': 'education', 'keyword': '测试主题', 'title': '测试'}
 
 
 def response(body: str, reason='stop'):
@@ -40,6 +40,13 @@ class LocalReviewTests(unittest.TestCase):
             self.assertFalse(any('有效字数偏差' in issue for issue in evaluate(source, '乙' * size, '', 'health')['retry_issues']))
         for size in (99, 111):
             self.assertTrue(any('有效字数偏差' in issue for issue in evaluate(source, '乙' * size, '', 'health')['retry_issues']))
+
+    def test_health_hook_freezes_four_or_three_complete_sentences(self):
+        first_three = '您想过吗？\n先别急；听我说。她说：“慢一点。”'
+        fourth = '这就说到3.5公里的那段路。'
+        self.assertEqual(first_three + fourth, opening_hook(first_three + fourth + '接下来聊聊经过。', 'health'))
+        self.assertEqual(first_three, opening_hook(first_three + fourth, 'health'))
+        self.assertEqual('短稿第一句。', opening_hook('短稿第一句。第二句留给改写。', 'health'))
 
     def test_punctuation_formatting_cannot_hide_reuse(self):
         formatted = SOURCE.replace('甲', ' 甲\n')
@@ -73,7 +80,7 @@ class LocalReviewTests(unittest.TestCase):
 
 
 class RevisionLoopTests(unittest.TestCase):
-    def test_manual_confirmation_cannot_bypass_length_floor_and_keeps_edits(self):
+    def test_manual_confirmation_can_accept_short_health_draft_and_keeps_edits(self):
         source = '甲' * 100
         text = '乙' * 84
         root = Path(__file__).resolve().parents[1] / 'output'
@@ -89,11 +96,11 @@ class RevisionLoopTests(unittest.TestCase):
             client=MagicMock(); client.table.side_effect=[latest,query,update]
             with patch.object(rewrite.db,'get_client',return_value=client), patch.object(rewrite.db,'get_task_prompt_context',return_value={}), patch.object(rewrite,'_load_clean_text',return_value=source), patch.object(rewrite,'_task_context',return_value={'category':'health'}), patch.object(rewrite.storage,'download_artifact',return_value=str(artifact)), patch.object(rewrite,'_upload_rewrite') as upload, patch.object(rewrite.compliance,'check_text') as audit:
                 status, _=rewrite.run({'id':'stage','task_id':'task'})
-            self.assertEqual('needs_review',status)
-            self.assertEqual(text,upload.call_args.args[1]['manual_draft']['text'])
-            saved=update.update.call_args.args[0]
-            self.assertNotIn('chosen_index',saved['params'])
-            self.assertIn('应为100-110字',saved['error'])
+            self.assertEqual('done',status)
+            saved=upload.call_args.args[1]
+            self.assertEqual(text,saved['final_text'])
+            self.assertTrue(saved['manual_length_override'])
+            self.assertEqual('manual_confirmed',saved['final_similarity']['stop_reason'])
             audit.assert_not_called()
 
     def test_missing_model_does_not_repeat_provider_requests(self):
@@ -149,22 +156,47 @@ class RevisionLoopTests(unittest.TestCase):
         self.assertTrue(candidates[0].endswith(OLD))
         self.assertEqual('service_error', data['rewrite_review']['stop_reason'])
 
-    def test_service_failure_does_not_deliver_short_draft(self):
-        with patch('stages.rewrite._request_rewrite', side_effect=[response(NEW[:350] + '。'), ConnectionError('offline')]):
-            with self.assertRaises(ConnectionError):
-                _generate_candidates(SOURCE, CONTEXT)
+    def test_service_failure_delivers_complete_short_draft_for_non_health_categories(self):
+        (candidates, _, data), _ = self.generate([response(NEW[:350] + '。'), ConnectionError('offline')])
+        self.assertTrue(candidates[0].startswith(HOOK))
+        self.assertEqual('length_review', data['rewrite_review']['status'])
+        self.assertEqual('service_error', data['rewrite_review']['stop_reason'])
 
-    def test_all_short_drafts_choose_closest_length_and_mark_failed(self):
+    def test_health_service_failure_delivers_complete_short_draft_for_review(self):
+        health = {**CONTEXT, 'category': 'health'}
+        with patch('stages.rewrite._request_rewrite', side_effect=[response(NEW[:350] + '。'), ConnectionError('offline')]):
+            candidates, _, data = _generate_candidates(SOURCE, health)
+        self.assertTrue(candidates[0].startswith(HOOK))
+        self.assertEqual('length_review', data['rewrite_review']['status'])
+        self.assertEqual('service_error', data['rewrite_review']['stop_reason'])
+
+    def test_health_polish_keeps_paragraphs_without_retrying_for_reuse(self):
+        health = {**CONTEXT, 'category': 'health', 'rewrite_approach': 'polish'}
+        hook = HOOK + '今天聊聊怎么给自己留点时间。'
+        first = '给自己留一点能安静想事情的空间。'
+        second = '接着讲她如何安排自己的时间。'
+        body = first + '\n\n' + second
+        with patch('stages.rewrite._request_rewrite', return_value=response(body)) as request:
+            candidates, _, data = _generate_candidates(hook + body, health)
+        self.assertEqual(hook + '\n\n' + body, candidates[0])
+        self.assertEqual(1, request.call_count)
+        self.assertGreater(data['rewrite_review']['unlocked']['score'], 0.10)
+        self.assertFalse(data['rewrite_review']['reuse_target_applies'])
+        self.assertIn('逐段润色', request.call_args.kwargs['messages'][0]['content'])
+
+    def test_all_short_drafts_choose_closest_length_for_manual_review(self):
         replies = [response(NEW[:size] + '。') for size in (300, 480, 400, 350)]
         (candidates, _, data), request = self.generate(replies)
         self.assertEqual(2, data['rewrite_review']['selected_attempt'])
-        self.assertEqual('length_failed', data['rewrite_review']['status'])
+        self.assertEqual('length_review', data['rewrite_review']['status'])
         self.assertIn('补回省略的案例', request.call_args_list[1].kwargs['messages'][1]['content'])
 
-    def test_all_service_failures_keep_original_error(self):
-        with patch('stages.rewrite._request_rewrite', side_effect=ConnectionError('proxy unavailable')) as request:
-            with self.assertRaisesRegex(ConnectionError, 'proxy unavailable'):
+    def test_first_service_failure_reports_transport_type_without_another_attempt(self):
+        cause = ConnectionError('proxy unavailable')
+        with patch('stages.rewrite._request_rewrite', side_effect=cause) as request:
+            with self.assertRaisesRegex(RuntimeError, 'ConnectionError') as caught:
                 _generate_candidates(SOURCE, CONTEXT)
+        self.assertIs(cause, caught.exception.__cause__)
         self.assertEqual(1, request.call_count)
 
     def test_outage_history_does_not_exhaust_content_revisions(self):
@@ -193,6 +225,24 @@ class RevisionLoopTests(unittest.TestCase):
         self.assertEqual(3, data['rewrite_review']['selected_attempt'])
         self.assertTrue(candidates[0].endswith(NEW))
         self.assertEqual('manual_review', data['rewrite_review']['status'])
+
+    def test_automatic_length_target_has_priority_over_lower_reuse_in_fallback_band(self):
+        (candidates, _, data), request = self.generate([response(OLD)] + [response(NEW[:540] + '。')] * 3)
+        report = data['rewrite_review']
+        self.assertEqual(1, report['selected_attempt'])
+        self.assertTrue(candidates[0].endswith(OLD))
+        self.assertLess(report['attempts'][-1]['similarity']['unlocked']['score'], report['unlocked']['score'])
+        self.assertIn('距本类写作下限还差', request.call_args_list[2].kwargs['messages'][1]['content'])
+        for attempt in report['attempts']:
+            self.assertEqual(effective_length(SOURCE), attempt['similarity']['source_chars'])
+
+    def test_retry_feedback_counts_surplus_against_the_original_cap(self):
+        (_, _, data), request = self.generate([response(NEW + '海' * 200 + '。'), response(NEW)])
+        report = data['rewrite_review']
+        surplus = report['attempts'][0]['similarity']['candidate_chars'] - report['max_chars']
+        self.assertGreater(surplus, 0)
+        self.assertIn(f'超出上限{surplus}字', request.call_args_list[1].kwargs['messages'][1]['content'])
+        self.assertEqual(2, report['selected_attempt'])
 
 
 if __name__ == '__main__':

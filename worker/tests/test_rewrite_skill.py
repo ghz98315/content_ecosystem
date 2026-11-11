@@ -10,7 +10,7 @@ import rewrite_checkpoint
 HOOK='您是否也遇到过？先别急着下结论。咱们慢慢说清楚。'
 SOURCE=HOOK+'甲乙丙丁戊己庚辛壬癸'*60+'。'
 NEW='春夏秋冬东西南北山川'*60+'。'
-CONTEXT={'category':'social_science','keyword':'虚构主题','title':'测试'}
+CONTEXT={'category':'education','keyword':'虚构主题','title':'测试'}
 def response(body):
  return SimpleNamespace(choices=[SimpleNamespace(finish_reason='stop',message=SimpleNamespace(content=json.dumps({'rewritten_remainder':body,'rewrite_strategy':['重组表达']})))])
 

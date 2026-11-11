@@ -141,7 +141,7 @@ class TemplateConsistencyTests(unittest.TestCase):
         self.assertIn('<ProductionSetup',source)
         shared=(Path(__file__).resolve().parents[2]/'web/components/ProductionSetup.tsx').read_text(encoding='utf-8')
         self.assertIn("guoxue:'国学文化'",shared)
-        self.assertIn("health:'健康生活'",shared)
+        self.assertIn("health:'女性成长与健康生活'",shared)
 
 
 class RenderTransitionBudgetTests(unittest.TestCase):

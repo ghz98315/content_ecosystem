@@ -27,7 +27,11 @@ def cleanup_orphan_uploads(*, limit: int = 100, dry_run: bool = False) -> dict:
     statuses = {row['id']: row['status'] for row in tasks}
     protected.update(row['bgm_path'] for row in tasks if row.get('bgm_path'))
     protected.update(row['storage_path'] for row in _all_rows(sb, 'visual_reference_assets', 'storage_path'))
-    protected.update(row['output_ref'] for row in _all_rows(sb, 'stages', 'output_ref') if row.get('output_ref'))
+    for row in _all_rows(sb, 'stages', 'output_ref,params'):
+        if row.get('output_ref'):
+            protected.add(row['output_ref'])
+        if (row.get('params') or {}).get('video_cover_path'):
+            protected.add(row['params']['video_cover_path'])
     protected.update(PRESET_PATHS)
     protected.add('style-references/guoxue-gongbi-reference.png')
 
@@ -48,7 +52,7 @@ def cleanup_orphan_uploads(*, limit: int = 100, dry_run: bool = False) -> dict:
                 parts = path.split('/')
                 if (path in protected or len(parts) < 3
                         or statuses.get(parts[0]) not in ('done', 'failed', 'cancelled')
-                        or parts[1] not in ('external', 'background-music')):
+                        or parts[1] not in ('external', 'background-music', 'video-cover')):
                     continue
                 modified = item.get('updated_at') or item.get('created_at')
                 if not modified or datetime.fromisoformat(modified.replace('Z', '+00:00')) >= cutoff:

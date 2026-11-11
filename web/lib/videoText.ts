@@ -25,7 +25,7 @@ export function resolveVideoText(params:Record<string,any>,rewrite:Record<string
  return {title:String(params.main_title??rewrite.cover_title??''),subtitle:String(params.subtitle??rewrite.cover_subtitle??''),footnote:String(params.footnote??(params.production_template==='scene-v1'?'图片由AI生成':'读书分享')),account_name:String(params.account_name??defaultAccountName(params))};
 }
 export function validateVideoText(value:VideoText,requireHistoryCover=false,healthFootnote=false):VideoText {
- const account=value.account_name.trim();
+ const account=(value.account_name ?? '').trim();
  const text={title:value.title.trim(),subtitle:value.subtitle.trim(),footnote:value.footnote.replace(/\r\n?/g,'\n').trim(),account_name:account&&!account.startsWith('@')?`@${account}`:account};
  for(const [key,label,max] of [['title','画面主标题',32],['subtitle','画面副标题',48],['footnote','右下脚注',60]] as const){
   if(key==='footnote'&&healthFootnote){if(text[key].length>80||text[key].split('\n').length>4)throw new Error('健康类脚注最多4行，总计不超过80字');continue;}

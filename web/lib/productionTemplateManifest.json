@@ -40,12 +40,12 @@
   },
   {
     "id": "history-v1",
-    "label": "历史社科 · 工笔淡彩 · 9:16九宫格",
+    "label": "历史社科 · 古典胶片写实 · 4:3九宫格",
     "category": "social_science",
-    "style": "history_ink_scroll",
-    "preset": "history-ink-scroll",
-    "aspect": "9:16",
-    "frameMode": "portrait",
+    "style": "history_period_film",
+    "preset": "history-period-film",
+    "aspect": "4:3",
+    "frameMode": "landscape_blur",
     "gridCells": 3,
     "font": "KaiTi",
     "color": "#FFF4D9"

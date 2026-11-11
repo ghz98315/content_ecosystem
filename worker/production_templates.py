@@ -26,7 +26,7 @@ def validate_template(params: dict, kind: str) -> None:
     if not template:  # Existing tasks retain their original snapshot.
         return
     version=params.get('template_version')
-    supported_versions = {1, 2, 3} if template == 'guoxue-v1' else ({1, 2} if template == 'health-v1' else {1})
+    supported_versions = {1, 2, 3} if template == 'guoxue-v1' else ({1, 2} if template in {'health-v1', 'history-v1'} else {1})
     if template not in TEMPLATES or version not in supported_versions:
         raise ValueError('未支持的成片模板版本，请检查任务配置')
     style, aspect, frame_mode = TEMPLATES[template]
@@ -36,6 +36,8 @@ def validate_template(params: dict, kind: str) -> None:
         aspect='1:1'
     if template == 'health-v1' and version == 1:
         aspect, frame_mode = '9:16', 'portrait'
+    if template == 'history-v1' and version == 1:
+        style, aspect, frame_mode = 'history_ink_scroll', '9:16', 'portrait'
     expected = {'visual_style': style, 'image_aspect_ratio': aspect} if kind == 'image' else {'frame_mode': frame_mode}
     if any(params.get(key) != value for key, value in expected.items()):
         raise ValueError('内容模板与画面配置不一致，已停止以避免不同内容类型混用')
@@ -72,6 +74,8 @@ def validate_task_template(stage: dict) -> None:
         selected = snapshots['rewrite'].get('rewrite_domain')
         if (line in ('guoxue','health') and selected not in (line,'mixed')) or (line == 'scene' and selected != 'scene'):
             raise ValueError('二创规则与任务内容类型不一致，请检查二创领域')
+        if line == 'social_science' and snapshots['image'].get('template_version') == 2 and selected != 'history':
+            raise ValueError('历史社科画面模板需要对应的二创规则')
         task = db.retry(lambda: db.get_client().table('tasks').select('content_category')
                         .eq('id',stage['task_id']).single().execute()).data or {}
         database_category = DEFINITIONS[snapshots['image']['production_template']].get('databaseCategory',line)

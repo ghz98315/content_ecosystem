@@ -14,10 +14,13 @@ interface Measures {
 export interface RewriteReview {
   status: string;
   threshold: number;
+  reuse_target_applies?: boolean;
   full: Measures;
   unlocked: Measures;
   locked_floor: number;
   hook_preserved: boolean;
+  tail_locked?: boolean;
+  tail_preserved?: boolean;
   length_deviation: number;
   min_chars?: number;
   max_chars?: number;
@@ -37,7 +40,20 @@ export interface RewriteReview {
     units?: Array<{entity: string; memory_point: string; entry_angle: string; fact_ids: string[]; target_quote: string}>;
     hook_risks?: Array<{quote: string; reason: string; suggestion: string}>;
   }} | null;
-  attempts?: Array<{ attempt: number; revision: number; text: string; issues: string[]; strategy?: string[]; similarity?: {full: Measures; unlocked: Measures} }>;
+  attempts?: Array<{
+    attempt: number;
+    revision: number;
+    text: string;
+    issues: string[];
+    strategy?: string[];
+    similarity?: {
+      full: Measures;
+      unlocked: Measures;
+      source_chars?: number;
+      candidate_chars?: number;
+      length_deviation?: number;
+    };
+  }>;
 }
 
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
@@ -56,15 +72,17 @@ export function RewriteReviewPanel({ report, source, text, evaluatedText }: {
   };
   const edited = text !== evaluatedText;
   const manual = report.status !== 'passed';
+  const polish = report.reuse_target_applies === false;
   return <section className="rewrite-review-panel" aria-label="二创自检与原稿对照">
-    <div className="rewrite-review-heading"><strong>二创自检 · {edited ? '稿件已编辑' : manual ? '请人工复核' : '本地重复检查达标'}</strong><span>自动修改 {report.revisions_used ?? 0} / {report.max_revisions ?? 3} 次</span></div>
+    <div className="rewrite-review-heading"><strong>二创自检 · {edited ? '稿件已编辑' : manual ? '请人工复核' : polish ? '精修检查完成' : '本地重复检查达标'}</strong><span>自动修改 {report.revisions_used ?? 0} / {report.max_revisions ?? 3} 次</span></div>
     <p>{report.notice || '本地字面重复检测，分数不等同于文皮皮或平台检测结果。'}</p>
     {edited && <p role="status" className="rewrite-review-warning">当前文稿已编辑。下列分数对应生成稿；提交确认时会重新计算并保存最终稿指标。</p>}
     <div className="rewrite-review-metrics" aria-label={edited ? '生成稿历史检测结果' : '文稿检测结果'}>
       <div><span>全文重复指标</span><strong>{pct(report.full.score)}</strong></div>
-      <div><span>除钩子外重复指标</span><strong>{pct(report.unlocked.score)}</strong></div>
-      <div><span>目标</span><strong>低于 {pct(report.threshold)}</strong></div>
+      <div><span>可改写区重复指标</span><strong>{pct(report.unlocked.score)}</strong></div>
+      <div><span>重复指标目标</span><strong>{polish ? '仅供参考' : `低于 ${pct(report.threshold)}`}</strong></div>
       <div><span>开头逐字保留</span><strong>{report.hook_preserved ? '已保留' : '需核对'}</strong></div>
+      {report.tail_locked && <div><span>转化结尾逐字保留</span><strong>{report.tail_preserved ? '已保留' : '需核对'}</strong></div>}
     </div>
     {report.min_chars != null && <p>生成目标：{report.planned_min_chars != null ? `至少 ${report.planned_min_chars} 字` : '按当前类别预算'}；执行范围：{report.min_chars}{report.max_chars != null ? `–${report.max_chars}` : ' 以上'} 字。生成稿字数偏差 {(report.length_deviation * 100).toFixed(1)}%。人工编辑后以页面当前字数和确认校验为准。</p>}
     {!!report.planning_warnings?.length && <p className="rewrite-review-warning">本稿未达到规划目标，请结合执行范围确认：{report.planning_warnings.join('；')}</p>}
@@ -75,7 +93,7 @@ export function RewriteReviewPanel({ report, source, text, evaluatedText }: {
       {!!report.editorial.plan.hook_risks?.length && <section><strong>钩子待核项</strong>{report.editorial.plan.hook_risks.map((risk,index)=><p key={index}>{risk.quote}：{risk.reason}；建议：{risk.suggestion}</p>)}</section>}
       <small>{report.editorial.notice}</small>
     </details>}
-    {report.locked_floor >= report.threshold && <p className="rewrite-review-warning">锁定钩子本身带来的5字片段复用约为 {pct(report.locked_floor)}，已超过全文目标；此因素不会触发无效返工，正文仍单独检查，全文交由人工评估。</p>}
+    {!polish && report.locked_floor >= report.threshold && <p className="rewrite-review-warning">锁定内容的5字片段复用约为 {pct(report.locked_floor)}，已超过全文目标。仍会单独检查可改写区。</p>}
     {report.stop_reason === 'limit_reached' && <p className="rewrite-review-warning">已达到自动修改上限，已停止返工并保留稿件。请结合下方问题、重构策略和原稿对照确认。</p>}
     {report.stop_reason === 'service_error' && <p className="rewrite-review-warning">后续修改请求失败，已保留此前可用稿件，请人工确认或稍后重跑。</p>}
     {!!report.issues?.length && <ul>{report.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul>}
@@ -85,6 +103,24 @@ export function RewriteReviewPanel({ report, source, text, evaluatedText }: {
     <details><summary>查看检测细项与重复片段</summary><p>全文5字片段重合 {pct(report.full.phrase_overlap)}；整句复用 {pct(report.full.sentence_reuse)}。字符序列相似度 {pct(report.full.sequence_similarity)} 仅作参考，不用于代表语义相似度。</p><p>可改写区最长连续复用：{report.unlocked.longest_match} 字。</p>{report.unlocked.repeated_fragments.map((fragment, i) => <blockquote key={i}>{fragment}</blockquote>)}</details>
     <div className="rewrite-reading-compare"><section><div className="rewrite-reading-heading"><h4>原稿 · 语义分段</h4><button type="button" onClick={() => void copy(source, 'source')} disabled={!source} aria-label="复制原始文案">{copyStatus === 'source' ? '已复制' : '复制原稿'}</button></div><pre>{source}</pre></section><section><div className="rewrite-reading-heading"><h4>当前改写稿</h4><button type="button" onClick={() => void copy(text, 'rewrite')} disabled={!text} aria-label="复制当前改写稿">{copyStatus === 'rewrite' ? '已复制' : '复制改写稿'}</button></div><pre>{text}</pre></section></div>
     {copyStatus === 'error' && <p role="alert" className="rewrite-review-warning">复制失败，请手动选择文案复制。</p>}
-    <details><summary>生成与修改记录（{report.attempts?.length ?? 0} 轮）</summary>{report.attempts?.map(attempt => <details key={attempt.attempt}><summary>{attempt.revision === 0 ? '首次生成' : `第 ${attempt.revision} 次修改`}{attempt.attempt === report.selected_attempt ? ' · 当前交付稿' : ''}{attempt.similarity ? ` · 正文重复 ${pct(attempt.similarity.unlocked.score)}` : ' · 未返回有效正文'}</summary>{attempt.strategy?.map((strategy, i) => <p key={i}>{strategy}</p>)}{attempt.issues.map((issue, i) => <p key={i}>{issue}</p>)}{attempt.text && <pre>{attempt.text}</pre>}</details>)}</details>
+    <details>
+      <summary>生成与修改记录（{report.attempts?.length ?? 0} 轮）</summary>
+      {report.attempts?.map(attempt => {
+        const metrics = attempt.similarity;
+        return <details key={attempt.attempt}>
+          <summary>
+            {attempt.revision === 0 ? '首次生成' : `第 ${attempt.revision} 次修改`}
+            {attempt.attempt === report.selected_attempt ? ' · 当前交付稿' : ''}
+            {metrics?.candidate_chars != null && ` · ${metrics.candidate_chars} 字`}
+            {metrics ? ` · 正文重复 ${pct(metrics.unlocked.score)}` : ' · 未返回有效正文'}
+          </summary>
+          {metrics?.source_chars != null && metrics.length_deviation != null &&
+            <p>原稿 {metrics.source_chars} 字，本轮较原稿偏差 {metrics.length_deviation > 0 ? '+' : ''}{pct(metrics.length_deviation)}。</p>}
+          {attempt.strategy?.map((strategy, i) => <p key={i}>{strategy}</p>)}
+          {attempt.issues.map((issue, i) => <p key={i}>{issue}</p>)}
+          {attempt.text && <pre>{attempt.text}</pre>}
+        </details>;
+      })}
+    </details>
   </section>;
 }

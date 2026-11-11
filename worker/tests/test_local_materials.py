@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from local_materials import _unused_start, meets_native_resolution, native_crop_size, resolve_asset, sequence_signature
+from local_materials import _unused_start, meets_native_resolution, native_crop_size, plan, resolve_asset, select_cover, sequence_signature
+from local_material_history import recent, record
 from stock_media import fetch_source
 import media_retention
 
@@ -25,6 +26,25 @@ class LocalMaterialSafetyTests(unittest.TestCase):
         self.assertNotEqual(sequence_signature([a, b]), sequence_signature([b, a]))
         self.assertNotEqual(sequence_signature([a, b]),
                             sequence_signature([{**a, 'source_start': 3}, b]))
+
+    def test_recent_combinations_vary_short_shots_and_cover(self):
+        assets = [{'id': str(i), 'relative_path': f'30_健康/{i}.mp4', 'duration': 12,
+                   'width': 1280, 'height': 720} for i in range(18)]
+        script = '这是带有标点的示例，供素材组合测试。' * 15
+        timeline = {'duration': 80, 'segments': [{'start': 0, 'end': 80, 'char_start': 0, 'char_end': len(script)}]}
+        args = (script, timeline, 'health')
+        first = plan(*args, aspect='4:3', require_native=True, output_width=720, selection_seed='first', assets=assets)
+        self.assertTrue(all(item['asset']['duration'] == 12 for item in first))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cover = first[0]['asset']['relative_path']
+            record(root, 'health', 'task-one', 'revision-one', first, cover)
+            history = recent(root, 'health')
+            self.assertEqual(cover, history[0]['cover_source'])
+            self.assertFalse(recent(root, 'guoxue'))
+            second = plan(*args, aspect='4:3', require_native=True, output_width=720, selection_seed='second', assets=assets, history=history)
+            self.assertNotEqual([item['asset']['id'] for item in first], [item['asset']['id'] for item in second])
+            self.assertEqual(1, select_cover([(50, 0), (45, 1)], first, history, 'second'))
 
     def test_clear_master_retention_only_removes_expired_video_inside_uuid_folder(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'output') as directory:

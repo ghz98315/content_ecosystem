@@ -1,7 +1,7 @@
 "use client";
 import {PRODUCTION_TEMPLATES,productionTemplate,type ProductionTemplateId} from '@/lib/productionTemplates';
 
-const names:Record<string,string>={guoxue:'国学文化',health:'健康生活',social_science:'历史社科',education:'经管阅读',scene:'城市 · 高校 · 景点'};
+const names:Record<string,string>={guoxue:'国学文化',health:'女性成长与健康生活',social_science:'历史社科',education:'经管阅读',scene:'城市 · 高校 · 景点'};
 export type VisualMode='ai_images'|'stock_video'|'local_stock_video';
 type Props={templateId:ProductionTemplateId;onTemplate:(id:ProductionTemplateId)=>void;visualMode:VisualMode;onVisualMode:(mode:VisualMode)=>void;ttsSource:'external'|'automatic';onTtsSource:(source:'external'|'automatic')=>void;inputMode?:'link'|'ready_script';disabled?:boolean};
 export function ProductionSetup({templateId,onTemplate,visualMode,onVisualMode,ttsSource,onTtsSource,inputMode='link',disabled=false}:Props){

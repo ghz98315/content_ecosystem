@@ -145,11 +145,17 @@ def run(stage: dict):
         phase={}
         with tempfile.TemporaryDirectory(prefix='scene-render-') as temp:
             temp=Path(temp)
-            cover=storage.download_artifact(images[0].get('cover_path') or images[0]['path'],'.png')
+            rewrite=r._load_json_artifact(task_id,'rewrite') or {}
+            cover_origin, cover_path = ('generated', images[0].get('cover_path'))
+            if stock:
+                cover_origin, cover_path = r._select_stock_cover(task_id, params, str(rewrite.get('book_title') or ''), images)
+            cover = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path or images[0]['path'], '.png')
             try:
                 make_cover(cover,str(temp/'cover.png'),title,subtitle)
                 make_cover(cover,str(temp/'publication-cover.png'),title,subtitle,footnote)
-            finally: Path(cover).unlink(missing_ok=True)
+            finally:
+                if cover_origin != 'local_preset':
+                    Path(cover).unlink(missing_ok=True)
             make_clip(str(temp/'cover.png'),15,str(temp/'cover.mp4'),None)
             clips=[temp/'cover.mp4']
             total_frames=math.ceil(duration*FPS)
@@ -182,14 +188,10 @@ def run(stage: dict):
                 local=storage.download_artifact(bgm)
                 shutil.move(local,temp/'music.mp3')
                 args+=['-stream_loop','-1','-i',str(temp/'music.mp3')]
-            from local_materials import shared_book_cover_settings, book_cover_pip_intervals
+            from local_materials import render_book_cover
             from stock_media import fetch_source
-            rewrite=r._load_json_artifact(task_id,'rewrite') or {}
-            cover_text=str(subs.get('text') or rewrite.get('final_text') or '')
-            cover_asset,book_name=shared_book_cover_settings(task_id,cover_text)
-            pip_intervals=[]
-            if cover_asset:
-                pip_intervals=book_cover_pip_intervals(cover_text,{**subs,'duration':duration},book_name)
+            cover_text=str(subs.get('text') or subs.get('narration_text') or rewrite.get('final_text') or '')
+            cover_asset,pip_intervals=render_book_cover(task_id,cover_text,{**subs,'duration':duration},images)
             if pip_intervals:
                 r._prepare_book_cover_pip(fetch_source(cover_asset),temp/'book-cover-pip.png')
                 pip_input=3 if bgm else 2
@@ -229,7 +231,7 @@ def run(stage: dict):
             storage.add_artifact(task_id,'render','final',final_path,meta={
                 'production_template':'scene-v1','width':W,'height':H,'tts_duration':duration,'image_count':len(images),
                 'cover_frames':15,'cover_duration':0.5,'intro_duration':0,'audio_offset_seconds':0,
-                'cover':'independent_cover','publication_cover':cover_path,'title_visibility':'cover_only',
+                'cover':'independent_cover','cover_origin':cover_origin,'publication_cover':cover_path,'title_visibility':'cover_only',
                 'footnote_visibility':'full_video','text_layout':{'title':title,'subtitle':subtitle,'footnote':footnote,'account_name':account_name},
                 'visual_mode':'stock_video' if stock else 'ai_images',
                 'stock_processing':{'color_style':images[0].get('processing',{}).get('color_style','none'),'feather':0} if stock else None,

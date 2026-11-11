@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { MUSIC_PRESET_PATHS } from "@/lib/musicPresets";
+import { userMusicPresetMatch } from '@/lib/userMusicPresets';
 
 const BUCKET = "artifacts";
 
@@ -24,6 +25,9 @@ export async function GET(req: NextRequest) {
     const prefix = path.split('/')[0];
     if (MUSIC_PRESET_PATHS.has(path)) {
       // Shared, read-only preset assets; source and usage terms are shown in the UI.
+    } else if (prefix === 'user-music') {
+      if (userMusicPresetMatch(path)?.[1] !== auth.user.id)
+        return NextResponse.json({error:'无权读取该音乐预设'},{status:403});
     } else if (prefix === 'voice-samples') {
       const { data: profile } = await sb.from('voice_profiles').select('id').eq('owner',auth.user.id).eq('sample_path',path).limit(1);
       if (path.split('/')[1] !== auth.user.id && !profile?.length)

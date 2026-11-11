@@ -89,8 +89,7 @@ def _prepare_book_cover_pip(source: str | Path, destination: str | Path) -> None
     """Resize a still cover once instead of scaling it for every video frame."""
     from PIL import Image, ImageOps
     with Image.open(source) as original:
-        cover = ImageOps.exif_transpose(original)
-        cover.thumbnail((760, 570), Image.Resampling.LANCZOS)
+        cover = ImageOps.contain(ImageOps.exif_transpose(original), (760, 570), Image.Resampling.LANCZOS)
         canvas = Image.new('RGBA', (760, 570), (0, 0, 0, 0))
         canvas.alpha_composite(cover.convert('RGBA'), ((760-cover.width)//2, (570-cover.height)//2))
         canvas.save(destination, format='PNG')
@@ -210,19 +209,38 @@ def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
     """Load task-scoped BGM only when the owner confirmed usage rights."""
     task = db.retry(
         lambda: db.get_client().table("tasks")
-        .select("bgm_path,bgm_volume,narration_volume,bgm_authorization_confirmed")
+        .select("owner,bgm_path,bgm_volume,narration_volume,bgm_authorization_confirmed")
         .eq("id", task_id).single().execute()
     ).data or {}
     bgm_path = str(task.get("bgm_path") or "").strip()
     approved = bool(task.get("bgm_authorization_confirmed"))
-    from music_presets import PRESET_PATHS
+    from music_presets import PRESET_PATHS, is_user_preset
     if bgm_path and approved and (bgm_path not in PRESET_PATHS and not bgm_path.startswith(f'{task_id}/background-music/')
+                                 and not is_user_preset(bgm_path, str(task.get('owner') or ''))
                                  or '\\' in bgm_path or '%' in bgm_path
                                  or any(part in ('', '.', '..') for part in bgm_path.split('/'))):
         raise ValueError('背景音乐路径不属于当前任务')
     bgm_volume = min(0.30, max(0.02, float(task.get("bgm_volume") or 0.08)))
     narration_volume = min(1.50, max(0.50, float(task.get("narration_volume") or 1.0)))
     return (bgm_path if bgm_path and approved else None, bgm_volume, narration_volume)
+
+
+def _select_stock_cover(task_id: str, params: dict, book_name: str, entries: list[dict]) -> tuple[str, str | None]:
+    """Return the cover origin and local file or private storage key."""
+    uploaded = str(params.get('video_cover_path') or '')
+    if uploaded:
+        if not re.fullmatch(re.escape(task_id) + r'/video-cover/[0-9a-f-]{36}\.(?:jpg|jpeg|png|webp)', uploaded):
+            raise ValueError('成片封面路径不属于当前任务')
+        return 'uploaded', uploaded
+    from local_materials import preset_video_cover
+    if book_name:
+        try:
+            preset = preset_video_cover(book_name)
+        except (OSError, ValueError):
+            preset = None
+        if preset:
+            return 'local_preset', str(preset)
+    return 'selected_frame', entries[0].get('cover_path')
 
 
 def _audio_mix_filter(
@@ -266,6 +284,7 @@ def _make_ass(
     health_text_style: bool = False,
     health_subtitle_bold: bool = False,
     guoxue_text_style: bool = False,
+    cover_titles_only: bool = False,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
@@ -368,7 +387,8 @@ def _make_ass(
                 size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
                 placement = rf'{{\an{alignment}\pos({x},{y})\fs{size}\q2}}'
             escaped = r'\N'.join(_escape_ass(line) for line in value.split('\n')) if style=='Footnote' and footnote_centered else _escape_ass(value)
-            lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{placement}{escaped}\n")
+            visible_until = _fmt_ass_time(0) if cover_titles_only and style in {'Heading', 'Subheading'} else overlay_end
+            lines.append(f"Dialogue: 1,0:00:00.00,{visible_until},{style},,0,0,0,,{placement}{escaped}\n")
     for seg, start_seconds, end_seconds in subtitle_intervals(segments, duration):
         start = _fmt_ass_time(start_seconds)
         end = _fmt_ass_time(end_seconds)
@@ -941,6 +961,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     picture_ratio = 1.0 if picture_aspect == '1:1' else 4/3
     if expected_template == 'guoxue-v1' and any(image.get('cell_ratio') not in (None,picture_aspect) for image in images):
         raise ValueError(f'已有图片比例与国学{picture_aspect}模板不一致，请重新生图；旧成片已保留')
+    if expected_template == 'history-v1' and (stage.get('params') or {}).get('template_version') == 2:
+        if any(image.get('cell_ratio') != '4:3' for image in images):
+            raise ValueError('已有图片比例与历史社科4:3模板不一致，请重新运行画面节点')
     segments: list[dict] = enforce_subtitle_limit(subs_data.get("segments", [])) if isinstance(subs_data, dict) else []
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
@@ -986,20 +1009,30 @@ def run(stage: dict) -> tuple[str, str | None]:
             cover_title, cover_subtitle = _history_cover_text(stage, rewrite_data)
             cover_layout_png = os.path.join(tmpdir, "history_cover_layout.png")
             _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title, cover_subtitle=cover_subtitle)
-        cover_path = images[0].get('cover_path') or images[0]['path']
-        cover_local = storage.download_artifact(cover_path, ".png")
+        cover_origin, selected_cover = ('generated', images[0].get('cover_path'))
+        if stock:
+            cover_book = book_name or str((rewrite_data or {}).get('book_title') or '')
+            if not cover_book:
+                titles = set(re.findall(r'《([^《》\n]{1,60})》', str(subs_data.get('text') or '')))
+                if len(titles) == 1:
+                    cover_book = next(iter(titles))
+            cover_origin, selected_cover = _select_stock_cover(task_id, stage.get('params') or {}, cover_book, images)
+        cover_path = selected_cover or images[0]['path']
+        cover_local = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path, '.png')
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
+        cover_digest = hashlib.sha256(Path(cover_local).read_bytes()).hexdigest()
         try:
             frame_mode = (stage.get('params') or {}).get('frame_mode')
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
-            if stock and landscape_layout and not images[0].get('cover_path'):
+            if stock and landscape_layout and not selected_cover:
                 from stock_media import make_video_clip
                 make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=stock_vertical_feather)
             else:
                 _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
         finally:
             try:
-                os.remove(cover_local)
+                if cover_origin != 'local_preset':
+                    os.remove(cover_local)
             except OSError:
                 pass
         print(f"  [render] 布局就绪，开始编码 {len(images)} 个镜头", flush=True)
@@ -1027,6 +1060,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     'images':images, 'timeline':timeline, 'durations':durations,
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
                     'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
+                    'cover_sha256':cover_digest,
                     'encoder': 'nvenc' if _nvenc_available() else config.RENDER_ENCODER_PRESET,
                     'fps':FPS, 'dimensions':[W,H], 'zoom':LANDSCAPE_ZOOM_AMOUNT,
                     'motion_scales':[LANDSCAPE_WORK_SCALE,LANDSCAPE_RENDER_SCALE],
@@ -1114,6 +1148,9 @@ def run(stage: dict) -> tuple[str, str | None]:
         phase_started = time.monotonic()
 
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
+        if is_history and expected_template == 'history-v1' and (stage.get('params') or {}).get('template_version') == 2:
+            text_settings['title'], text_settings['subtitle'] = cover_title, cover_subtitle
+            text_settings['cover_titles_only'] = True
         if text_settings.get('health_text_style'):
             text_settings['title_color']='#FFFFFF'
         requested_font = text_settings['title_font']
@@ -1164,21 +1201,12 @@ def run(stage: dict) -> tuple[str, str | None]:
             render_inputs.extend(["-stream_loop", "-1", "-i", bgm_local])
         # Resolve at render time as well: an existing image/stock selection can
         # be reused after a narration change without regenerating pictures.
-        from local_materials import shared_book_cover_settings
-        cover_text = str(subs_data.get('text') or (rewrite_data or {}).get('final_text') or '')
-        late_cover, late_name = shared_book_cover_settings(task_id, cover_text)
-        book_pip = ({'asset': late_cover, 'book_name': late_name, 'intervals': []}
-                    if late_cover else None)
-        pip_intervals = book_pip.get('intervals') if isinstance(book_pip, dict) else None
-        if book_pip and isinstance(subs_data, dict):
-            # Re-align the cover after an audio change and hold it long enough
-            # to be visible; the prior saved timings are only a preview.
-            from local_materials import book_cover_pip_intervals
-            pip_intervals = book_cover_pip_intervals(cover_text,
-                {**subs_data, 'duration': tts_duration}, str(book_pip.get('book_name') or ''))
+        from local_materials import render_book_cover
+        cover_text = str(subs_data.get('text') or subs_data.get('narration_text') or (rewrite_data or {}).get('final_text') or '')
+        pip_asset, pip_intervals = render_book_cover(task_id, cover_text, {**subs_data, 'duration': tts_duration}, images)
         if pip_intervals:
             from stock_media import fetch_source
-            pip_source = fetch_source(book_pip['asset'])
+            pip_source = fetch_source(pip_asset)
             prepared_cover = Path(tmpdir) / 'book-cover-pip.png'
             _prepare_book_cover_pip(pip_source, prepared_cover)
             pip_input = 3 if bgm_local else 2
@@ -1342,7 +1370,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             "tts_duration": tts_duration,
             "image_count": len(images),
             "intro_duration": INTRO_DUR,
-            "cover": "independent_cover" if images[0].get('cover_path') else "first_image_frame",
+            "cover": "independent_cover" if selected_cover else "first_image_frame",
+            "cover_origin": cover_origin,
             "cover_frames": COVER_FRAMES,
             "visual_mode": 'stock_video' if stock else 'ai_images',
             "book_cover_pip": bool(pip_graph),

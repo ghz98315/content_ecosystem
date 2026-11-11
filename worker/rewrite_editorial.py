@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import re
-from rewrite_review import normalized, remainder
+from rewrite_review import editable_middle, normalized, remainder
+from spoken_style import spoken_style_issues
 
 
 def scene_plan_audit(source: str, text: str, obj: dict) -> dict:
@@ -75,17 +76,19 @@ def health_attribution_issues(text: str, hook: str) -> list[str]:
     return issues
 
 
-def repair_scope(previous: dict, hook: str) -> tuple[list[str], list[int]]:
+def repair_scope(previous: dict, hook: str, tail: str = '') -> tuple[list[str], list[int]]:
     """Only local lexical issues qualify; global length/fact/structure needs a full draft."""
-    paragraphs = [p for p in remainder(previous.get('text', ''), hook).split('\n\n') if p.strip()]
+    paragraphs = [p for p in editable_middle(previous.get('text', ''), hook, tail).split('\n\n') if p.strip()]
     issues = previous.get('issues') or []
-    local_prefixes = ('可改写部分重复指标', '全文重复指标', '口播含制作过程', '多处以书籍报幕')
+    local_prefixes = ('可改写部分重复指标', '全文重复指标', '口播含制作', '多处以书籍报幕')
     if not paragraphs or not issues or any(not str(issue).startswith(local_prefixes) for issue in issues):
         return paragraphs, []
-    fragments = previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', [])
+    fragments = previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []) if any(
+        str(issue).startswith(local_prefixes[:2]) for issue in issues
+    ) else []
     editable = [i for i, paragraph in enumerate(paragraphs) if
                 any(normalized(fragment) in normalized(paragraph) for fragment in fragments if fragment)
-                or health_attribution_issues(paragraph, '')]
+                or health_attribution_issues(paragraph, '') or spoken_style_issues(paragraph)]
     # Include sentence-start source formulas spread across separate paragraphs.
     if any(str(issue).startswith('多处以书籍报幕') for issue in issues):
         editable += [i for i, paragraph in enumerate(paragraphs) if re.search(r'书中(?:说|提到|指出)|这本书(?:说|告诉我们|提到)', paragraph)]

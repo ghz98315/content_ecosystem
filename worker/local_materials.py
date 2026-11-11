@@ -1,4 +1,4 @@
-"""Read-only local stock library adapter for approved, externally narrated tasks.
+"""Local stock selection for approved, narrated tasks.
 
 Only contact frames and the edit decision list are uploaded. Source MP4 files
 remain on the Worker machine and are checked again immediately before render.
@@ -12,6 +12,8 @@ import re
 import subprocess
 import tempfile
 import uuid
+import unicodedata
+from collections import Counter
 from urllib.parse import urlencode, urlsplit
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 import db
 import storage
+import local_material_history
 from narration import clean_tts_text, visible_len
 from stock_processing import motion_probe, settings
 from stock_timing import timed_blocks
@@ -28,7 +31,7 @@ from stock_timing import timed_blocks
 DEFAULT_ROOT = r"D:\Obsidian\99_剪映素材库\剪映公用素材库"
 FOLDERS = {
     "guoxue": ("20_国学", "10_通用画面"),
-    "health": ("30_健康", "10_通用画面"),
+    "health": ("30_健康", "50_女性成长", "10_通用画面"),
     "scene": ("40_城市场景", "10_通用画面"),
 }
 # Checked at three points in the source. These contain prominent baked-in
@@ -50,6 +53,7 @@ EXCLUDED_FOR_GUOXUE = {
 }
 BOOK_COVER_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.gif', '.avif', '.heic', '.heif'}
 SHARED_BOOK_COVER_FOLDER = '90_书籍封面'
+VIDEO_COVER_FOLDER = '91_成片预设封面'
 
 
 def library_root() -> Path:
@@ -85,7 +89,7 @@ def resolve_book_cover(asset: dict) -> Path:
     allowed_roots = [(root / SHARED_BOOK_COVER_FOLDER).resolve()]
     legacy_health = root / FOLDERS['health'][0]
     if legacy_health.is_dir(): allowed_roots.append(legacy_health.resolve())
-    if (not any(path.is_relative_to(folder) for folder in allowed_roots) or path.suffix.lower() not in BOOK_COVER_EXTENSIONS
+    if (not path.is_relative_to(root) or not any(path.is_relative_to(folder) for folder in allowed_roots) or path.suffix.lower() not in BOOK_COVER_EXTENSIONS
             or not path.is_file()):
         raise ValueError("书籍封面不在允许的素材目录")
     expected_size = asset.get("bytes")
@@ -95,33 +99,57 @@ def resolve_book_cover(asset: dict) -> Path:
 
 
 def _book_key(value: str) -> str:
-    return re.sub(r"[\W_]+|第[一二三四五六七八九十百\d]+版$|(?:0?[1-9]|[12]\d)$", "", value,
-                  flags=re.UNICODE).casefold()
+    normalized = unicodedata.normalize('NFKC', value)
+    return re.sub(r'[\W_]+', '', normalized).casefold()
 
 
-def local_book_cover(book_name: str) -> dict | None:
+def _matching_cover(folders: list[Path], book_name: str) -> Path | None:
     key = _book_key(book_name)
     if not key:
         return None
-    candidates=[]
+    candidates = []
+    for priority, folder in enumerate(folders):
+        if not folder.is_dir():
+            continue
+        for path in folder.rglob('*'):
+            if not path.is_file() or path.suffix.lower() not in BOOK_COVER_EXTENSIONS:
+                continue
+            if not path.resolve().is_relative_to(folder.resolve()):
+                continue
+            name = _book_key(path.stem)
+            suffix = name[len(key):] if name.startswith(key) else ''
+            if name != key and not re.fullmatch(r'(?:(?:书籍|成片|预设|视频)?封面)?(?:0?[1-9]|[12]\d|第[一二三四五六七八九十百\d]+版)?', suffix or '!'):
+                continue
+            try:
+                with Image.open(path) as picture:
+                    width, height = picture.size
+                    picture.verify()
+            except (OSError, ValueError, Image.DecompressionBombError):
+                continue
+            candidates.append(((priority, bool(suffix), suffix not in {'01', '1'}, -width * height, str(path)), path))
+    return min(candidates)[1] if candidates else None
+
+
+def preset_video_cover(book_name: str) -> Path | None:
+    if not book_name:
+        return None
     root = library_root()
+    folder = root / VIDEO_COVER_FOLDER
+    return _matching_cover([folder], book_name) if folder.resolve().is_relative_to(root) else None
+
+
+def local_book_cover(book_name: str) -> dict | None:
+    try:
+        root = library_root()
+    except (OSError, ValueError):
+        return None
     folders = [root / SHARED_BOOK_COVER_FOLDER, root / FOLDERS['health'][0]]
-    for path in (path for folder in folders if folder.is_dir() for path in folder.rglob('*')):
-        if not path.is_file() or path.suffix.lower() not in BOOK_COVER_EXTENSIONS:
-            continue
-        stem_key=_book_key(path.stem)
-        if key not in stem_key and stem_key not in key:
-            continue
-        try:
-            with Image.open(path) as picture:width,height=picture.size
-        except (OSError,ValueError):
-            continue
-        exact=int(stem_key==key);first=int(bool(re.search(r"(?:^|\D)0?1$",path.stem)))
-        shared = int(path.is_relative_to(root / SHARED_BOOK_COVER_FOLDER))
-        candidates.append(((exact,shared,first,width*height,-len(path.stem)),path,width,height))
-    if not candidates:return None
-    _,path,width,height=max(candidates,key=lambda item:item[0])
-    relative=path.relative_to(library_root()).as_posix()
+    path = _matching_cover([folder for folder in folders if folder.resolve().is_relative_to(root)], book_name)
+    if path is None:
+        return None
+    with Image.open(path) as picture:
+        width, height = picture.size
+    relative=path.relative_to(root).as_posix()
     return {"id":"local-book-"+hashlib.sha256(relative.encode()).hexdigest()[:12],
             "provider":"local_book_cover","media_type":"image","relative_path":relative,
             "title":f"《{book_name}》封面","page":"本地书籍封面素材库","author":"用户提供",
@@ -193,14 +221,14 @@ def scan(category: str) -> list[dict]:
     folders = FOLDERS.get(category, FOLDERS["guoxue"])
     assets = []
     for folder in folders:
-        for path in sorted((root / folder).glob("*.mp4")):
+        for path in sorted((root / folder).rglob("*.mp4")):
             if (path.name in EXCLUDED_NAMES
                     or (category == 'guoxue' and path.name in EXCLUDED_FOR_GUOXUE)
-                    or path.is_symlink()):
+                    or path.is_symlink() or not path.resolve().is_relative_to(root)):
                 continue
             try:
                 duration, width, height = probe(path)
-                if duration < 8 or min(width, height) < 540:
+                if duration < 4 or min(width, height) < 540:
                     continue
                 relative = path.relative_to(root).as_posix()
                 assets.append({
@@ -281,7 +309,8 @@ def _book_cover_settings(task_id: str, *, local_only: bool = False) -> tuple[dic
             # the confirmed rewrite carries the selected book title instead.
             rewrite = _load_json_artifact(task_id, "rewrite") or {}
             book_name = str(rewrite.get("book_title") or "").strip().strip("《》")
-    if cover_path and params.get("book_confirmed") is True:
+    if (cover_path and params.get('book_confirmed') is True
+            and re.fullmatch(re.escape(task_id) + r'/book_cover\.(?:jpg|jpeg|png|webp)', cover_path, re.I)):
         return ({"id":hashlib.sha256(cover_path.encode()).hexdigest()[:16],
                  "provider":"task_artifact","media_type":"image","storage_path":cover_path,
                  "title":f"《{book_name}》封面","page":"任务书籍信息","author":"用户确认",
@@ -299,45 +328,62 @@ def book_cover_relevant(text: str, book_name: str) -> bool:
     if not book_name or not text:
         return False
     plain = clean_tts_text(text)
-    title = clean_tts_text(book_name).strip('《》')
-    if title and title in plain.replace('《', '').replace('》', '') and re.search(r'翻(?:开|看|一翻)|读(?:一读|读|这本)|看(?:一看|看|这本)|带回家|放在(?:床头|茶几|手边)|推荐|橱窗|购买|入手', plain):
-        return True
-    return False
+    title = _book_key(book_name)
+    if not title or title not in _book_key(plain):
+        return False
+    return bool(re.search(
+        r'翻(?:开|看|一翻|几页)|读(?:一读|读|这本|完|过)|看(?:一看|看|这本)|带回家|放在(?:床头|茶几|手边)'
+        r'|推荐|橱窗|购买|入手|(?:一起|带[你您]|今天来|这期来)(?:读|看|聊聊)|(?:分享|介绍)(?:这本|一本|《)', plain,
+    ))
 
 
 def shared_book_cover_settings(task_id: str, text: str) -> tuple[dict | None, str]:
-    """Use the common local cover library only for a spoken book recommendation."""
-    _, book_name = _book_cover_settings(task_id, local_only=True)
-    if not book_cover_relevant(text, book_name):
-        return None, book_name
-    return local_book_cover(book_name), book_name
+    """Resolve a confirmed task cover or a matching local book jacket."""
+    asset, book_name = _book_cover_settings(task_id, local_only=True)
+    if asset and asset.get('provider') == 'task_artifact' and book_name:
+        return asset, book_name
+    if book_cover_relevant(text, book_name):
+        return asset, book_name
+    if not book_name:
+        # Imported scripts and older rewrites can lack the book metadata.
+        titles = list(dict.fromkeys(re.findall(r'《([^《》\n]{1,60})》', text)))
+        relevant = [title for title in titles if book_cover_relevant(text, title)]
+        if len(relevant) == 1:
+            return local_book_cover(relevant[0]), relevant[0]
+    return None, book_name
+
+
+def _title_cues(segments: list[dict], title_key: str) -> list[tuple[int, int]]:
+    parts = [_book_key(str(cue.get('text') or '')) for cue in segments]
+    positions = [index for index, part in enumerate(parts) for _ in part]
+    matches = re.finditer(re.escape(title_key), ''.join(parts)) if title_key else []
+    pairs = [(positions[match.start()], positions[match.end() - 1]) for match in matches]
+    return list(dict.fromkeys(pairs[:1] + pairs[-1:]))
 
 
 def _cover_ranges(text: str, subtitles: dict, book_name: str) -> list[tuple[int, int]]:
     """Use the first and last subtitle phrases that actually say the book name."""
-    plain_name = clean_tts_text(book_name).replace("《", "").replace("》", "")
+    plain_name = _book_key(book_name)
     if not plain_name:
         return []
-    segments = subtitles.get("segments") or []
-    ranges=[];cursor=0
+    segments = subtitles.get('segments') or []
+    pairs = _title_cues(segments, plain_name)
+    cue_offsets = []
+    cursor = 0
     for cue in segments:
-        cue_text=clean_tts_text(str(cue.get("text") or ""))
-        count=visible_len(cue_text)
-        start=int(cue.get("char_start",cursor));end=int(cue.get("char_end",start+count))
-        if plain_name in cue_text.replace("《", "").replace("》", ""):
-            ranges.append((start,max(start+1,end)))
-        cursor=max(cursor,end)
+        start = int(cue.get('char_start', cursor))
+        end = int(cue.get('char_end', start + visible_len(str(cue.get('text') or ''))))
+        cue_offsets.append((start, max(start + 1, end)))
+        cursor = max(cursor, end)
+    ranges = [(cue_offsets[first][0], cue_offsets[last][1]) for first, last in pairs]
     if not ranges:
         # Alignment may split a title across two short cues. Fall back to the
         # manuscript positions and keep a little surrounding spoken context.
-        plain=clean_tts_text(text).replace("《", "").replace("》", "")
-        positions=[];offset=0
-        while True:
-            found=plain.find(plain_name,offset)
-            if found<0:break
-            positions.append((max(0,found-4),min(visible_len(plain),found+len(plain_name)+6)))
-            offset=found+len(plain_name)
-        ranges=positions
+        compact = re.sub(r'\s+', '', text)
+        parts = [_book_key(char) for char in compact]
+        offsets = [index for index, key in enumerate(parts) for _ in key]
+        for match in re.finditer(re.escape(plain_name), ''.join(parts)):
+            ranges.append((offsets[match.start()], offsets[match.end() - 1] + 1))
     if not ranges:return []
     chosen=[ranges[0]]
     if ranges[-1]!=ranges[0]:chosen.append(ranges[-1])
@@ -396,13 +442,16 @@ def add_book_cover_pip(entries: list[dict], text: str, subtitles: dict,
 
 def book_cover_pip_intervals(text: str, subtitles: dict, book_name: str) -> list[dict]:
     """Hold each cover long enough to see it; use opening/ending if title is absent."""
-    ranges = _cover_ranges(text, subtitles, book_name)
     from stages import render
     duration = float(subtitles.get("duration") or 0)
+    cues = subtitles.get('segments') or []
+    timed = [(float(cues[first]['start']), float(cues[last]['end']))
+             for first, last in _title_cues(cues, _book_key(book_name))]
+    if not timed:
+        timed = [(render._cue_time_at_char(start, cues, duration), render._cue_time_at_char(end, cues, duration))
+                 for start, end in _cover_ranges(text, subtitles, book_name)]
     intervals = []
-    for start, end in ranges:
-        begin = render._cue_time_at_char(start, subtitles.get("segments") or [], duration)
-        finish = render._cue_time_at_char(end, subtitles.get("segments") or [], duration)
+    for begin, finish in timed:
         center = (begin + finish) / 2
         low = max(0.0, center - 2.5)
         high = min(duration, max(finish, low + 5.0))
@@ -416,18 +465,29 @@ def book_cover_pip_intervals(text: str, subtitles: dict, book_name: str) -> list
     return intervals
 
 
+def render_book_cover(task_id: str, text: str, subtitles: dict, entries: list[dict]) -> tuple[dict | None, list[dict]]:
+    asset, book_name = shared_book_cover_settings(task_id, text)
+    saved = entries[0].get('book_cover_pip') if entries else None
+    if not asset and isinstance(saved, dict):
+        asset, book_name = saved.get('asset'), str(saved.get('book_name') or '')
+    intervals = book_cover_pip_intervals(text, subtitles, book_name) if asset and book_name else []
+    return asset, intervals
+
+
 def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
          require_native: bool = False, output_width: int = 1080,
-         selection_seed: str = "") -> list[dict]:
+         selection_seed: str = "", assets: list[dict] | None = None,
+         history: list[dict] | None = None) -> list[dict]:
     """Task-seeded excerpts; never overlap ranges from one source within a video."""
     from stages import render
 
     duration = float(subtitles["duration"])
-    parts = timed_blocks(text, subtitles, target=43, minimum=34, maximum=55)
+    target = 13 + int(_seed_value(selection_seed, 'shot-length') * 9)
+    parts = timed_blocks(text, subtitles, target=target, minimum=7, maximum=target + 5)
     # A tiny trailing clip feels like a glitch. Attach it to its predecessor.
     if len(parts) > 1:
         prefix = sum(visible_len(part) for part in parts[:-1])
-        if duration - render._cue_time_at_char(prefix, subtitles["segments"], duration) < 12:
+        if duration - render._cue_time_at_char(prefix, subtitles["segments"], duration) < 4:
             parts[-2] += parts[-1]
             parts.pop()
     cursor = 0
@@ -441,7 +501,7 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
     for sketch, timing in zip(sketches, timeline):
         sketch.update(start=timing["start"], end=timing["end"], duration=timing["duration"])
 
-    assets = scan(category)
+    assets = scan(category) if assets is None else assets
     if require_native:
         assets = [asset for asset in assets if meets_native_resolution(asset, aspect, output_width)]
         if not assets:
@@ -449,6 +509,17 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
                 f"本地素材在裁成{aspect}后均不足{output_width}像素宽，已暂停选片以避免模糊；"
                 "请补充更清晰的视频素材"
             )
+    recent_uses = Counter()
+    recent_positions = Counter()
+    recent_pairs = Counter()
+    for age, row in enumerate(history or []):
+        weight = 3 if age < 3 else 1
+        ids = [clip['id'] for clip in row['clips']]
+        for position, asset_id in enumerate(ids):
+            recent_uses[asset_id] += weight
+            recent_positions[position, asset_id] += weight
+        for pair in zip(ids, ids[1:]):
+            recent_pairs[pair] += weight
     used: dict[str, int] = {}
     occupied: dict[str, list[tuple[float, float]]] = {}
     result = []
@@ -459,8 +530,6 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
             for rate in (1.0, 0.5, 0.3):
                 if asset["duration"] >= wanted * rate + .25:
                     last = used.get(asset["id"], -100)
-                    if index - last <= 2:
-                        continue
                     source_duration = wanted * rate
                     source_start = _unused_start(asset["duration"], source_duration,
                                                  occupied.get(asset["id"], []), selection_seed,
@@ -468,13 +537,15 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
                     if source_start is None:
                         continue
                     # Prefer fresh footage, normal speed and diverse folders.
-                    preferred = FOLDERS.get(category, FOLDERS["guoxue"])[index % 2]
-                    native_width, _ = native_crop_size(asset["width"], asset["height"], aspect)
+                    asset_id = asset['id']
+                    previous_id = result[-1]['asset']['id'] if result else ''
                     score = (int(last >= 0) * 20 + (0 if rate == 1 else 4 if rate == .5 else 12)
-                             + (0 if asset["relative_path"].startswith(preferred) else 2)
-                             + int(asset["duration"] < wanted + 2) * 2
-                             + (0 if native_width >= output_width * 4 / 3 else 3))
-                    options.append((score, _seed_value(selection_seed,index,asset["id"],"order"),
+                             + (2 if asset['relative_path'].startswith('10_通用画面/') else 0)
+                             + min(16, recent_uses[asset_id] * 1.5)
+                             + min(10, recent_positions[index, asset_id] * 2)
+                             + min(12, recent_pairs[previous_id, asset_id] * 4)
+                             + _seed_value(selection_seed, index, asset_id, 'order') * 12)
+                    options.append((index - last <= 2, score,
                                     asset["id"], asset, rate, source_start))
                     break
         if not options:
@@ -521,6 +592,16 @@ def cover_score(path: Path, entry: dict) -> float:
             - abs(light.mean[0] - 145) * .25 + min(crop_width / 100, 15))
 
 
+def select_cover(options: list[tuple[float, int]], entries: list[dict], history: list[dict], seed: str) -> int:
+    best_score = max(score for score, _ in options)
+    recent_covers = Counter(row['cover_source'] for row in history)
+    candidates = [(score, index) for score, index in options if score >= best_score - 12]
+    return max(candidates, key=lambda item: (
+        -recent_covers[entries[item[1]]['asset']['relative_path']],
+        item[0] + 14 * _seed_value(seed, entries[item[1]]['asset']['id'], 'cover'),
+    ))[1]
+
+
 def run(stage: dict) -> tuple[str, str | None]:
     from stages.image import _find_chosen_text
     from stock_media import load_audio_timeline
@@ -537,20 +618,34 @@ def run(stage: dict) -> tuple[str, str | None]:
     require_native = category in {"guoxue", "health"}
     output_width = 720 if require_native else 1080
     cover_asset, book_name = shared_book_cover_settings(task, text)
+    root = library_root()
+    assets = scan(category)
+    history = local_material_history.recent(root, category)
     previous = db.retry(lambda: db.get_client().table("artifacts").select("meta")
                         .eq("type", "video_index").contains("meta", {"source": "local_library"})
-                        .neq("task_id", task).order("created_at", desc=True).limit(500).execute()).data or []
+                        .order("created_at", desc=True).limit(500).execute()).data or []
     previous_signatures = {str((row.get("meta") or {}).get("sequence_signature"))
                            for row in previous if (row.get("meta") or {}).get("sequence_signature")}
-    for attempt in range(12):
-        entries = plan(text, subtitles, category, aspect=aspect, require_native=require_native,
-                       output_width=output_width, selection_seed=f"{task}:{attempt}")
-        signature = sequence_signature(entries)
-        if signature not in previous_signatures:
-            break
-    else:
-        raise ValueError("本地素材无法形成与已有任务不同的片段顺序，请补充可用视频")
     revision = uuid.uuid4().hex
+    seed = f'{task}:{revision}'
+    last_error = None
+    for attempt in range(12):
+        try:
+            entries = plan(text, subtitles, category, aspect=aspect, require_native=require_native,
+                           output_width=output_width, selection_seed=f"{seed}:{attempt}", assets=assets, history=history)
+            signature = sequence_signature(entries)
+            if signature in previous_signatures:
+                continue
+            for entry in entries:
+                entry.update(check_excerpt(entry))
+        except ValueError as exc:
+            last_error = exc
+            continue
+        break
+    else:
+        if last_error is not None:
+            raise last_error
+        raise ValueError("本地素材无法形成与已有任务不同的片段顺序，请补充可用视频")
     ff = imageio_ffmpeg.get_ffmpeg_exe()
     width, height = (960, 720) if aspect == "4:3" else (720, 720)
     scratch = Path(__file__).resolve().parent / "output"
@@ -558,7 +653,6 @@ def run(stage: dict) -> tuple[str, str | None]:
     with tempfile.TemporaryDirectory(prefix="local-materials-", dir=scratch) as directory:
         cover_options = []
         for entry in entries:
-            entry.update(check_excerpt(entry))
             source = resolve_asset(entry["asset"])
             preview = Path(directory) / f"{entry['index']:03}.jpg"
             # Preview is the exact center-cropped composition used by the render.
@@ -573,7 +667,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                                  meta={"visual_mode": "stock_video", "source": "local_library"})
             entry.update(path=path, cell_ratio=aspect, visual_type="video", motion="source_motion")
             cover_options.append((cover_score(preview, entry), entry["index"]))
-        cover_index = max(cover_options)[1]
+        cover_index = select_cover(cover_options, entries, history, seed)
         entries[0]["cover_path"] = entries[cover_index]["path"]
         entries[0]["cover_source_index"] = cover_index
         if cover_asset and book_name:
@@ -608,4 +702,5 @@ def run(stage: dict) -> tuple[str, str | None]:
                          meta={"visual_mode": "stock_video", "source": "local_library",
                                "count": len(entries), "sequence_signature": signature,
                                "book_cover_pip": bool(entries[0].get('book_cover_pip'))})
+    local_material_history.record(root, category, task, revision, entries, entries[cover_index]['asset']['relative_path'])
     return "done", index_path

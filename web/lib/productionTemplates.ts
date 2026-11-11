@@ -15,7 +15,7 @@ export function productionTemplate(id: string) {
 export function databaseCategory(id: string) { const template=productionTemplate(id); return template.databaseCategory || template.category; }
 export async function configureProductionTasks(client: any, taskIds: string[], templateId: string, image: Record<string, unknown> = {}) {
   const template = productionTemplate(templateId);
-  const version = template.category === 'guoxue' ? 3 : template.category === 'health' ? 2 : 1;
+  const version = template.category === 'guoxue' ? 3 : ['health','social_science'].includes(template.category) ? 2 : 1;
   const localStock = image.visual_mode === 'local_stock_video' || image.stock_source === 'local_library';
   if (localStock && !['guoxue','health'].includes(template.category)) throw new Error('本地素材库目前仅支持国学和健康类');
   const stock = image.visual_mode === 'stock_video' || localStock;
@@ -24,7 +24,7 @@ export async function configureProductionTasks(client: any, taskIds: string[], t
   const { data: rewriteStages, error: rewriteError } = await client.from('stages').select('id,task_id,params').in('task_id', taskIds).eq('kind', 'rewrite');
   if (rewriteError || rewriteStages?.length !== taskIds.length) throw new Error(rewriteError?.message || '文案规则快照不完整，请重试');
   for (const stage of rewriteStages) {
-    const rewriteDomain = ['guoxue','health','scene'].includes(template.category) ? template.category : 'auto';
+    const rewriteDomain = template.category === 'social_science' ? 'history' : ['guoxue','health','scene'].includes(template.category) ? template.category : 'auto';
     const result = await client.from('stages').update({ params: { ...(stage.params || {}), content_line: template.category, rewrite_domain: rewriteDomain } }).eq('id', stage.id).eq('task_id', stage.task_id).select('id');
     if (result.error || result.data?.length !== 1) throw new Error(result.error?.message || '文案规则保存失败，请重试');
   }

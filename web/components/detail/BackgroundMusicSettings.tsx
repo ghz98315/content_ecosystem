@@ -5,6 +5,7 @@ import { prepareMediaUpload } from '@/lib/prepareMediaUpload';
 import { useEffect,useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { MUSIC_PRESETS, musicPresetByPath, type MusicCategory } from '@/lib/musicPresets';
+import { userMusicPresetMatch } from '@/lib/userMusicPresets';
 
 export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
   const [path,setPath]=useState('');
@@ -17,6 +18,10 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
   const [category,setCategory]=useState<MusicCategory>('health');
+  const [personal, setPersonal] = useState<Array<{path:string;label:string}>>([]);
+  const [saveAsPreset, setSaveAsPreset] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [presetRevision, setPresetRevision] = useState(0);
   const selectedPreset=musicPresetByPath(path);
   useEffect(() => {
     let active=true;
@@ -28,10 +33,23 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
       if (error) {setError('背景音乐配置读取失败，请刷新重试');return;}
       setPath(data.bgm_path || '');setVolume(Number(data.bgm_volume));setNarration(Number(data.narration_volume));setAuthorized(data.bgm_authorization_confirmed);setReady(true);
       const current=musicPresetByPath(data.bgm_path || '');
-      setCategory(current?.category || (imageStage.data?.params?.production_template === 'guoxue-v1' ? 'guoxue' : 'health'));
+      const personalCategory = userMusicPresetMatch(data.bgm_path || '')?.[2] as MusicCategory | undefined;
+      setCategory(current?.category || personalCategory || (imageStage.data?.params?.production_template === 'guoxue-v1' ? 'guoxue' : 'health'));
     });
     return () => {active=false;};
   },[taskId]);
+  useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    setPersonal([]);
+    void authenticatedFetch(`/api/background-music?category=${category}`, {cache:'no-store'})
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '个人预设读取失败');
+        if (active) setPersonal(data.presets || []);
+      }).catch(err => { if (active) setError(err instanceof Error ? err.message : '个人预设读取失败'); });
+    return () => { active = false; };
+  }, [ready, category, presetRevision]);
   useEffect(() => {
     let active=true;setUrl('');
     if (path) authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(path)}`).then(r=>r.json()).then(data=>{if(active)setUrl(data.signedUrl || '');}).catch(()=>{if(active)setError('音乐试听地址读取失败');});
@@ -44,13 +62,16 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
     setBusy(true);setError('');setMessage('');
     try {
       const uploadFile=await prepareMediaUpload(file,'bgm',setMessage);
-      const response=await authenticatedFetch('/api/background-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId,name:uploadFile.name,size:uploadFile.size})});
+      const label = presetName.trim() || file.name.replace(/\.[^.]+$/, '');
+      const response=await authenticatedFetch('/api/background-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId,name:uploadFile.name,size:uploadFile.size,preset:saveAsPreset,category,label})});
       const prepared=await response.json();
       if(!response.ok)throw new Error(prepared.error || '准备音乐上传失败');
       const next=prepared.path;
       const {error}=await supabase.storage.from('artifacts').uploadToSignedUrl(next,prepared.token,uploadFile,{contentType:uploadFile.type || 'audio/mpeg'});
       if(error)throw error;
-      setPath(next);setAuthorized(false);setMessage('音乐已上传，请试听并保存设置后再确认配音。');
+      setPath(next);setAuthorized(false);
+      if (saveAsPreset) setPresetRevision(value => value + 1);
+      setMessage(saveAsPreset ? '已上传到个人预设库。确认授权并保存，即可用于当前任务。' : '音乐已上传，请试听并保存音乐设置。');
     } catch(err) {setError(err instanceof Error?err.message:'音乐上传失败');}
     finally {setBusy(false);}
   }
@@ -77,8 +98,14 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
     <div className="bgm-controls">
       <label>音乐类别<select value={category} disabled={!ready || busy} onChange={event=>setCategory(event.target.value as MusicCategory)}><option value="guoxue">国学类</option><option value="health">健康类</option></select></label>
       <label>预设音乐<select value={selectedPreset?.category === category ? selectedPreset.id : ''} disabled={!ready || busy} onChange={event=>{const preset=MUSIC_PRESETS.find(item=>item.id===event.target.value);if(!preset)return;setPath(preset.path);setVolume(preset.defaultVolume);setAuthorized(!preset.userProvided);setMessage('预设已选择，请试听并保存音乐设置。');}}><option value="">选择一首试听</option>{MUSIC_PRESETS.filter(item=>item.category===category).map(item=><option value={item.id} key={item.id}>{item.label} · {item.mood}</option>)}</select></label>
+      {personal.length > 0 && <label>个人预设<select value={personal.some(item => item.path === path) ? path : ''} disabled={busy} onChange={event => {
+        if (!event.target.value) return;
+        setPath(event.target.value); setAuthorized(false); setMessage('个人预设已选择，请确认授权后保存。');
+      }}><option value="">选择已上传音乐</option>{personal.map(item => <option key={item.path} value={item.path}>{item.label}</option>)}</select></label>}
       {selectedPreset && <div className="bgm-preset-credit"><span>{selectedPreset.userProvided ? '用户提供音乐，请按实际授权范围使用。' : '这首音乐采用 CC BY 4.0，发布视频时请在简介中署名。'}</span><button type="button" className="secondary-action" onClick={()=>void navigator.clipboard.writeText(selectedPreset.credit).then(()=>setMessage('音乐信息已复制。')).catch(()=>setError('复制失败，请手动复制下方文字'))}>复制音乐信息</button><small>{selectedPreset.credit}</small></div>}
       <label>音乐文件<input type="file" accept=".mp3,.wav,.m4a,audio/*" disabled={!ready || busy} onChange={event=>{void upload(event.target.files?.[0]);event.currentTarget.value='';}} /></label>
+      <label><input type="checkbox" checked={saveAsPreset} disabled={!ready || busy} onChange={event => setSaveAsPreset(event.target.checked)} />上传到个人预设库，供其他任务使用</label>
+      {saveAsPreset && <label>预设名称 <input value={presetName} maxLength={36} disabled={busy} placeholder="默认使用文件名" onChange={event => setPresetName(event.target.value)} /></label>}
       {url && <audio controls src={url} />}
       <label>背景音乐音量 {Math.round(volume*100)}%<input type="range" min="0.02" max="0.30" step="0.01" value={volume} disabled={!ready || busy} onChange={event=>{setVolume(Number(event.target.value));setMessage('有未保存修改');}} /></label>
       <label>配音音量 {narration.toFixed(2)}<input type="range" min="0.50" max="1.50" step="0.05" value={narration} disabled={!ready || busy} onChange={event=>{setNarration(Number(event.target.value));setMessage('有未保存修改');}} /></label>

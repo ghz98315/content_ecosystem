@@ -15,7 +15,10 @@ import config
 import compliance
 import db
 import storage
-from rewrite_review import MAX_REVISIONS, PLANNED_MIN_LENGTH_RATIO, PLANNED_TARGET_LENGTH_RATIO, HEALTH_MIN_LENGTH_RATIO, HEALTH_TARGET_LENGTH_RATIO, evaluate as review_rewrite, opening_hook, remainder, format_for_reading, effective_length, attempt_rank, length_bounds
+from rewrite_review import (
+    MAX_REVISIONS, attempt_rank, editable_middle, effective_length, evaluate as review_rewrite,
+    format_for_reading, history_conversion_tail, length_bounds, length_plan, opening_hook,
+)
 from rewrite_skill import resolve_domain, prompt_extension, audit_output, DomainConflict
 from rewrite_editorial import scene_plan_audit, health_attribution_issues, repair_scope, apply_paragraph_edits
 from spoken_style import spoken_style_issues
@@ -241,7 +244,7 @@ def _candidate_issues(
                 issues.append(f"改写稿过短（{length}/{source_len} 字）")
             if length > max_len:
                 issues.append(f"改写稿明显超出原文长度（{length}/{source_len} 字）")
-            if not text.lstrip().startswith(opening_hook(source)):
+            if not text.lstrip().startswith(opening_hook(source, category)):
                 issues.append("开头黄金钩子未按原文保留")
         if re.search(r"(?:未完待续|请继续|继续输出|\.\.\.|……)\s*$", text):
             issues.append("改写稿疑似被截断")
@@ -283,18 +286,12 @@ def _rewrite_prompt_kind(category: str, mode: str, narration_mode: str) -> str:
     return prompt_kind
 
 
-def _length_budget(source: str, hook: str, category: str = 'general') -> str:
+def _length_budget(body: str, locked_chars: int, plan: tuple[int, int, int, int], category: str) -> str:
     """Give the model a concrete coverage budget before it starts drafting."""
-    minimum, maximum = length_bounds(source, category)
-    target_ratio = HEALTH_TARGET_LENGTH_RATIO if category == 'health' else PLANNED_TARGET_LENGTH_RATIO
-    minimum_ratio = HEALTH_MIN_LENGTH_RATIO if category == 'health' else PLANNED_MIN_LENGTH_RATIO
-    target = math.ceil(effective_length(source) * target_ratio)
-    planned_minimum = math.ceil(effective_length(source) * minimum_ratio)
-    hook_chars = effective_length(hook)
-    body = remainder(source, hook)
+    minimum, maximum, planned_minimum, target = plan
     paragraphs = [part.strip() for part in format_for_reading(body).split('\n\n') if part.strip()]
     if not paragraphs:
-        return f'正文目标约{max(0, target - hook_chars)}字；全文硬性范围{minimum}-{maximum}字。'
+        return f'正文目标约{max(0, target - locked_chars)}字；全文目标范围{minimum}-{maximum}字。'
     groups: list[list[str]] = []
     ideal = max(180, math.ceil(effective_length(body) / 10))
     for paragraph in paragraphs:
@@ -302,16 +299,16 @@ def _length_budget(source: str, hook: str, category: str = 'general') -> str:
             groups.append([])
         groups[-1].append(paragraph)
     sizes = [effective_length(''.join(group)) for group in groups]
-    body_target = max(0, target - hook_chars)
+    body_target = max(0, target - locked_chars)
     total = max(1, sum(sizes))
     allocations = [body_target * size // total for size in sizes]
     for index in range(body_target - sum(allocations)):
         allocations[index % len(allocations)] += 1
     lines = [
-        f'全文写作目标约{target}字（含已锁定钩子{hook_chars}字），正文目标约{body_target}字；'
+        f'全文写作目标约{target}字（含锁定内容{locked_chars}字），可改写区目标约{body_target}字；'
         f'自动改写的目标下限{planned_minimum}字，',
-        (f'健康类硬性范围为原稿100%-110%，下限{minimum}字、上限{maximum}字。'
-         if category == 'health' else
+        (f'本类别目标范围为来源稿100%-110%，即{minimum}-{maximum}字；优先讲完整，再调整篇幅。'
+         if category == 'health' else f'历史社科全文目标为{minimum}-{maximum}字。' if category == 'social_science' else
          f'仅在返工次数用尽时可按执行下限{minimum}字交付，上限{maximum}字。'),
         '以下按原稿信息块预留篇幅，顺序可以重组；每块的事实与限定必须有去处，不能用空话凑字：',
     ]
@@ -324,20 +321,30 @@ def _length_budget(source: str, hook: str, category: str = 'general') -> str:
 
 def _generate_single_candidates(source: str, context: dict, notes: str, mode: str) -> tuple[list[str], list[int], dict]:
     """Initial generation plus at most three content revisions, then human review."""
-    hook = opening_hook(source)
-    prompt = load_prompt(context['category'], 'initial_dedup')
+    category = context['category']
+    historical = category == 'social_science'
+    hook = opening_hook(source, category)
+    tail = history_conversion_tail(source) if historical else ''
+    polish_only = category == 'health' and context.get('rewrite_approach') == 'polish'
+    prompt_kind = 'history_rewrite' if historical else 'polish' if polish_only else 'initial_dedup'
+    prompt = load_prompt(category, prompt_kind)
     prompt += '\n\n' + SPOKEN_STYLE_RULES
     skill_profile = context.get('rewrite_skill')
     if skill_profile:
         extension, skill_profile = prompt_extension(skill_profile)
         prompt += '\n\n' + extension
-    source_body = remainder(source, hook)
-    minimum, maximum = length_bounds(source, context['category'])
-    target_ratio = HEALTH_TARGET_LENGTH_RATIO if context['category'] == 'health' else PLANNED_TARGET_LENGTH_RATIO
-    minimum_ratio = HEALTH_MIN_LENGTH_RATIO if context['category'] == 'health' else PLANNED_MIN_LENGTH_RATIO
-    planned_minimum = math.ceil(effective_length(source) * minimum_ratio)
-    hook_chars = effective_length(hook)
-    budget = _length_budget(source, hook, context['category'])
+    source_body = editable_middle(source, hook, tail)
+    source_chars = effective_length(source)
+    plan = length_plan(source, category)
+    minimum, maximum, planned_minimum, target = plan
+    locked_chars = effective_length(hook) + effective_length(tail)
+    budget = _length_budget(source_body, locked_chars, plan, category)
+    locked_context = (f'\n\n【锁定转化结尾，程序逐字拼接】\n{tail}' if tail else '')
+    if polish_only:
+        budget = budget.replace('顺序可以重组', '按来源稿的顺序展开')
+    rewrite_instruction = (
+        '只精修表达并保持论证与案例顺序。' if polish_only else '字数偏差仅指长度，表达需要深度重构。'
+    )
     history: list[dict] = list(context.get('rewrite_resume') or [])
     checkpoint = context.get('rewrite_checkpoint')
     if history and all(item.get('state') == 'service_error' for item in history):
@@ -372,18 +379,29 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                 previous_chars = effective_length(previous['text'])
                 if previous_chars < planned_minimum:
                     feedback += (f'\n上稿有效字数{previous_chars}，距本类写作下限还差{planned_minimum - previous_chars}字；'
-                                 f'本轮请按上方信息块预算补全，全文目标约{math.ceil(effective_length(source) * target_ratio)}字。')
+                                 f'本轮请按上方信息块预算补全，全文目标约{target}字。')
                     feedback += ('\n本轮优先修复篇幅与信息覆盖：保留上稿已有的正确信息，逐项对照原稿，'
                                  '补回省略的案例、说明过程、事实条件和细节；不得再概括或合并成更短的提纲。'
                                  '允许在不改变原意的基础上适度展开原稿已有解释、指代和承接，'
                                  '但不得添加新机制、例子、数据或建议，全文不得超过本轮上限。'
                                  '仅压缩重复报幕用语，不压缩其后的解释内容；不能靠编造新事实或重复句凑字。')
-            feedback += '\n【可改写区重复片段】\n' + '\n'.join(
-                previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
-            repair_paragraphs, editable = repair_scope(previous, hook)
+                elif previous_chars > maximum:
+                    feedback += (f'\n上稿有效字数{previous_chars}，超出上限{previous_chars - maximum}字；'
+                                 f'本轮压缩重复说明和冗长承接，保留事实、案例和必要限定，全文目标约{target}字。')
+            if not polish_only:
+                feedback += '\n【可改写区重复片段】\n' + '\n'.join(
+                    previous.get('similarity', {}).get('unlocked', {}).get('repeated_fragments', []))
+            repair_paragraphs, editable = repair_scope(previous, hook, tail)
             if editable:
+                paragraph_lengths = [effective_length(p) for p in repair_paragraphs]
+                editable_chars = sum(paragraph_lengths[index] for index in editable)
+                fixed_chars = locked_chars + sum(paragraph_lengths) - editable_chars
                 feedback += ('\n【局部修订保护】只返回 paragraph_edits:[{"index":段落编号,"text":"替换正文"}]，'
                              '不返回 rewritten_remainder；其他段落由程序原样复用。返回与合并后全稿一致的全部元数据。'
+                             f'本轮只改这些段落，替换后各段尽量保持当前长度与信息密度。'
+                             f'可改段落合计原有{editable_chars}字，替换后合计须为'
+                             f'{max(0, planned_minimum - fixed_chars)}-{maximum - fixed_chars}字；'
+                             f'各可改段落当前有效字数：{[(index, paragraph_lengths[index]) for index in editable]}。'
                              f'允许修改编号：{editable}；段落编号从0开始：\n'
                              + json.dumps(list(enumerate(repair_paragraphs)), ensure_ascii=False))
         history.append({'attempt':attempt+1,'revision':attempt,'text':'','issues':['请求已预留，未收到完整结果'],'complete':False,'state':'reserved'})
@@ -397,13 +415,13 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                     f"内容分类：{context['category']}；模式：{mode}\n主题：{context.get('keyword', '')}\n"
                     f"原视频标题：{context.get('title', '')}\n补充要求：{notes or '无'}\n"
                     f"必须保留的书名与数字：{'、'.join(protected_terms(source)) or '无'}\n"
-                    f"原稿有效字数{effective_length(source)}字；本轮写作须达到{planned_minimum}-{maximum}字，"
+                    f"原稿有效字数{source_chars}字；每轮（包括降重返工）合并后全文须达到{planned_minimum}-{maximum}字，"
                     + ("健康类不得比原稿短，可在原意范围内扩写0%-10%。" if context['category']=='health' else
                        f"仅在自动返工次数用尽后可按{minimum}字执行下限交付。")
-                    + f"程序拼接的钩子有{hook_chars}字，本轮 rewritten_remainder 应为{max(0, planned_minimum-hook_chars)}-{max(0, maximum-hook_chars)}字。\n"
+                    + f"程序锁定内容共{locked_chars}字，本轮 rewritten_remainder 应为{max(0, planned_minimum-locked_chars)}-{max(0, maximum-locked_chars)}字。\n"
                     f'【写作前字数与信息覆盖规划】\n{budget}\n'
-                    '字数偏差仅指长度，表达需要深度重构。不要重复输出锁定钩子。\n'
-                    f'【锁定钩子，程序逐字拼接】\n{hook}\n\n【可改写正文，包含结尾】\n{source_body}'
+                    f'{rewrite_instruction}不要重复输出锁定钩子。\n'
+                    f'【锁定钩子，程序逐字拼接】\n{hook}{locked_context}\n\n【可改写区】\n{source_body}'
                     + feedback
                 )}], temperature=0.7, max_tokens=config.REWRITE_MAX_TOKENS,
                 response_format={'type': 'json_object'},
@@ -419,15 +437,15 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                 # all four revision attempts on the same gateway timeout.
                 raise RuntimeError(f'改写服务连接或响应超时：{type(exc).__name__}。请稍后重跑改写节点') from exc
             stop_reason = 'service_error'
-            if last is not None and not minimum <= effective_length(last[0][0]) <= maximum:
-                # Keep the in-progress checkpoint for recovery. A network
-                # failure must not promote an undersized draft to delivery.
+            if best_rank[0]:
+                # Keep transport recovery available when every candidate is incomplete.
                 raise
             break
         choice = response.choices[0]
         raw = (choice.message.content or '').strip()
         try:
-            obj = json.loads(raw)
+            parsed = json.loads(raw)
+            obj = parsed if isinstance(parsed, dict) else {}
         except (ValueError, TypeError):
             obj = {}
         body = str(obj.get('rewritten_remainder') or '').strip() if isinstance(obj, dict) else ''
@@ -440,11 +458,12 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                 continue
         if body:
             # The fixed prefix is assembled in code, not entrusted to the model.
-            body = remainder(body, hook) if body.startswith(hook) else body
-            text = hook + '\n\n' + (body if editable else format_for_reading(body))
+            body = editable_middle(body, hook, tail)
+            formatted_body = body if editable or polish_only else format_for_reading(body)
+            text = '\n\n'.join(part for part in (hook, formatted_body, tail) if part) if formatted_body else ''
             candidates = [text]
         else:
-            candidates = _parse_candidates(raw)
+            candidates = [] if historical else _parse_candidates(raw)
             text = candidates[0] if len(candidates) == 1 else ''
         if not text:
             last_issues = ['未返回完整JSON正文，请返回 rewritten_remainder 字段']
@@ -453,11 +472,11 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
                 checkpoint(history)
             continue
         structure = _rewrite_structure(raw, text)
-        similarity = review_rewrite(source, text, hook, context['category'])
+        similarity = review_rewrite(source, text, hook, category, target_reuse=not polish_only, locked_tail=tail)
         issues = _candidate_issues(candidates, source, getattr(choice, 'finish_reason', None),
                                    mode, context['category'], 'single') + similarity['retry_issues']
-        if effective_length(text) < planned_minimum:
-            issues.append(f'未达到本类写作下限：当前{effective_length(text)}字，至少{planned_minimum}字')
+        if similarity['candidate_chars'] < planned_minimum:
+            issues.append(f"未达到本类写作下限：当前{similarity['candidate_chars']}字，至少{planned_minimum}字")
         missing_terms = [term for term in protected_terms(source) if term not in text]
         if missing_terms:
             issues.append('未原样保留书名或数字：' + '、'.join(missing_terms))
@@ -473,6 +492,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             issues = list(dict.fromkeys(issues + health_attribution_issues(text, hook)))
         strategies = obj.get('rewrite_strategy', []) if isinstance(obj, dict) else []
         strategies = [s.strip()[:240] for s in strategies if isinstance(s, str) and s.strip()][:5] if isinstance(strategies, list) else []
+        if historical and len(set(strategies)) < 2:
+            issues.append('请说明至少两种中段重构方法及实际落点')
         entry = {'attempt': attempt + 1, 'revision': attempt, 'text': text,
                  'generation_seconds': round(time.monotonic() - request_started, 3),
                  'strategy': strategies, 'issues': issues, 'similarity': similarity,
@@ -484,13 +505,16 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         actual_tail = text.split('\n\n')[-1]
         structure.update({
             'hook': hook, 'hook_text': hook, 'hook_strategy': 'preserved',
-            'body_text': remainder(text, hook), 'tail_text': actual_tail,
+            'body_text': editable_middle(text, hook, tail), 'tail_text': tail or actual_tail,
             'paragraphs': [p for p in text.split('\n\n') if p.strip()],
             'source_text': source, 'source_formatted': format_for_reading(source),
             'complete': getattr(choice, 'finish_reason', None) != 'length',
             'quality_warnings': issues,
             'editorial': editorial,
         })
+        if historical:
+            structure['locked_tail_text'] = tail
+            structure.update(cta_original=tail, cta_revised=tail)
         if skill_audit:
             structure['rewrite_skill'] = {**skill_profile, **skill_audit}
         if checkpoint:
@@ -520,7 +544,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     if delivery_issues:
         final_report['status'] = 'manual_review'
     if not minimum <= final_report['candidate_chars'] <= maximum:
-        final_report['status'] = 'length_failed'
+        final_report['status'] = 'length_review'
     structure['rewrite_review'] = {
         **final_report, 'max_revisions': MAX_REVISIONS,
         'planned_min_chars': planned_minimum, 'planning_warnings': planning_warnings,
@@ -531,6 +555,7 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
         'editorial': structure.get('editorial'),
         'comparison_summary': [
             f"开头锁定 {effective_length(hook)} 个有效字符，生成稿由程序原样拼接。",
+            *([f'转化结尾锁定 {effective_length(tail)} 个有效字符。'] if tail else []),
             f"原稿 {final_report['source_chars']} 字，交付稿 {final_report['candidate_chars']} 字，偏差 {final_report['length_deviation']:+.1%}（不计标点与空白）。",
             f"首次有效稿正文重复指标 {next(e['similarity']['unlocked']['score'] for e in history if e.get('similarity')):.1%}，交付稿 {final_report['unlocked']['score']:.1%}。",
         ],
@@ -743,6 +768,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error=message)
         return "failed", None
     context = _task_context(task_id, source)
+    if context['category'] == 'health' and params.get('rewrite_approach') == 'polish':
+        context['rewrite_approach'] = 'polish'
     if params.get('content_line') and params['content_line'] != context['category']:
         db.set_stage(stage['id'], 'needs_review', error='任务内容类型与二创规则快照不一致，请检查任务设置')
         return 'needs_review', None
@@ -779,6 +806,15 @@ def run(stage: dict) -> tuple[str, str | None]:
                 final_text = str(params.get("final_text") or candidates[idx]).strip()
                 if not final_text:
                     raise ValueError("最终文案不能为空")
+                if 'locked_tail_text' in rw:
+                    saved_hook = str(rw.get('hook_text') or '')
+                    saved_tail = str(rw['locked_tail_text'] or '')
+                    if not final_text.startswith(saved_hook) or not final_text.endswith(saved_tail):
+                        rw['manual_draft'] = {'index': idx, 'text': final_text}
+                        _upload_rewrite(sp, rw)
+                        db.set_stage(stage['id'], 'needs_review', output_ref=sp,
+                                     error='历史社科的锁定钩子和转化结尾须逐字保留，请恢复原文后再确认')
+                        return 'needs_review', sp
                 if rw.get('rewrite_review'):
                     original_source = rw.get('source_text') or source
                     minimum, maximum = length_bounds(original_source, context['category'])
@@ -792,7 +828,13 @@ def run(stage: dict) -> tuple[str, str | None]:
                 })
                 if rw.get('rewrite_review'):
                     original_source = rw.get('source_text') or source
-                    rw['final_similarity'] = review_rewrite(original_source, final_text, rw.get('hook_text') or opening_hook(original_source), context['category'])
+                    review = rw['rewrite_review']
+                    stored_hook = rw.get('hook_text')
+                    rw['final_similarity'] = review_rewrite(
+                        original_source, final_text, stored_hook if isinstance(stored_hook, str) else opening_hook(original_source),
+                        context['category'], target_reuse=review.get('reuse_target_applies', True),
+                        locked_tail=str(rw.get('locked_tail_text') or ''),
+                    )
                     rw['final_similarity']['issues'] = rw['final_similarity']['retry_issues']
                     rw['final_similarity']['stop_reason'] = 'manual_confirmed'
                     if context['category'] == 'scene':
@@ -829,7 +871,9 @@ def run(stage: dict) -> tuple[str, str | None]:
     if context.get('rewrite_skill'):
         from rewrite_checkpoint import prepare
         _extension, context['rewrite_skill'] = prompt_extension(context['rewrite_skill'])
-        context['rewrite_skill']['base_prompt_sha256'] = hashlib.sha256(load_prompt(context['category'], 'initial_dedup').encode()).hexdigest()
+        prompt_kind = ('history_rewrite' if context['category'] == 'social_science' else
+                       'polish' if context.get('rewrite_approach') == 'polish' else 'initial_dedup')
+        context['rewrite_skill']['base_prompt_sha256'] = hashlib.sha256(load_prompt(context['category'], prompt_kind).encode()).hexdigest()
         resumed, checkpoint = prepare(stage, params, source, context['rewrite_skill'], rewrite_notes, mode)
         context['rewrite_resume'], context['rewrite_checkpoint'] = resumed, checkpoint
     candidates, lengths, structure = _generate_candidates(
@@ -889,7 +933,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         "error": (f"改写字数未达标：原稿{payload['source_length']}字，当前{lengths[0]}字，"
                   f"要求{structure['rewrite_review']['min_chars']}-{structure['rewrite_review']['max_chars']}字；"
                   "已保留草稿，请核对信息完整性；人工确认可继续使用。")
-            if (structure.get('rewrite_review') or {}).get('status') == 'length_failed' else (
+            if (structure.get('rewrite_review') or {}).get('status') in {'length_failed', 'length_review'} else (
             "存在高风险合规项，请修改后重新确认" if report["status"] == "blocked" else (
             "自动二创检查未全部达标，请查看对照与返工记录后人工确认"
             if (structure.get('rewrite_review') or {}).get('status') == 'manual_review' else None)),

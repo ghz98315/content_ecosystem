@@ -6,8 +6,9 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings, book_cover_pip_intervals, book_cover_relevant, shared_book_cover_settings, resolve_book_cover
-from stages.render import _book_cover_pip_graph, _prepare_book_cover_pip
+from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings, book_cover_pip_intervals, book_cover_relevant, render_book_cover, shared_book_cover_settings, resolve_book_cover
+from stages.render import _book_cover_pip_graph, _prepare_book_cover_pip, _select_stock_cover
+from music_presets import is_user_preset
 
 
 class BookCoverInsertTests(unittest.TestCase):
@@ -62,6 +63,46 @@ class BookCoverInsertTests(unittest.TestCase):
              patch('local_materials.local_book_cover',return_value=None):
             self.assertEqual((None,'道德经'),shared_book_cover_settings('task','把《道德经》放在床头翻看'))
 
+    def test_manual_cover_is_kept_and_saved_index_can_restore_the_pip(self):
+        asset = {'provider':'task_artifact','storage_path':'task/book_cover.png'}
+        with patch('local_materials._book_cover_settings', return_value=(asset, '自在生活')):
+            self.assertEqual((asset, '自在生活'), shared_book_cover_settings('task', '今天谈日常安排'))
+        entries = [{'book_cover_pip': {'asset': asset, 'book_name':'自在生活', 'intervals':[]}}]
+        subtitles = {'duration': 25, 'segments': [
+            {'text':'今天聊《自在', 'start':0,'end':2,'char_start':0,'char_end':6},
+            {'text':'生活》', 'start':2,'end':4,'char_start':6,'char_end':9},
+            {'text':'末尾再聊《自在', 'start':17,'end':19,'char_start':9,'char_end':16},
+            {'text':'生活》', 'start':19,'end':21,'char_start':16,'char_end':19},
+        ]}
+        with patch('local_materials.shared_book_cover_settings', return_value=(None, '自在生活')):
+            source, intervals = render_book_cover('task', '今天聊《自在生活》，末尾再聊《自在生活》', subtitles, entries)
+        self.assertEqual(asset, source)
+        self.assertEqual(2, len(intervals))
+        self.assertTrue(intervals[-1]['start'] >= 15)
+        self.assertTrue(all(item['end'] - item['start'] >= 3 for item in intervals))
+
+    def test_video_cover_prefers_upload_then_local_book_preset_then_frame(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            folder = root / '91_成片预设封面'; folder.mkdir()
+            image = folder / '自在生活封面.png'; Image.new('RGB', (320, 480), 'red').save(image)
+            task = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
+            uploaded = f'{task}/video-cover/bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb.jpg'
+            entries = [{'cover_path': 'stock-frame.jpg'}]
+            with patch('local_materials.library_root', return_value=root):
+                self.assertEqual(('uploaded', uploaded), _select_stock_cover(task, {'video_cover_path': uploaded}, '自在生活', entries))
+                self.assertEqual(('local_preset', str(image)), _select_stock_cover(task, {}, '《自在生活》', entries))
+                self.assertEqual(('selected_frame', 'stock-frame.jpg'), _select_stock_cover(task, {}, '另一册书', entries))
+                with self.assertRaises(ValueError):
+                    _select_stock_cover('another-task', {'video_cover_path':uploaded}, '自在生活', entries)
+
+    def test_personal_music_preset_only_accepts_the_owning_account(self):
+        owner = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
+        path = f'user-music/{owner}/health/bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb--5rWL6K-V.mp3'
+        self.assertTrue(is_user_preset(path, owner))
+        self.assertFalse(is_user_preset(path, 'other-owner'))
+        self.assertFalse(is_user_preset(path.replace('/health/', '/health/../'), owner))
+
     def test_first_and_last_spoken_title_use_confirmed_cover(self):
         text='今天读养生书。中间讲饮食和运动。最后再回到养生书。'
         cues=[
@@ -103,7 +144,7 @@ class BookCoverInsertTests(unittest.TestCase):
 
     def test_pip_is_large_centered_and_has_no_extra_frame(self):
         graph=_book_cover_pip_graph(3,4/3,'ass=subs.ass:fontsdir=fonts', ['between(t,3.8,6.1)'])
-        self.assertIn('[3:v]format=rgba[book]',graph)
+        self.assertIn('[3:v]zoompan=',graph)
         self.assertIn('overlay=(W-w)/2:555+(810-h)/2',graph)
         self.assertNotIn('pad=',graph)
         self.assertNotIn('color=0xF3EBDD',graph)

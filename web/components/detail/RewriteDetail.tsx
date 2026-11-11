@@ -8,6 +8,7 @@ import { DetailShell, TextBtn, DetailCommon } from "./_shell";
 import { VideoTextSettings, VideoTextSettingsHandle } from "./VideoTextSettings";
 import { RewriteReviewPanel, RewriteReview } from "./RewriteReviewPanel";
 import { RewriteDomainSettings, RewriteSkillInfo } from './RewriteDomainSettings';
+import { StockCoverSettings } from './StockCoverSettings';
 
 interface RewriteData {
   candidates: string[];
@@ -24,6 +25,7 @@ interface RewriteData {
   hook_text?: string;
   body_text?: string;
   tail_text?: string;
+  locked_tail_text?: string;
   book_title?: string;
   book_title_source?: string;
   paragraphs?: string[];
@@ -97,6 +99,11 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
       setErr("最终文案不能为空");
       return;
     }
+    if (data?.locked_tail_text != null && ((data.hook_text && !finalText.startsWith(data.hook_text))
+        || (data.locked_tail_text && !finalText.endsWith(data.locked_tail_text)))) {
+      setErr('历史社科的锁定钩子和转化结尾须逐字保留，请恢复原文后再确认。');
+      return;
+    }
     const isHistory = task.content_category === "social_science";
     setBusy(true);
     setErr(null);
@@ -153,8 +160,9 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   return (
     <DetailShell title="改写" stage={stage} onRerun={onRerun} actions={actions}>
       {stage?.params.input_mode === 'ready_script' && <p role="status">本任务直接使用已确认成稿，没有调用二创模型。配音和画面均以此稿为准。</p>}
-      {stage?.params.input_mode !== 'ready_script' && task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} />}
+      {stage?.params.input_mode !== 'ready_script' && task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} showApproach={task.content_category === 'health' && (!stage?.params.content_line || stage.params.content_line === 'health')} />}
       <VideoTextSettings ref={videoTextRef} taskId={taskId} disabled={busy} historyCover={task.content_category === 'social_science'} legacyTitle={data?.cover_confirmed ? data.cover_title : undefined} legacySubtitle={data?.cover_confirmed ? data.cover_subtitle : undefined} />
+      <StockCoverSettings taskId={taskId} />
       {(isReview || isDone) && data && (
         <>
           <section className="rewrite-summary-grid" aria-label="改写稿摘要">
@@ -169,8 +177,8 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
 
           {(data.hook_text || data.body_text || data.tail_text) && <section className="rewrite-lock-status" aria-label="改写结构" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-hover)" }}>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>开头</span><strong>已锁定</strong><small style={{ display: "block" }}>{data.hook_text ? `${textLength(data.hook_text)} 字` : ""}</small></div>
-            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>中段</span><strong>深度重写</strong><small style={{ display: "block" }}>{data.body_text ? `${textLength(data.body_text)} 字` : ""}</small></div>
-            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>{data.rewrite_review ? '按语义重写' : '原版本'}</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>中段</span><strong>{data.rewrite_review?.reuse_target_applies === false ? '保留结构精修' : '深度重写'}</strong><small style={{ display: "block" }}>{data.body_text ? `${textLength(data.body_text)} 字` : ""}</small></div>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>{data.locked_tail_text ? '转化原文已锁定' : data.rewrite_review ? '按语义重写' : '原版本'}</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>书名</span><strong>{data.book_title ? "随文案确认" : "未识别"}</strong></div>
           </section>}
           <div className="rewrite-workspace">
