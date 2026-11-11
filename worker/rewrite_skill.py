@@ -17,6 +17,16 @@ class DomainConflict(ValueError):
     pass
 
 
+def _incidental_classic_quote(source: str, classic_hits: list[str]) -> bool:
+    if len(classic_hits) != 1:
+        return False
+    classic = classic_hits[0]
+    if classic not in {'庄子', '孟子'} or source.count(classic) != 1:
+        return False
+    quote = re.search(rf'{classic}(?:曾)?(?:说(?:过)?|曰|讲过)\s*[：:]\s*[^。！？!?]+[。！？!?]', source)
+    return bool(quote and len(normalized(source[:quote.start()] + source[quote.end():])) >= 240)
+
+
 def resolve_domain(source: str, explicit='auto', templates=(), category='health'):
     explicit = str(explicit or 'auto')
     if category == 'social_science':
@@ -33,9 +43,15 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
     classic_hits = [word for word in CLASSICS if word in source and (word != '大学' or '《大学》' in source)]
     medical_hits = [word for word in MEDICAL if word in source]
     health = any(word in source for word in MEDICAL[:10]) or len(medical_hits) >= 2
-    guoxue = bool(classic_hits)
+    incidental_quote = (
+        (explicit == 'health' or (explicit == 'auto' and 'health-v1' in templates))
+        and _incidental_classic_quote(source, classic_hits)
+    )
+    guoxue = bool(classic_hits) and not incidental_quote
     evidence = {'classic_signals':classic_hits, 'health_signals':medical_hits, 'legacy_category':category,
                 'templates':sorted(set(templates))}
+    if incidental_quote:
+        evidence['incidental_classic_quote'] = classic_hits[0]
     if explicit != 'auto':
         if explicit == 'general' and health:
             raise DomainConflict('正文包含健康主张，请选择“健康”或“混合”；通用领域不能跳过健康规则。')

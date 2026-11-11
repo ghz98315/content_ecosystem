@@ -22,7 +22,7 @@ export interface DetailCommon {
 interface ShellProps {
   title: string;
   stage: Stage | undefined;
-  onRerun: (id: string) => void;
+  onRerun?: (id: string) => void;
   children?: React.ReactNode;
   actions?: React.ReactNode;
   showChildrenOnPending?: boolean;
@@ -43,7 +43,7 @@ export function DetailShell({
   const isFailed     = status === "failed";
   const isReview     = status === "needs_review";
   const isCancelled  = status === "cancelled";
-  const canRerun     = stage && !isPending && !isProcessing && !isCancelled;
+  const canRerun     = stage && onRerun && !isPending && !isProcessing && !isCancelled;
   const diagnosticBackground = errorTone === "warning" ? "var(--warning-soft)" : "var(--error-soft)";
   const diagnosticBorder = errorTone === "warning" ? "var(--warning-border)" : "var(--error-border)";
   const diagnosticColor = errorTone === "warning" ? "var(--status-review)" : "var(--status-failed)";
@@ -55,7 +55,9 @@ export function DetailShell({
     : isReview
       ? stage?.kind === "ingest" && !stage.output_ref
         ? "下一步：按错误提示处理后重跑采集，或上传原视频、音频、文案。当前尚未采集成功，不能直接确认继续。"
-        : "下一步：确认当前内容后继续处理；确认不会重跑已经完成的上游阶段。"
+        : stage?.kind === "rewrite" && !stage.output_ref
+          ? "下一步：按上方提示处理后重跑改写，已完成的上游阶段会复用。"
+          : "下一步：确认当前内容后继续处理；确认不会重跑已经完成的上游阶段。"
       : "";
 
   return (
@@ -72,7 +74,7 @@ export function DetailShell({
         </span>
         <div className="detail-actions">
           {actions}
-          {canRerun && (
+          {canRerun && onRerun && (
             <TextBtn onClick={() => onRerun(stage!.id)} ariaLabel={`重跑${downstreamCount > 0 ? `当前阶段及下游 ${downstreamCount} 个阶段` : "当前阶段"}`}>重跑</TextBtn>
           )}
         </div>

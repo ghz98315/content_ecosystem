@@ -123,6 +123,7 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
     } finally { setBusy(false); }
   };
 
+  const isReadyScript = stage?.params.input_mode === 'ready_script';
   const isReview = stage?.status === "needs_review";
   const isDone = stage?.status === "done";
   const report = data?.compliance;
@@ -158,9 +159,9 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   ) : undefined;
 
   return (
-    <DetailShell title="改写" stage={stage} onRerun={onRerun} actions={actions}>
+    <DetailShell title={isReadyScript ? '已导入成稿' : '改写'} stage={stage} onRerun={isReadyScript && isDone ? undefined : onRerun} actions={actions}>
       {stage?.params.input_mode === 'ready_script' && <p role="status">本任务直接使用已确认成稿，没有调用二创模型。配音和画面均以此稿为准。</p>}
-      {stage?.params.input_mode !== 'ready_script' && task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} showApproach={task.content_category === 'health' && (!stage?.params.content_line || stage.params.content_line === 'health')} />}
+      {stage?.params.input_mode !== 'ready_script' && task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} />}
       <VideoTextSettings ref={videoTextRef} taskId={taskId} disabled={busy} historyCover={task.content_category === 'social_science'} legacyTitle={data?.cover_confirmed ? data.cover_title : undefined} legacySubtitle={data?.cover_confirmed ? data.cover_subtitle : undefined} />
       <StockCoverSettings taskId={taskId} />
       {(isReview || isDone) && data && (

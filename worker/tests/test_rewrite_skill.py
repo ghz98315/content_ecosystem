@@ -27,6 +27,16 @@ class RewriteSkillTests(unittest.TestCase):
   for explicit,templates in [('guoxue',()),('general',()),('auto',('guoxue-v1',))]:
    with self.assertRaises(DomainConflict):resolve_domain('血糖相关知识。',explicit,templates)
   with self.assertRaises(DomainConflict):resolve_domain('谈《黄帝内经》与血压。','health',('health-v1',))
+ def test_incidental_classic_quote_respects_the_selected_health_line(self):
+  context = '遇到意见不合时，她先分清自己能改变什么，再决定下一步怎么走。' * 12
+  source = context + '庄子说：井蛙不可以语于海。'
+  profile = resolve_domain(source, 'health', ('health-v1',))
+  self.assertEqual('health', profile['domain'])
+  self.assertEqual('庄子', profile['evidence']['incidental_classic_quote'])
+  with self.assertRaises(DomainConflict):
+   resolve_domain(source + '接下来讲庄子的三个故事。', 'health', ('health-v1',))
+  with self.assertRaises(DomainConflict):
+   resolve_domain(context + '《庄子》是本期要读的书。', 'health', ('health-v1',))
  def test_prompts_load_only_selected_rules_and_hash(self):
   for domain,files in [('guoxue',['guoxue.md']),('health',['health.md']),('mixed',['guoxue.md','health.md']),('general',[])]:
    prompt,profile=prompt_extension(resolve_domain('虚构主题。',domain))
