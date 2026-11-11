@@ -7,6 +7,7 @@ import re
 
 STYLE = 'history_period_film'
 PLAN_VERSION = 'history_period_film_4x3_v2'
+_PLAN_BATCH_SIZE = 6
 STYLE_DIRECTION = (
     '写实照片，胶片老照片风格。古典写实绘画的构图与明暗关系。'
     '暖窗侧光或符合场景的自然光，亮部象牙白与暖琥珀，暗部酒红、深木褐、墨绿，'
@@ -73,15 +74,53 @@ def compile_history_plan(payload: dict, count: int) -> list[dict]:
 
 
 def request_history_plan(client, model: str, scenes: list[str]) -> list[dict]:
-    response = client.chat.completions.create(
-        model=model, messages=[{'role':'system','content':_PLANNER}, {'role':'user','content':json.dumps(
-            [{'index':index, 'text':scene} for index, scene in enumerate(scenes, 1)], ensure_ascii=False)}],
-        temperature=0.2, response_format={'type':'json_object'},
+    cast, shots = [], []
+    cast_ids = set()
+    planner = _PLANNER + (
+        '\n当前只规划输入中的本批镜头，保留输入的全片编号。'
+        'existing_cast 是前面镜头已定义的人物卡，旧人物沿用原 ID，cast 只返回新增人物卡。'
+        '同一角色换年龄阶段才建立新 ID，编号接续已有人物。setting 和 composition 分别控制在120字、60字以内。'
     )
-    try:
-        return compile_history_plan(json.loads(response.choices[0].message.content), len(scenes))
-    except (TypeError, AttributeError, KeyError, IndexError, ValueError) as exc:
-        raise ValueError(f'历史社科分镜计划格式异常，尚未提交生图：{exc}') from exc
+    for start in range(0, len(scenes), _PLAN_BATCH_SIZE):
+        batch = [{'index': index, 'text': scene}
+                 for index, scene in enumerate(scenes[start:start + _PLAN_BATCH_SIZE], start + 1)]
+        label = f"第{batch[0]['index']}–{batch[-1]['index']}镜"
+        try:
+            chunks = []
+            with client.chat.completions.create(
+                model=model, messages=[
+                    {'role': 'system', 'content': planner},
+                    {'role': 'user', 'content': json.dumps({'existing_cast': cast, 'scenes': batch}, ensure_ascii=False)},
+                ],
+                temperature=0.2, response_format={'type': 'json_object'}, stream=True,
+            ) as stream:
+                for chunk in stream:
+                    for choice in chunk.choices or []:
+                        if choice.delta.content:
+                            chunks.append(choice.delta.content)
+        except Exception as exc:
+            if getattr(exc, 'status_code', None) == 524 or 'timeout' in type(exc).__name__.lower():
+                raise RuntimeError(f'历史社科分镜{label}请求超时，尚未提交生图。请稍后重跑画面节点。') from exc
+            raise
+        try:
+            payload = json.loads(''.join(chunks))
+            new_cast, batch_shots = payload['cast'], payload['shots']
+            if not isinstance(new_cast, list) or not isinstance(batch_shots, list):
+                raise ValueError('人物卡或镜头字段格式不正确')
+            if [shot['index'] for shot in batch_shots] != [item['index'] for item in batch]:
+                raise ValueError('镜头编号与本批片段不一致')
+            for card in new_cast:
+                key = _text(card.get('id'), 'id', 16)
+                if key in cast_ids:
+                    if card not in cast:
+                        raise ValueError('已有人物卡被修改')
+                    continue
+                cast_ids.add(key)
+                cast.append(card)
+            shots.extend(batch_shots)
+        except (TypeError, AttributeError, KeyError, ValueError) as exc:
+            raise ValueError(f'历史社科分镜{label}格式异常，尚未提交生图：{exc}') from exc
+    return compile_history_plan({'cast': cast, 'shots': shots}, len(scenes))
 
 
 def request_history_adjustment(client, model: str, note: str) -> str:

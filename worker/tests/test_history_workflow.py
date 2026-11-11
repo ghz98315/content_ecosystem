@@ -15,6 +15,15 @@ from rewrite_skill import resolve_domain
 from stages import image, render, rewrite
 
 
+def _mock_history_stream(payload):
+    encoded = json.dumps(payload, ensure_ascii=False)
+    chunks = [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=part))])
+              for part in (encoded[:len(encoded)//2], encoded[len(encoded)//2:])]
+    stream = MagicMock()
+    stream.__enter__.return_value = iter(chunks)
+    return stream
+
+
 class HistoryWorkflowTests(unittest.TestCase):
     def test_generated_script_locks_both_ends_and_reports_middle_reuse(self):
         hook = '第一句留个悬念。第二句说到旧事。第三句引出人物。第四句回到日常。'
@@ -118,18 +127,43 @@ class HistoryWorkflowTests(unittest.TestCase):
             for index, setting in enumerate(examples, 1)
         ]}
         create = client.chat.completions.create
-        create.return_value = SimpleNamespace(choices=[SimpleNamespace(
-            message=SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)))])
+        create.return_value = _mock_history_stream(payload)
         plan = request_history_plan(client, 'model', scenes)
         rules = create.call_args.kwargs['messages'][0]['content']
         self.assertIn('树冠形成清晰的人头侧影', rules)
         self.assertIn('水滴正对凹陷', rules)
         self.assertIn('具体事件优先照有依据的情节设计', rules)
+        self.assertTrue(create.call_args.kwargs['stream'])
         for setting, shot in zip(examples, plan):
             prompt = image_prompt([shot['scene']], grid=1)
             self.assertIn(setting, prompt)
             self.assertIn('手机缩略图', prompt)
             self.assertIn('4:3横版', prompt)
+
+    def test_long_history_plan_keeps_cast_and_global_shot_numbers_across_batches(self):
+        card = {'id':'P1','aliases':['示例人物'],'origin':'西方人','kind':'女子','age':'约40岁',
+                'face':'棕发方脸','clothing':'深色粗呢外套'}
+        rows = [{'index':index,'cast':['P1'],'era':'年代未定','setting':'示例人物翻开书册',
+                 'composition':'中景'} for index in range(1, 8)]
+        client = MagicMock()
+        create = client.chat.completions.create
+        create.side_effect = [_mock_history_stream({'cast':[card],'shots':rows[:6]}),
+                              _mock_history_stream({'cast':[],'shots':rows[6:]})]
+        plan = request_history_plan(client, 'model', ['旁白'] * 7)
+        second_request = json.loads(create.call_args.kwargs['messages'][1]['content'])
+        self.assertEqual([card], second_request['existing_cast'])
+        self.assertEqual(7, second_request['scenes'][0]['index'])
+        self.assertEqual(list(range(1, 8)), [shot['index'] for shot in plan])
+        self.assertIn('西方人', plan[-1]['scene'])
+        self.assertNotIn('示例人物', plan[-1]['scene'])
+
+    def test_history_gateway_timeout_is_identified_before_image_submission(self):
+        client = MagicMock()
+        timeout = RuntimeError('upstream')
+        timeout.status_code = 524
+        client.chat.completions.create.side_effect = timeout
+        with self.assertRaisesRegex(RuntimeError, '历史社科分镜第1–1镜请求超时，尚未提交生图'):
+            request_history_plan(client, 'model', ['旁白'])
 
 
 if __name__ == '__main__':
