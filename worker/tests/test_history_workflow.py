@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
+import config
 from history_visuals import compile_history_plan, image_prompt, request_history_plan
 from production_templates import validate_template
 from rewrite_review import evaluate, history_conversion_tail, length_bounds, opening_hook
@@ -25,6 +26,15 @@ def _mock_history_stream(payload):
 
 
 class HistoryWorkflowTests(unittest.TestCase):
+    def test_history_storyboard_client_uses_deepseek_without_switching_rewrite(self):
+        with patch.object(config, 'DEEPSEEK_API_KEY', 'test-key'), \
+             patch.object(config, 'DEEPSEEK_BASE_URL', 'https://api.deepseek.example/v1'), \
+             patch.object(config, 'REWRITE_PROVIDER', 'openai'), \
+             patch.object(config, 'openai_client') as client:
+            self.assertIs(config.history_storyboard_client(), client.return_value)
+        client.assert_called_once_with(api_key='test-key', base_url='https://api.deepseek.example/v1',
+                                       timeout=config.DEEPSEEK_TIMEOUT, max_retries=0)
+
     def test_generated_script_locks_both_ends_and_reports_middle_reuse(self):
         hook = '第一句留个悬念。第二句说到旧事。第三句引出人物。第四句回到日常。'
         middle = '甲乙丙丁戊己庚辛壬癸' * 18 + '。'

@@ -28,6 +28,7 @@ REWRITE_RETRIES = max(0, int(os.environ.get("REWRITE_RETRIES", "2")))
 REWRITE_MAX_TOKENS = max(1024, int(os.environ.get("REWRITE_MAX_TOKENS", "8192")))
 
 CLEAN_MODEL   = os.environ.get("CLEAN_MODEL",   "deepseek-chat")
+HISTORY_STORYBOARD_MODEL = os.environ.get("HISTORY_STORYBOARD_MODEL", "deepseek-flash").strip() or "deepseek-flash"
 REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "deepseek-chat" if REWRITE_PROVIDER == "deepseek" else "gpt-6.1-sol")
 BOOK_MODEL    = os.environ.get("BOOK_MODEL",    "gpt-5.5")
 
@@ -105,6 +106,13 @@ def clean_client():
     """Create the dedicated DeepSeek client used only by transcript cleaning."""
     if not DEEPSEEK_API_KEY:
         raise RuntimeError("清洗阶段缺少 DEEPSEEK_API_KEY，请在 worker/.env 中配置")
+    return openai_client(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL, timeout=DEEPSEEK_TIMEOUT, max_retries=0)
+
+
+def history_storyboard_client():
+    """Use DeepSeek independently of the prose rewrite provider."""
+    if not DEEPSEEK_API_KEY.strip() or not DEEPSEEK_BASE_URL.strip():
+        raise RuntimeError("历史社科分镜缺少 DeepSeek 配置，请检查 DEEPSEEK_API_KEY 和 DEEPSEEK_BASE_URL")
     return openai_client(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL, timeout=DEEPSEEK_TIMEOUT, max_retries=0)
 
 

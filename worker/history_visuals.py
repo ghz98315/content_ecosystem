@@ -93,6 +93,7 @@ def request_history_plan(client, model: str, scenes: list[str]) -> list[dict]:
                     {'role': 'user', 'content': json.dumps({'existing_cast': cast, 'scenes': batch}, ensure_ascii=False)},
                 ],
                 temperature=0.2, response_format={'type': 'json_object'}, stream=True,
+                extra_body={'thinking': {'type': 'disabled'}},
             ) as stream:
                 for chunk in stream:
                     for choice in chunk.choices or []:
@@ -125,7 +126,8 @@ def request_history_plan(client, model: str, scenes: list[str]) -> list[dict]:
 
 def request_history_adjustment(client, model: str, note: str) -> str:
     response = client.chat.completions.create(
-        model=model, temperature=0.2, response_format={'type':'json_object'}, messages=[
+        model=model, temperature=0.2, response_format={'type':'json_object'},
+        extra_body={'thinking': {'type': 'disabled'}}, messages=[
             {'role':'system','content':'只提取用户备注里与场景、动作、镜头或光线有关的画面修改。不要改动已有的人物外貌卡和时代。删除真实姓名、书名、对白与屏幕文字。返回 JSON {"adjustment":"匿名画面修改"}；没有可用内容返回空字符串。'},
             {'role':'user','content':note},
         ],

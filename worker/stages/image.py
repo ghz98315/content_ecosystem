@@ -293,7 +293,8 @@ def _history_storyboard(text: str) -> tuple[list[dict], dict]:
 
 def _load_history_visual_plan(task_id: str, storyboard: list[dict]) -> tuple[list[dict], str]:
     scenes = [shot['text'] for shot in storyboard]
-    signature = hashlib.sha256(json.dumps(scenes, ensure_ascii=False).encode()).hexdigest()[:20]
+    model = config.HISTORY_STORYBOARD_MODEL
+    signature = hashlib.sha256(json.dumps(['deepseek', model, scenes], ensure_ascii=False).encode()).hexdigest()[:20]
     path = f'{task_id}/styles/{HISTORY_PLAN_VERSION}/plan-{signature}.json'
     existing = db.retry(lambda: db.get_client().table('artifacts').select('id')
                         .eq('task_id', task_id).eq('type', 'history_prompt_plan')
@@ -314,9 +315,11 @@ def _load_history_visual_plan(task_id: str, storyboard: list[dict]) -> tuple[lis
                     return plan, signature
             finally:
                 local.unlink(missing_ok=True)
-    plan = request_history_plan(config.rewrite_client(), config.REWRITE_MODEL, scenes)
+    plan = request_history_plan(config.history_storyboard_client(), model, scenes)
     storage.upload_bytes(path, json.dumps(plan, ensure_ascii=False).encode(), 'application/json')
-    storage.add_artifact(task_id, 'image', 'history_prompt_plan', path, meta={'count': len(plan), 'aspect':'4:3'})
+    storage.add_artifact(task_id, 'image', 'history_prompt_plan', path, meta={
+        'count': len(plan), 'aspect': '4:3', 'provider': 'deepseek', 'model': model,
+    })
     return plan, signature
 
 
@@ -960,7 +963,7 @@ def process_replacement_request(request: dict) -> str:
     if history_period:
         prompt_scene = str(entry.get('prompt_scene') or '依据叙事时代的中性环境空镜')
         if note:
-            adjustment = request_history_adjustment(config.rewrite_client(), config.REWRITE_MODEL, note)
+            adjustment = request_history_adjustment(config.history_storyboard_client(), config.HISTORY_STORYBOARD_MODEL, note)
             if adjustment:
                 prompt_scene += f'；补充构图要求：{adjustment}'
         prompt = history_image_prompt([prompt_scene], start=image_index + 1, grid=1)
