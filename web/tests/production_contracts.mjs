@@ -61,6 +61,11 @@ await configureProductionTasks(db,['x'],'health-v1',{visual_mode:'stock_video'})
 assert.equal(checkRequested,true);assert.equal(db.calls.at(-1).payload.status,'pending');
 console.log('PASS: guardian liveness freshness, new-project visual selector and nonblocking creation check');
 const {validateVideoText}=load('lib/videoText.ts');
+const historyText={title:'维特根斯坦的一生',subtitle:'第一行\r\n第二行',footnote:'',account_name:''};
+assert.equal(validateVideoText(historyText,true).subtitle,'第一行\n第二行');
+assert.equal(validateVideoText(historyText,false,false,true).subtitle,'第一行\n第二行');
+assert.throws(()=>validateVideoText(historyText),/单行/);
+assert.throws(()=>validateVideoText({...historyText,subtitle:'一\n二\n三'},true),/最多两行/);
 assert.equal(validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\r\n第二行'},false,true).footnote,'第一行\n第二行');
 assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\n第二行'}));
 assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'一\n二\n三\n四\n五'},false,true));

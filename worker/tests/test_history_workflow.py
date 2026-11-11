@@ -60,6 +60,18 @@ class HistoryWorkflowTests(unittest.TestCase):
         self.assertIn(f'0:00:00.00,{end},Subheading', events)
         self.assertIn(f'0:00:00.00,{render._fmt_ass_time(20)},Footnote', events)
 
+    def test_history_subtitle_uses_white_then_yellow_and_black_outline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'history.ass'
+            render._make_ass([], str(path), title='历史标题', subtitle='第一行\r\n第二行',
+                             duration=20, landscape_layout=True, cover_titles_only=True,
+                             history_subtitle_style=True)
+            events = path.read_text(encoding='utf-8-sig')
+        style = next(line for line in events.splitlines() if line.startswith('Style: Subheading,'))
+        self.assertEqual(['&H00FFFFFF', '&H000000FF', '&H00000000'], style.split(',')[3:6])
+        self.assertIn(r'第一行\N{\1c&H00E6FF&}第二行', events)
+        self.assertIn('0:00:00.00,0:00:00.50,Subheading', events)
+
     def test_numbered_prompts_keep_cast_continuity_and_per_shot_era(self):
         card = {'id':'P1','aliases':['虚构人物甲'],'origin':'西方人','kind':'女子','age':'约40岁',
                 'face':'方圆脸、眉骨清晰、棕发','clothing':'细纹粗呢外套'}

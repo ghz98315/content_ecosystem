@@ -285,6 +285,7 @@ def _make_ass(
     health_subtitle_bold: bool = False,
     guoxue_text_style: bool = False,
     cover_titles_only: bool = False,
+    history_subtitle_style: bool = False,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
@@ -303,7 +304,13 @@ def _make_ass(
         raise ValueError('账号名称须为25字以内的单行文字')
     if account_name and not account_name.startswith('@'):
         account_name = '@' + account_name
-    title, subtitle = (value.replace('\n', ' ').replace('\r', ' ') for value in (title, subtitle))
+    title = title.replace('\n', ' ').replace('\r', ' ')
+    if history_subtitle_style:
+        subtitle = subtitle.replace('\r\n', '\n').replace('\r', '\n')
+        if len(subtitle.split('\n')) > 2:
+            raise ValueError('历史社科副标题最多两行')
+    else:
+        subtitle = subtitle.replace('\n', ' ').replace('\r', ' ')
     footnote = footnote.replace('\r\n','\n').replace('\r','\n') if footnote_centered else footnote.replace('\n',' ').replace('\r',' ')
     if footnote_centered and len(footnote.split('\n'))>4:
         raise ValueError('健康类脚注最多4行')
@@ -323,6 +330,9 @@ def _make_ass(
         foot_size-=3
         foot_fill='&H4DFFFFFF'
         foot_border=0
+    if history_subtitle_style:
+        sub_fill = '&H00FFFFFF'
+        sub_outline = '&H00000000'
     subheading_size = round(SUBTITLE_FONT_SIZE * 1.3) if health_text_style else (56 if landscape_layout else 52)
     narration_fill = '&H0000E6FF' if (guoxue_text_style or health_text_style) else '&H00FFFFFF'
     narration_bold = 0 if landscape_layout else -1
@@ -351,6 +361,8 @@ def _make_ass(
         'Subheading': (2, W // 2, picture_top - 56),
         'Footnote': (9, W - 70, picture_bottom + 28),
     }
+    if history_subtitle_style and '\n' in subtitle:
+        positions['Heading'] = (2, W // 2, positions['Heading'][2] - subheading_size)
     if health_text_style and landscape_layout:
         # Half a subtitle line of clear space between its bottom and the picture.
         sub_gap=round(subheading_size*0.5)
@@ -379,14 +391,19 @@ def _make_ass(
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
         if value:
             placement = ''
-            if landscape_layout or (style=='Footnote' and footnote_centered):
+            if landscape_layout or (style=='Footnote' and footnote_centered) or (style == 'Subheading' and history_subtitle_style):
                 alignment, x, y = positions[style]
-                base_size = {'Heading': 92, 'Subheading': subheading_size if health_text_style else 56, 'Footnote': foot_size}[style]
+                if style == 'Subheading' and not landscape_layout:
+                    alignment, x, y = 8, W // 2, 238
+                base_size = {'Heading': 92, 'Subheading': subheading_size, 'Footnote': foot_size}[style]
                 units = max(sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in line) for line in value.split('\n'))
                 spacing = 2 if style == 'Heading' else 0
                 size = min(base_size, int((W - 160 - spacing * len(value)) / max(1, units)))
                 placement = rf'{{\an{alignment}\pos({x},{y})\fs{size}\q2}}'
             escaped = r'\N'.join(_escape_ass(line) for line in value.split('\n')) if style=='Footnote' and footnote_centered else _escape_ass(value)
+            if style == 'Subheading' and history_subtitle_style and '\n' in value:
+                first, second = value.split('\n', 1)
+                escaped = _escape_ass(first) + r'\N{\1c&H00E6FF&}' + _escape_ass(second)
             visible_until = _fmt_ass_time(0) if cover_titles_only and style in {'Heading', 'Subheading'} else overlay_end
             lines.append(f"Dialogue: 1,0:00:00.00,{visible_until},{style},,0,0,0,,{placement}{escaped}\n")
     for seg, start_seconds, end_seconds in subtitle_intervals(segments, duration):
@@ -1148,6 +1165,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         phase_started = time.monotonic()
 
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
+        if is_history:
+            text_settings['history_subtitle_style'] = True
         if is_history and expected_template == 'history-v1' and (stage.get('params') or {}).get('template_version') == 2:
             text_settings['title'], text_settings['subtitle'] = cover_title, cover_subtitle
             text_settings['cover_titles_only'] = True

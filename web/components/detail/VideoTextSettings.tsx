@@ -21,6 +21,8 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
   const [reload, setReload] = useState(0);
   const [scene, setScene] = useState(false);
   const [health,setHealth]=useState(false);
+  const [historyTemplate,setHistoryTemplate]=useState(false);
+  const history = historyCover || historyTemplate;
   const [options, setOptions] = useState<Array<{title:string;subtitle:string}>>([]);
   const dirty = useRef(false);
   const loadedText = useRef('null');
@@ -47,6 +49,7 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
       if (loadError) { setError("画面文字读取失败，请刷新后重试"); return; }
       const params = data.params || {};
       const isScene = params.production_template === 'scene-v1';
+      setHistoryTemplate(params.production_template === 'history-v1' || params.content_line === 'social_science');
       setHealth(params.production_template==='health-v1'||(!params.production_template&&params.content_line==='health'));
       setScene(isScene); setOptions([]);
       const saved = params.video_text;
@@ -92,7 +95,7 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
     setBusy(true); setError(""); setMessage("");
     try {
       if (!ready) throw new Error('画面文字尚未读取完成，请稍后重试');
-      const text = validateVideoText(value,requireHistoryCover,health);
+      const text = validateVideoText(value,requireHistoryCover,health,history || requireHistoryCover);
       if(skipUnchanged&&!dirty.current&&!requireHistoryCover)return text;
       const { data: current, error: readError } = await supabase.from("stages").select("id,params,status,updated_at").eq("task_id", taskId).eq("kind", "render").single();
       if (readError || !current) throw new Error("读取成片设置失败，请重试");
@@ -120,10 +123,16 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
   return <section className="book-info-panel" aria-label="成片画面文字" style={{ margin: "16px 0", padding: 16 }}>
     <h3>{scene ? '封面文字与全片脚注' : '成片画面文字'}</h3>
     <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>成片后仍可修改。改写、信息设置与成片页共用同一份设置；留空并保存可隐藏对应文字。保存设置不会直接改变已有视频，重新成片后生效。</p>
-    {ref && <p style={{fontSize:13,color:'var(--text-secondary)'}}>确认改写稿时会一并保存此处文字，无需重复填写。{historyCover?'历史类主标题和副标题也用于开头封面，确认正文时必填，分别不超过24字和36字。':''}</p>}
+    {ref && <p style={{fontSize:13,color:'var(--text-secondary)'}}>确认改写稿时会一并保存此处文字。{history?'历史社科封面的主标题和副标题必填，分别不超过24和36字符。':''}</p>}
     {scene && <p>主副标题仅在开头0.5秒封面显示；脚注从第一帧持续到最后。封面底图独立生成，发布时可下载静态封面。</p>}
     {scene && options.length > 0 && <div className="external-actions">{options.map((item,index)=><button key={index} type="button" className="secondary-action" disabled={disabled||busy||!ready||renderStatus==='processing'} onClick={()=>{dirty.current=true;setValue(previous=>({...previous,...item}));setMessage('已选方案，请保存文字');}}>方案{index+1}：{item.title} / {item.subtitle}</button>)}</div>}
-    {fields.map(field => <label key={field.key} style={{ display: "block", margin: "12px 0", fontSize: 13 }}>
+    {fields.map(field => history && field.key === 'subtitle' ? <label key={field.key} style={{display:'block',margin:'12px 0',fontSize:13}}>
+      画面副标题
+      <textarea aria-label="画面副标题" rows={2} disabled={disabled||!ready||busy||renderStatus==='processing'}
+        value={value.subtitle} maxLength={36} onChange={event=>{dirty.current=true;setValue(previous=>({...previous,subtitle:event.target.value}));setMessage('有未保存修改，请保存');}}
+        placeholder={'第一行 · 白色\n第二行 · 黄色'} style={{display:'block',width:'100%',boxSizing:'border-box',padding:'8px 10px',marginTop:6}}/>
+      <small>按回车分行，最多两行，均使用黑色描边。总长度不超过36字符（含换行）。</small>
+    </label> : <label key={field.key} style={{ display: "block", margin: "12px 0", fontSize: 13 }}>
       {health&&field.key==='footnote'?'居中脚注':scene ? field.key==='title'?'封面主标题':field.key==='subtitle'?'封面副标题':'全片脚注' : field.label}
       {health&&field.key==='footnote'?<textarea aria-label="居中脚注" rows={3} disabled={disabled||!ready||busy||renderStatus==='processing'} value={value.footnote} maxLength={80} onChange={event=>{dirty.current=true;setValue(previous=>({...previous,footnote:event.target.value}));setMessage('有未保存修改，请保存');}} placeholder="图片下方居中，按回车分行" style={{display:'block',width:'100%',boxSizing:'border-box',padding:'8px 10px',marginTop:6}}/>:<input aria-label={field.label} disabled={disabled || !ready || busy || renderStatus === 'processing'} value={value[field.key]} maxLength={field.max} onChange={event => { dirty.current = true; setValue(previous => ({ ...previous, [field.key]: event.target.value })); setMessage("有未保存修改，请保存，或在确认改写稿时一并保存。"); }} placeholder={scene ? field.key==='footnote'?'图片由AI生成':'仅显示在0.5秒封面上' : field.hint} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px",marginTop: 6 }} />}
       <small style={{ color: "var(--text-secondary)" }}>{health&&field.key==='footnote'?'图片下方居中，留一行间距；回车换行，最多4行、共80字':scene ? field.key==='footnote'?'底部安全区域，全片持续显示':field.key==='title'?'封面中央，黄色字、红色描边':'封面主标题下方，白字、黑色描边' : field.hint}</small>
