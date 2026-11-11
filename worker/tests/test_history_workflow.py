@@ -100,6 +100,16 @@ class HistoryWorkflowTests(unittest.TestCase):
         script = ''.join(image['sentence'] for image in images)
         self.assertEqual(1, select_history_cover(images, script, '维特根斯坦的一生'))
 
+    def test_history_cover_upscales_existing_image_proportionally(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, result = (Path(directory) / name for name in ('source.png', 'enhanced.png'))
+            Image.new('RGB', (460, 345), '#a46b47').save(source)
+            render.enhance_history_cover(str(source), str(result))
+            with Image.open(result) as enhanced:
+                self.assertEqual((1080, 810), enhanced.size)
+            with Image.open(source) as original:
+                self.assertEqual((460, 345), original.size)
+
     def test_numbered_prompts_keep_cast_continuity_and_per_shot_era(self):
         card = {'id':'P1','aliases':['虚构人物甲'],'origin':'西方人','kind':'女子','age':'约40岁',
                 'face':'方圆脸、眉骨清晰、棕发','clothing':'细纹粗呢外套'}

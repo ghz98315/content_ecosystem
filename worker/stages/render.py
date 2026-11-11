@@ -711,6 +711,19 @@ def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion
         Path(still_path).unlink(missing_ok=True)
 
 
+def enhance_history_cover(source_path: str, output_path: str) -> None:
+    """Upscale the selected cover proportionally and sharpen small details."""
+    from PIL import Image, ImageFilter
+
+    with Image.open(source_path) as source:
+        cover = source.convert('RGB')
+        if cover.width < W:
+            height = round(cover.height * W / cover.width)
+            cover = cover.resize((W, height), Image.Resampling.LANCZOS)
+        cover = cover.filter(ImageFilter.UnsharpMask(radius=1.4, percent=75, threshold=3))
+        cover.save(output_path, 'PNG')
+
+
 def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: str, *, frame_mode: str | None = None, picture_ratio: float = 4/3) -> None:
     """Hold the first image frame as the short cover instead of a title card."""
     if frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(img_path)):
@@ -1057,15 +1070,20 @@ def run(stage: dict) -> tuple[str, str | None]:
         cover_path = selected_cover or images[0]['path']
         cover_local = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path, '.png')
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
-        cover_digest = hashlib.sha256(Path(cover_local).read_bytes()).hexdigest()
+        cover_enhanced = cover_origin == 'history_theme_shot'
         try:
+            cover_input = cover_local
+            if cover_enhanced:
+                cover_input = os.path.join(tmpdir, 'history-cover-enhanced.png')
+                enhance_history_cover(cover_local, cover_input)
+            cover_digest = hashlib.sha256(Path(cover_input).read_bytes()).hexdigest()
             frame_mode = (stage.get('params') or {}).get('frame_mode')
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
             if stock and landscape_layout and not selected_cover:
                 from stock_media import make_video_clip
                 make_video_clip(images[0], intro_duration, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=stock_vertical_feather)
             else:
-                _make_cover_clip(cover_local, cover_layout_png, intro_duration, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
+                _make_cover_clip(cover_input, cover_layout_png, intro_duration, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
         finally:
             try:
                 if cover_origin != 'local_preset':
@@ -1412,6 +1430,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "intro_duration": intro_duration,
             "cover": "selected_storyboard_frame" if cover_origin == 'history_theme_shot' else ("independent_cover" if selected_cover else "first_image_frame"),
             "cover_origin": cover_origin,
+            "cover_enhanced": cover_enhanced,
             "cover_shot_number": cover_index + 1 if cover_index is not None else None,
             "cover_frames": cover_frames,
             "visual_mode": 'stock_video' if stock else 'ai_images',
