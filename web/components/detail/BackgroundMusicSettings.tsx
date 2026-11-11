@@ -94,21 +94,25 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
     finally {setBusy(false);}
   }
   return <section className="bgm-settings" aria-label="背景音乐设置">
-    <h3>背景音乐（可选）</h3><p>可选预设音乐或上传自己的音乐。短音乐自动循环，开头和结尾淡入淡出。</p>
+    <h3>背景音乐（可选）</h3><p>这里选择的是配音后面的音乐，不会替换或修改已上传的人声。短音乐会自动循环，片头和片尾淡入淡出。</p>
     <div className="bgm-controls">
+      <div className="bgm-section-heading"><strong>选择背景音乐</strong><small>内置曲目由工作台提供；个人预设是你上传并保存在本账号的曲目。两种音乐选中后都用于当前任务。</small></div>
       <label>音乐类别<select value={category} disabled={!ready || busy} onChange={event=>setCategory(event.target.value as MusicCategory)}><option value="guoxue">国学类</option><option value="health">健康类</option></select></label>
-      <label>预设音乐<select value={selectedPreset?.category === category ? selectedPreset.id : ''} disabled={!ready || busy} onChange={event=>{const preset=MUSIC_PRESETS.find(item=>item.id===event.target.value);if(!preset)return;setPath(preset.path);setVolume(DEFAULT_BGM_VOLUME);setAuthorized(!preset.userProvided);setMessage('预设已选择，请试听并保存音乐设置。');}}><option value="">选择一首试听</option>{MUSIC_PRESETS.filter(item=>item.category===category).map(item=><option value={item.id} key={item.id}>{item.label} · {item.mood}</option>)}</select></label>
-      {personal.length > 0 && <label>个人预设<select value={personal.some(item => item.path === path) ? path : ''} disabled={busy} onChange={event => {
-        if (!event.target.value) return;
-        setPath(event.target.value); setVolume(DEFAULT_BGM_VOLUME); setAuthorized(false); setMessage('个人预设已选择，请确认授权后保存。');
-      }}><option value="">选择已上传音乐</option>{personal.map(item => <option key={item.path} value={item.path}>{item.label}</option>)}</select></label>}
+      <label>选择音乐<select value={(selectedPreset?.category === category || personal.some(item => item.path === path)) ? path : ''} disabled={!ready || busy} onChange={event => {
+        const next=event.target.value;
+        if (!next) return;
+        const preset=musicPresetByPath(next);
+        setPath(next);setVolume(DEFAULT_BGM_VOLUME);setAuthorized(Boolean(preset && !preset.userProvided));
+        setMessage(preset ? '内置音乐已选择，请试听并保存。' : '个人预设已选择，请确认授权后保存。');
+      }}><option value="">选择一首试听</option><optgroup label="工作台内置音乐">{MUSIC_PRESETS.filter(item=>item.category===category).map(item=><option value={item.path} key={item.id}>{item.label} · {item.mood}</option>)}</optgroup>{personal.length > 0 && <optgroup label="我的预设音乐">{personal.map(item => <option key={item.path} value={item.path}>{item.label}</option>)}</optgroup>}</select></label>
       {selectedPreset && <div className="bgm-preset-credit"><span>{selectedPreset.userProvided ? '用户提供音乐，请按实际授权范围使用。' : '这首音乐采用 CC BY 4.0，发布视频时请在简介中署名。'}</span><button type="button" className="secondary-action" onClick={()=>void navigator.clipboard.writeText(selectedPreset.credit).then(()=>setMessage('音乐信息已复制。')).catch(()=>setError('复制失败，请手动复制下方文字'))}>复制音乐信息</button><small>{selectedPreset.credit}</small></div>}
-      <label>音乐文件<input type="file" accept=".mp3,.wav,.m4a,audio/*" disabled={!ready || busy} onChange={event=>{void upload(event.target.files?.[0]);event.currentTarget.value='';}} /></label>
+      <label>上传自己的背景音乐<input type="file" accept=".mp3,.wav,.m4a,audio/*" disabled={!ready || busy} onChange={event=>{void upload(event.target.files?.[0]);event.currentTarget.value='';}} /></label>
       <label><input type="checkbox" checked={saveAsPreset} disabled={!ready || busy} onChange={event => setSaveAsPreset(event.target.checked)} />上传到个人预设库，供其他任务使用</label>
       {saveAsPreset && <label>预设名称 <input value={presetName} maxLength={36} disabled={busy} placeholder="默认使用文件名" onChange={event => setPresetName(event.target.value)} /></label>}
       {url && <audio controls src={url} />}
+      <div className="bgm-section-heading"><strong>调节混音音量</strong><small>背景音乐是陪衬；配音是人声。两项音量只在合成视频时生效，不会改动原始音频文件。</small></div>
       <label>背景音乐音量 {Math.round(volume*100)}%<input type="range" min="0.02" max="0.30" step="0.01" value={volume} disabled={!ready || busy} onChange={event=>{setVolume(Number(event.target.value));setMessage('有未保存修改');}} /></label>
-      <label>配音音量 {narration.toFixed(2)}<input type="range" min="0.50" max="1.50" step="0.05" value={narration} disabled={!ready || busy} onChange={event=>{setNarration(Number(event.target.value));setMessage('有未保存修改');}} /></label>
+      <label>人声配音音量 {Math.round(narration*100)}%<input type="range" min="0.50" max="1.50" step="0.05" value={narration} disabled={!ready || busy} onChange={event=>{setNarration(Number(event.target.value));setMessage('有未保存修改');}} /></label>
       <label><input type="checkbox" checked={authorized} disabled={!path || busy || Boolean(selectedPreset && !selectedPreset.userProvided)} onChange={event=>setAuthorized(event.target.checked)} />{selectedPreset && !selectedPreset.userProvided ? '预设音乐已按 CC BY 4.0 授权，请按上方提示署名' : '我确认已取得该音乐的使用授权'}</label>
       <button type="button" disabled={!ready || busy} onClick={()=>void save()}>保存音乐设置</button>
       <button type="button" disabled={!ready || busy} onClick={()=>void save(false,true)}>保存配乐并重新成片</button>

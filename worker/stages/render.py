@@ -339,9 +339,11 @@ def _make_ass(
         foot_fill='&H4DFFFFFF'
         foot_border=0
     if history_subtitle_style:
+        ass_title_color = '&H00FFFFFF'
+        heading_outline = '&H00000000'
         sub_fill = '&H00FFFFFF'
         sub_outline = '&H00000000'
-    subheading_size = 94 if health_text_style else (56 if landscape_layout else 52)
+    subheading_size = 94 if health_text_style else (64 if history_subtitle_style else (56 if landscape_layout else 52))
     narration_fill = '&H0000E6FF' if (guoxue_text_style or health_text_style) else '&H00FFFFFF'
     narration_bold = 0 if landscape_layout else -1
     # Anchor to the foreground image or the fullscreen safe area.

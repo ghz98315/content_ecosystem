@@ -429,6 +429,9 @@ textarea:focus-visible, select:focus-visible {
 .image-prompt-full pre { max-height: 180px; margin: 0; overflow: auto; padding: 10px; white-space: pre-wrap; font: 11px/1.6 var(--font); color: var(--text-secondary); background: var(--bg-hover); border-radius: var(--radius-sm); }
 .bgm-settings { margin-top: 24px; padding: 16px; border-top: 1px solid var(--border); background: var(--bg-page); }
 .bgm-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin-top: 14px; }
+.bgm-section-heading { grid-column: 1 / -1; display: grid; gap: 4px; padding: 10px 12px; border-left: 3px solid var(--border); background: var(--bg-page); }
+.bgm-section-heading strong { color: var(--text-primary); font-size: 14px; }
+.bgm-section-heading small { color: var(--text-secondary); line-height: 1.55; }
 .bgm-controls label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .bgm-controls label > span { color: var(--text-primary); font-weight: 600; }
 .bgm-controls input[type="range"] { width: 100%; accent-color: var(--text-primary); }
