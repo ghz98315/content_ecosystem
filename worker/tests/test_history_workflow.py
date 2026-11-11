@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
-from history_visuals import compile_history_plan, image_prompt
+from history_visuals import compile_history_plan, image_prompt, request_history_plan
 from production_templates import validate_template
 from rewrite_review import evaluate, history_conversion_tail, length_bounds, opening_hook
 from rewrite_skill import resolve_domain
@@ -96,6 +96,28 @@ class HistoryWorkflowTests(unittest.TestCase):
         index = json.loads(next(call.args[1] for call in upload.call_args_list if call.args[0].endswith('images_index.json')))
         self.assertEqual('4:3', index[0]['cell_ratio'])
         self.assertIn('单幅背景图', index[0]['prompt'])
+
+    def test_philosophical_scenes_pass_concrete_metaphors_to_the_image_model(self):
+        client = MagicMock()
+        scenes = ['思维可以逐渐打开。', '长期的积累，就像水滴石穿。']
+        examples = ['树冠形成可辨的侧脸轮廓', '水滴正落向石面的圆凹，凹处有少许积水']
+        payload = {'cast': [], 'shots': [
+            {'index': index, 'cast': [], 'era': '年代未定', 'setting': setting, 'composition': '主体位于中央安全区'}
+            for index, setting in enumerate(examples, 1)
+        ]}
+        create = client.chat.completions.create
+        create.return_value = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)))])
+        plan = request_history_plan(client, 'model', scenes)
+        rules = create.call_args.kwargs['messages'][0]['content']
+        self.assertIn('树冠形成清晰的人头侧影', rules)
+        self.assertIn('水滴正对凹陷', rules)
+        self.assertIn('具体事件优先照有依据的情节设计', rules)
+        for setting, shot in zip(examples, plan):
+            prompt = image_prompt([shot['scene']], grid=1)
+            self.assertIn(setting, prompt)
+            self.assertIn('手机缩略图', prompt)
+            self.assertIn('4:3横版', prompt)
 
 
 if __name__ == '__main__':

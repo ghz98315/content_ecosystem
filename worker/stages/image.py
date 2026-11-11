@@ -26,7 +26,13 @@ import db
 import storage
 from narration import clean_tts_text
 from image_style_profiles import get_profile, historical_era_lock, history_visual_safe
-from history_visuals import STYLE as HISTORY_PERIOD_STYLE, image_prompt as history_image_prompt, request_history_adjustment, request_history_plan
+from history_visuals import (
+    PLAN_VERSION as HISTORY_PLAN_VERSION,
+    STYLE as HISTORY_PERIOD_STYLE,
+    image_prompt as history_image_prompt,
+    request_history_adjustment,
+    request_history_plan,
+)
 from guoxue_visuals import STYLE_ID as GUOXUE_STYLE, grid_prompt as guoxue_grid_prompt, single_prompt as guoxue_single_prompt
 
 # ── 医疗安全关键词 → 生活隐喻 ──────────────────────────────────────────────
@@ -288,7 +294,7 @@ def _history_storyboard(text: str) -> tuple[list[dict], dict]:
 def _load_history_visual_plan(task_id: str, storyboard: list[dict]) -> tuple[list[dict], str]:
     scenes = [shot['text'] for shot in storyboard]
     signature = hashlib.sha256(json.dumps(scenes, ensure_ascii=False).encode()).hexdigest()[:20]
-    path = f'{task_id}/styles/history_period_film_4x3_v1/plan-{signature}.json'
+    path = f'{task_id}/styles/{HISTORY_PLAN_VERSION}/plan-{signature}.json'
     existing = db.retry(lambda: db.get_client().table('artifacts').select('id')
                         .eq('task_id', task_id).eq('type', 'history_prompt_plan')
                         .eq('storage_path', path).limit(1).execute()).data
@@ -1170,7 +1176,7 @@ def run(stage: dict) -> tuple[str, str | None]:
     output_aspect = guoxue_aspect or (stage.get('params') or {}).get('image_aspect_ratio', '9:16')
     output_ratio = {'1:1':1.0,'4:3':4/3,'9:16':9/16}[output_aspect]
     if history_period:
-        asset_root += f'/styles/history_period_film_4x3_v1/{period_signature}'
+        asset_root += f'/styles/{HISTORY_PLAN_VERSION}/{period_signature}'
     elif visual_style != GUOXUE_STYLE and output_aspect == '4:3':
         asset_root += '/styles/health_4x3_v2'
     guoxue_cell_ratio = 1.0 if guoxue_aspect == '1:1' else 4/3
