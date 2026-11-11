@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 
 
 STYLE = 'history_period_film'
@@ -145,3 +146,28 @@ def image_prompt(scenes: list[str], *, start: int = 1, grid: int = 3) -> str:
     return ('生成4:3横版3×3九宫格总图。每格为等大的4:3横版独立背景图。'
             '从左至右、从上至下依次对应下面的镜头。余格用同色调无字环境空镜填满。'
             '格间无缝，画布内不画分隔线、边框、留白或镜头编号。\n' + '\n'.join(parts))
+
+
+def select_history_cover(images: list[dict], script: str, title: str) -> int:
+    """Prefer a recurring protagonist in a shot relevant to the full script."""
+    def phrases(text: str) -> set[str]:
+        return {part[i:i + size] for part in re.findall(r'[\w]+', text.casefold())
+                for size in (2, 3) for i in range(len(part) - size + 1)}
+
+    script_phrases = phrases(script)
+    title_phrases = phrases(title)
+    shot_phrases = [phrases(str(shot.get('sentence') or shot.get('text') or '')) for shot in images]
+    recurring = Counter(phrase for terms in shot_phrases for phrase in terms if phrase in script_phrases)
+    scenes = [str(shot.get('prompt_scene') or '') for shot in images]
+    # The compiled history prompt puts the reusable cast card before the first semicolon.
+    cast = [scene.split('；', 1)[0] if scene.startswith(('东方人，', '西方人，')) else '' for scene in scenes]
+    cast_frequency = Counter(role for role in cast if role)
+
+    def rank(index: int) -> tuple:
+        terms = shot_phrases[index]
+        shared = sum(min(3, recurring[term] - 1) for term in terms if recurring[term] > 1)
+        theme = shared / max(1, len(terms)) + min(1, len(terms & title_phrases) / 6)
+        portrait = bool(re.search(r'近景|特写|肖像|半身', scenes[index]))
+        return theme + (0.4 if cast[index] else 0) + (0.12 if cast[index] and portrait else 0), cast_frequency[cast[index]], -index
+
+    return max((index for index, shot in enumerate(images) if shot.get('path')), key=rank)

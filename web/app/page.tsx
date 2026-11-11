@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ProductionSetup, type VisualMode } from "@/components/ProductionSetup";
-import { MUSIC_PRESETS } from "@/lib/musicPresets";
+import { DEFAULT_BGM_VOLUME, MUSIC_PRESETS } from "@/lib/musicPresets";
 import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks, databaseCategory } from "@/lib/productionTemplates";
 import { supabase } from "@/lib/supabase";
 import { useAnonAuth } from "@/lib/useAnonAuth";
@@ -79,7 +79,7 @@ export default function HomePage() {
       source_platform: inputMode === 'ready_script' ? 'manual' : /weixin\.qq\.com|channels\.weixin\.qq\.com/i.test(url) ? "wechat_channels" : "douyin",
       title: inputMode === 'ready_script' ? (scriptTitle.trim() || script.split(/[。！？\n]/)[0].slice(0, 36) || '已导入成稿') : null,
       bgm_path: MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)?.path || null,
-      bgm_volume:0.15,
+      bgm_volume:DEFAULT_BGM_VOLUME,
       bgm_authorization_confirmed: !MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)?.userProvided,
       tts_rate:"-8%",
       status: "configuring",

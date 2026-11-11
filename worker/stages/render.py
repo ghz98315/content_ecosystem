@@ -30,6 +30,7 @@ PHOTO_H = H
 PHOTO_Y = 0
 FPS = 30
 COVER_FRAMES = 15
+HISTORY_COVER_FRAMES = 10
 INTRO_DUR = COVER_FRAMES / FPS
 TRANSITION_DUR = 0.2
 ZOOM_OVERSAMPLE = 4
@@ -44,10 +45,10 @@ LANDSCAPE_RENDER_SCALE = 1
 DISCLAIMER_GAP_LINES = 4
 TITLE_FONT_SIZE = 84
 AUTHOR_FONT_SIZE = 52
-SUBTITLE_FONT_SIZE = 72
+LEGACY_NARRATION_FONT_SIZE = 72
+NARRATION_FONT_SIZE = 78
 DISCLAIMER_FONT_SIZE = 30
 DISCLAIMER_OPACITY = 0.5
-SUBTITLE_MARGIN_V = round(H / 3)
 AUTHOR_TO_PHOTO_GAP = 58
 TITLE_AUTHOR_GAP = 52
 
@@ -220,7 +221,7 @@ def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
                                  or '\\' in bgm_path or '%' in bgm_path
                                  or any(part in ('', '.', '..') for part in bgm_path.split('/'))):
         raise ValueError('背景音乐路径不属于当前任务')
-    bgm_volume = min(0.30, max(0.02, float(task.get("bgm_volume") or 0.08)))
+    bgm_volume = min(0.30, max(0.02, float(task.get("bgm_volume") or 0.10)))
     narration_volume = min(1.50, max(0.50, float(task.get("narration_volume") or 1.0)))
     return (bgm_path if bgm_path and approved else None, bgm_volume, narration_volume)
 
@@ -258,8 +259,8 @@ def _audio_mix_filter(
     )
 
 
-def _fmt_ass_time(t: float) -> str:
-    t = max(0.0, t + INTRO_DUR)
+def _fmt_ass_time(t: float, intro_duration: float = INTRO_DUR) -> str:
+    t = max(0.0, t + intro_duration)
     h = int(t // 3600)
     m = int((t % 3600) // 60)
     s = t % 60
@@ -269,6 +270,13 @@ def _fmt_ass_time(t: float) -> str:
 
 def _escape_ass(text: str) -> str:
     return text.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}").replace("\n", r"\N")
+
+
+def narration_bottom_y(picture_bottom: int, previous_bottom: int, font_size: int) -> int:
+    """Raise the bottom anchor and leave at least two lines above the picture edge."""
+    line_height = round(font_size * 1.1)
+    outline_and_shadow = 5
+    return min(previous_bottom - line_height, picture_bottom - 2 * line_height - outline_and_shadow)
 
 
 def _make_ass(
@@ -284,8 +292,8 @@ def _make_ass(
     health_text_style: bool = False,
     health_subtitle_bold: bool = False,
     guoxue_text_style: bool = False,
-    cover_titles_only: bool = False,
     history_subtitle_style: bool = False,
+    intro_duration: float = INTRO_DUR,
 ) -> None:
     subtitle_font = subtitle_font or 'KaiTi'
     narration_font = narration_font or (title_font if landscape_layout else 'Microsoft YaHei')
@@ -333,17 +341,25 @@ def _make_ass(
     if history_subtitle_style:
         sub_fill = '&H00FFFFFF'
         sub_outline = '&H00000000'
-    subheading_size = round(SUBTITLE_FONT_SIZE * 1.3) if health_text_style else (56 if landscape_layout else 52)
+    subheading_size = 94 if health_text_style else (56 if landscape_layout else 52)
     narration_fill = '&H0000E6FF' if (guoxue_text_style or health_text_style) else '&H00FFFFFF'
     narration_bold = 0 if landscape_layout else -1
+    # Anchor to the foreground image or the fullscreen safe area.
+    picture_top = (H - round(W / picture_ratio)) // 2
+    picture_bottom = H - picture_top
+    caption_y = narration_bottom_y(
+        picture_bottom if landscape_layout else H,
+        round(H * subtitle_y) + LEGACY_NARRATION_FONT_SIZE // 2,
+        NARRATION_FONT_SIZE,
+    )
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
         "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,"
         "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,"
         "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,"
         "Encoding\n"
-        f"Style: Default,{narration_font},{SUBTITLE_FONT_SIZE},{narration_fill},&H000000FF,&H00000000,&H90000000,"
-        f"{narration_bold},0,0,0,100,100,0,0,1,4,1,5,70,70,{SUBTITLE_MARGIN_V},1\n"
+        f"Style: Default,{narration_font},{NARRATION_FONT_SIZE},{narration_fill},&H000000FF,&H00000000,&H90000000,"
+        f"{narration_bold},0,0,0,100,100,0,0,1,4,1,2,70,70,{H - caption_y},1\n"
         f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
         f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,{-1 if health_subtitle_bold else 0},0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
         f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n"
@@ -353,9 +369,6 @@ def _make_ass(
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     lines = [header]
-    # Anchor text to the actual picture edges, rather than the video edges.
-    picture_top = (H - round(W / picture_ratio)) // 2
-    picture_bottom = H - picture_top
     positions = {
         'Heading': (2, W // 2, picture_top - 56 - 56 - 24),
         'Subheading': (2, W // 2, picture_top - 56),
@@ -369,7 +382,7 @@ def _make_ass(
         positions['Subheading']=(2,W//2,picture_top-sub_gap)
         positions['Heading']=(2,W//2,picture_top-sub_gap-subheading_size-24)
     if footnote_centered:positions['Footnote']=(8,W//2,picture_bottom+28) if landscape_layout else (2,W//2,H-110)
-    overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)))
+    overlay_end = _fmt_ass_time(max(duration, max((float(s.get('end', 0)) for s in segments), default=0)), intro_duration)
     if account_name:
         account_y = picture_bottom - 30 if landscape_layout else H - 70
         lines.append(f"Dialogue: 4,0:00:00.00,{overlay_end},Account,,0,0,0,,{{\\an3\\pos({W-55},{account_y})}}{_escape_ass(account_name)}\n")
@@ -378,15 +391,15 @@ def _make_ass(
             parts = quote.get('lines', [])
             if len(parts) != 2:
                 continue
-            start = _fmt_ass_time(float(quote['start']))
-            end = _fmt_ass_time(float(quote['end']))
+            start = _fmt_ass_time(float(quote['start']), intro_duration)
+            end = _fmt_ass_time(float(quote['end']), intro_duration)
             if end <= start:
                 continue
             units = max(sum(1 if unicodedata.east_asian_width(char) in 'WF' else 0.6 for char in part) for part in parts)
             size = min(86, int((W - 150) / max(1, units)))
             content = r'\N'.join(_escape_ass(part) for part in parts)
             quote_y = min((picture_top + picture_bottom) // 2,
-                          round(H * subtitle_y) - SUBTITLE_FONT_SIZE - size - 45)
+                          caption_y - NARRATION_FONT_SIZE - size - 45)
             lines.append(f"Dialogue: 3,{start},{end},ClassicQuote,,0,0,0,,{{\\an5\\pos({W//2},{quote_y})\\fs{size}\\q2\\fad(250,350)}}{content}\n")
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
         if value:
@@ -404,16 +417,15 @@ def _make_ass(
             if style == 'Subheading' and history_subtitle_style and '\n' in value:
                 first, second = value.split('\n', 1)
                 escaped = _escape_ass(first) + r'\N{\1c&H00E6FF&}' + _escape_ass(second)
-            visible_until = _fmt_ass_time(0) if cover_titles_only and style in {'Heading', 'Subheading'} else overlay_end
-            lines.append(f"Dialogue: 1,0:00:00.00,{visible_until},{style},,0,0,0,,{placement}{escaped}\n")
+            lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},{style},,0,0,0,,{placement}{escaped}\n")
     for seg, start_seconds, end_seconds in subtitle_intervals(segments, duration):
-        start = _fmt_ass_time(start_seconds)
-        end = _fmt_ass_time(end_seconds)
+        start = _fmt_ass_time(start_seconds, intro_duration)
+        end = _fmt_ass_time(end_seconds, intro_duration)
         # Final fence for saved legacy subtitles: only question and exclamation
         # marks are visible, even when an older cue still contains commas.
         text = _escape_ass(subtitle_display_text(str(seg.get("text", ""))))
         if text:
-            pos = r"{\an5\pos(540," + str(round(H * subtitle_y)) + ")}"
+            pos = rf'{{\an2\pos({W // 2},{caption_y})}}'
             lines.append(f"Dialogue: 2,{start},{end},Default,,0,0,0,,{pos}{text}\n")
     Path(out_path).write_text("".join(lines), encoding="utf-8-sig")
 
@@ -712,7 +724,7 @@ def _make_cover_clip(img_path: str, layout_path: str, duration: float, out_mp4: 
         ff(), "-y",
         "-loop", "1", "-framerate", str(FPS), "-t", str(duration), "-i", img_path,
         "-loop", "1", "-framerate", str(FPS), "-t", str(duration), "-i", layout_path,
-        "-filter_complex", graph, "-map", "[v]", "-frames:v", str(COVER_FRAMES),
+        "-filter_complex", graph, "-map", "[v]", "-frames:v", str(max(1, round(duration * FPS))),
         *_encoder_args(intermediate=True), "-r", str(FPS), "-an", out_mp4,
     ], check=True, capture_output=True)
 
@@ -985,6 +997,8 @@ def run(stage: dict) -> tuple[str, str | None]:
     tts_duration = float(subs_data.get("duration", 0.0) if isinstance(subs_data, dict) else 0.0) or 1.0
     task_context = db.get_task_prompt_context(task_id)
     is_history = str(task_context.get("content_category") or "health") == "social_science"
+    cover_frames = HISTORY_COVER_FRAMES if is_history else COVER_FRAMES
+    intro_duration = cover_frames / FPS
     rewrite_data = _load_json_artifact(task_id, "rewrite") if is_history or expected_template in ('guoxue-v1', 'health-v1') else {}
     book_name = str(book_data.get("book_name", "") if isinstance(book_data, dict) else "")
     segments = mark_book_titles_in_cues(segments, book_name)
@@ -1027,6 +1041,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             cover_layout_png = os.path.join(tmpdir, "history_cover_layout.png")
             _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title, cover_subtitle=cover_subtitle)
         cover_origin, selected_cover = ('generated', images[0].get('cover_path'))
+        cover_index = None
         if stock:
             cover_book = book_name or str((rewrite_data or {}).get('book_title') or '')
             if not cover_book:
@@ -1034,6 +1049,11 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if len(titles) == 1:
                     cover_book = next(iter(titles))
             cover_origin, selected_cover = _select_stock_cover(task_id, stage.get('params') or {}, cover_book, images)
+        elif is_history:
+            from history_visuals import select_history_cover
+            cover_index = select_history_cover(images, str((rewrite_data or {}).get('final_text') or ''), cover_title)
+            cover_origin, selected_cover = 'history_theme_shot', images[cover_index]['path']
+            print(f'  [cover] 历史社科主题封面采用第 {cover_index + 1} 个镜头', flush=True)
         cover_path = selected_cover or images[0]['path']
         cover_local = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path, '.png')
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
@@ -1043,9 +1063,9 @@ def run(stage: dict) -> tuple[str, str | None]:
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
             if stock and landscape_layout and not selected_cover:
                 from stock_media import make_video_clip
-                make_video_clip(images[0], INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=stock_vertical_feather)
+                make_video_clip(images[0], intro_duration, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=stock_vertical_feather)
             else:
-                _make_cover_clip(cover_local, cover_layout_png, INTRO_DUR, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
+                _make_cover_clip(cover_local, cover_layout_png, intro_duration, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
         finally:
             try:
                 if cover_origin != 'local_preset':
@@ -1078,6 +1098,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     'frame_mode':frame_mode, 'layout':hashlib.sha256(Path(layout_png).read_bytes()).hexdigest(),
                     'cover_layout':hashlib.sha256(Path(cover_layout_png).read_bytes()).hexdigest(),
                     'cover_sha256':cover_digest,
+                    **({'cover_frames': cover_frames} if is_history else {}),
                     'encoder': 'nvenc' if _nvenc_available() else config.RENDER_ENCODER_PRESET,
                     'fps':FPS, 'dimensions':[W,H], 'zoom':LANDSCAPE_ZOOM_AMOUNT,
                     'motion_scales':[LANDSCAPE_WORK_SCALE,LANDSCAPE_RENDER_SCALE],
@@ -1089,7 +1110,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         cache_hit = bool(cached and picture_cache.restore(cached, video_only))
         if cache_hit:
             try:
-                cache_hit = abs(_video_duration(video_only) - (tts_duration + INTRO_DUR)) <= 0.2
+                cache_hit = abs(_video_duration(video_only) - (tts_duration + intro_duration)) <= 0.2
             except Exception:
                 cache_hit = False
         if cache_hit:
@@ -1167,9 +1188,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings = _render_text_settings(stage, book_data if isinstance(book_data,dict) else {}, rewrite_data if isinstance(rewrite_data,dict) else {})
         if is_history:
             text_settings['history_subtitle_style'] = True
-        if is_history and expected_template == 'history-v1' and (stage.get('params') or {}).get('template_version') == 2:
             text_settings['title'], text_settings['subtitle'] = cover_title, cover_subtitle
-            text_settings['cover_titles_only'] = True
         if text_settings.get('health_text_style'):
             text_settings['title_color']='#FFFFFF'
         requested_font = text_settings['title_font']
@@ -1177,7 +1196,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'), use_configured=template_id == 'guoxue-v1')
         if template_id == 'guoxue-v1' and (font_fallback or text_settings['title_font'] != requested_font):
             raise ValueError('国学模板缺少已确认的标题字体，请检查 RENDER_TITLE_FONT_FILE')
-        if text_settings.get('health_text_style') and os.environ.get('HEALTH_TITLE_FONT_FILE'):
+        use_health_fonts = is_history or text_settings.get('health_text_style')
+        if use_health_fonts and os.environ.get('HEALTH_TITLE_FONT_FILE'):
             from PIL import ImageFont
             health_title_path=Path(os.environ['HEALTH_TITLE_FONT_FILE'])
             if not health_title_path.is_file():raise ValueError('健康类标题字体文件不存在，请检查 HEALTH_TITLE_FONT_FILE')
@@ -1186,35 +1206,36 @@ def run(stage: dict) -> tuple[str, str | None]:
             font_fallback=False
         kai_font, _ = _prepare_title_font('KaiTi', os.path.join(tmpdir,'fonts'), use_configured=False)
         text_settings['subtitle_font'] = kai_font
-        text_settings['narration_font'] = text_settings['title_font'] if landscape_layout else 'Microsoft YaHei'
+        text_settings['narration_font'] = (kai_font if is_history else text_settings['title_font']) if landscape_layout else 'Microsoft YaHei'
         health_text_path = config.HEALTH_TEXT_FONT_FILE
         text_settings['health_subtitle_bold'] = False
-        if text_settings.get('health_text_style'):
+        if use_health_fonts:
             from PIL import ImageFont
             if not health_text_path:
                 raise ValueError('健康类副标题与字幕缺少字体配置，请设置 HEALTH_TEXT_FONT_FILE')
             font_path = Path(health_text_path)
             if not font_path.is_file():
                 raise ValueError('健康类副标题与字幕字体文件不存在，请检查 HEALTH_TEXT_FONT_FILE')
-            font_name = ImageFont.truetype(str(font_path), SUBTITLE_FONT_SIZE).getname()[0]
+            font_name = ImageFont.truetype(str(font_path), NARRATION_FONT_SIZE).getname()[0]
             text_settings['subtitle_font'] = font_name
-            text_settings['narration_font'] = font_name
+            if text_settings.get('health_text_style'):
+                text_settings['narration_font'] = font_name
             shutil.copyfile(font_path, Path(tmpdir)/'fonts'/'health-text.ttf')
             bold_path = font_path.with_name(font_path.name.replace('_Regular.', '_Bold.'))
             if bold_path != font_path and bold_path.is_file():
-                bold_name = ImageFont.truetype(str(bold_path), SUBTITLE_FONT_SIZE).getname()[0]
+                bold_name = ImageFont.truetype(str(bold_path), NARRATION_FONT_SIZE).getname()[0]
                 if bold_name == font_name:
                     shutil.copyfile(bold_path, Path(tmpdir)/'fonts'/'health-subtitle-bold.ttf')
                     text_settings['health_subtitle_bold'] = True
-        text_settings['footnote_font'] = kai_font if landscape_layout else 'Microsoft YaHei'
+        text_settings['footnote_font'] = kai_font if landscape_layout or is_history else 'Microsoft YaHei'
         from classic_quote import quote_overlays
         classic_quotes = quote_overlays(str(rewrite_data.get('final_text') or ''), segments, tts_duration) if expected_template == 'guoxue-v1' and isinstance(rewrite_data, dict) else []
-        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, picture_ratio=picture_ratio, classic_quotes=classic_quotes, **text_settings)
+        _make_ass(segments, os.path.join(tmpdir, "subs.ass"), duration=tts_duration, landscape_layout=landscape_layout, picture_ratio=picture_ratio, classic_quotes=classic_quotes, intro_duration=intro_duration, **text_settings)
         print("  [render] 合成字幕与完整配音", flush=True)
         final = os.path.join(tmpdir, "final.mp4")
         render_inputs = [
             ff(), "-y", "-i", video_only,
-            "-itsoffset", str(INTRO_DUR), "-i", audio_local,
+            "-itsoffset", str(intro_duration), "-i", audio_local,
         ]
         if bgm_local:
             render_inputs.extend(["-stream_loop", "-1", "-i", bgm_local])
@@ -1234,11 +1255,11 @@ def run(stage: dict) -> tuple[str, str | None]:
             # already resized once, so there is no per-frame large-image scale.
             render_inputs.extend(['-loop', '1', '-framerate', str(FPS), '-i', str(prepared_cover)])
         mix_filter = _audio_mix_filter(
-            bool(bgm_local), bgm_volume, narration_volume, tts_duration + INTRO_DUR
+            bool(bgm_local), bgm_volume, narration_volume, tts_duration + intro_duration
         )
         audio_label = "[audio]" if bgm_local else "[narration]"
         upload_limit = storage.upload_limit_bytes()
-        target_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, max_bytes=upload_limit)
+        target_kbps = _storage_safe_video_bitrate(tts_duration + intro_duration, max_bytes=upload_limit)
         video_filter = "ass=subs.ass:fontsdir=fonts"
         if local_stock:
             # All current local sources are 720p. After a ratio crop, finish at
@@ -1248,8 +1269,8 @@ def run(stage: dict) -> tuple[str, str | None]:
         if pip_intervals:
             spans = []
             for interval in pip_intervals:
-                start = max(0.0, min(tts_duration, float(interval['start']))) + INTRO_DUR
-                end = max(0.0, min(tts_duration, float(interval['end']))) + INTRO_DUR
+                start = max(0.0, min(tts_duration, float(interval['start']))) + intro_duration
+                end = max(0.0, min(tts_duration, float(interval['end']))) + intro_duration
                 if end > start:
                     spans.append(f'between(t,{start:.3f},{end:.3f})')
             if spans:
@@ -1280,7 +1301,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         print(f"  [render] 字幕音乐合成累计 {time.monotonic() - render_started:.1f}s，文件 {os.path.getsize(final) / 1048576:.1f} MiB", flush=True)
         if os.path.getsize(final) > upload_limit:
             smaller = os.path.join(tmpdir, 'final_compact.mp4')
-            compact_kbps = _storage_safe_video_bitrate(tts_duration + INTRO_DUR, 36, max_bytes=upload_limit)
+            compact_kbps = _storage_safe_video_bitrate(tts_duration + intro_duration, 36, max_bytes=upload_limit)
             _run_ffmpeg([
                 ff(), '-y', '-i', final, '-map', '0:v:0', '-map', '0:a:0',
                 *_encoder_args(target_kbps=compact_kbps), '-c:a', 'copy', smaller,
@@ -1325,7 +1346,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             width=delivery_width,
             height=delivery_height,
             fps=FPS,
-            intro_duration=INTRO_DUR,
+            intro_duration=intro_duration,
         )
         phase_seconds['quality_seconds'] = round(time.monotonic() - phase_started, 3)
         print('  [render-timings] ' + json.dumps(phase_seconds), flush=True)
@@ -1351,7 +1372,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         if local_stock and not quality_needs_review:
             from quality import probe_media
             high_probe = probe_media(high_temp, ff())
-            if (abs(float(high_probe['duration']) - (tts_duration + INTRO_DUR)) > 1
+            if (abs(float(high_probe['duration']) - (tts_duration + intro_duration)) > 1
                     or high_probe['width'] != delivery_width
                     or high_probe['height'] != delivery_height
                     or not high_probe.get('has_audio')):
@@ -1388,10 +1409,11 @@ def run(stage: dict) -> tuple[str, str | None]:
             "storage_preview_only": bool(local_high_quality_path),
             "tts_duration": tts_duration,
             "image_count": len(images),
-            "intro_duration": INTRO_DUR,
-            "cover": "independent_cover" if selected_cover else "first_image_frame",
+            "intro_duration": intro_duration,
+            "cover": "selected_storyboard_frame" if cover_origin == 'history_theme_shot' else ("independent_cover" if selected_cover else "first_image_frame"),
             "cover_origin": cover_origin,
-            "cover_frames": COVER_FRAMES,
+            "cover_shot_number": cover_index + 1 if cover_index is not None else None,
+            "cover_frames": cover_frames,
             "visual_mode": 'stock_video' if stock else 'ai_images',
             "book_cover_pip": bool(pip_graph),
             "book_cover_pip_intervals": pip_intervals if pip_graph else [],

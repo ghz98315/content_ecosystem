@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 import config
-from history_visuals import compile_history_plan, image_prompt, request_history_plan
+from history_visuals import compile_history_plan, image_prompt, request_history_plan, select_history_cover
 from production_templates import validate_template
 from rewrite_review import evaluate, history_conversion_tail, length_bounds, opening_hook
 from rewrite_skill import resolve_domain
@@ -68,28 +68,37 @@ class HistoryWorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_template({**base, 'visual_style':style, 'image_aspect_ratio':'9:16'}, 'image')
 
-    def test_landscape_history_title_and_subtitle_end_at_the_cover_boundary(self):
+    def test_landscape_history_titles_persist_after_ten_frame_cover(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'history.ass'
             render._make_ass([], str(path), title='历史标题', subtitle='历史副标', footnote='脚注', duration=20,
-                             landscape_layout=True, cover_titles_only=True)
+                             landscape_layout=True, intro_duration=10 / 30)
             events = path.read_text(encoding='utf-8-sig')
-        end = render._fmt_ass_time(0)
+        end = render._fmt_ass_time(20, 10 / 30)
         self.assertIn(f'0:00:00.00,{end},Heading', events)
         self.assertIn(f'0:00:00.00,{end},Subheading', events)
-        self.assertIn(f'0:00:00.00,{render._fmt_ass_time(20)},Footnote', events)
+        self.assertIn(f'0:00:00.00,{end},Footnote', events)
 
     def test_history_subtitle_uses_white_then_yellow_and_black_outline(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'history.ass'
             render._make_ass([], str(path), title='历史标题', subtitle='第一行\r\n第二行',
-                             duration=20, landscape_layout=True, cover_titles_only=True,
+                             duration=20, landscape_layout=True, intro_duration=10 / 30,
                              history_subtitle_style=True)
             events = path.read_text(encoding='utf-8-sig')
         style = next(line for line in events.splitlines() if line.startswith('Style: Subheading,'))
         self.assertEqual(['&H00FFFFFF', '&H000000FF', '&H00000000'], style.split(',')[3:6])
         self.assertIn(r'第一行\N{\1c&H00E6FF&}第二行', events)
-        self.assertIn('0:00:00.00,0:00:00.50,Subheading', events)
+        self.assertIn('0:00:00.00,0:00:20.33,Subheading', events)
+
+    def test_history_cover_looks_beyond_first_scene_for_the_main_figure(self):
+        images = [
+            {'path': 'first.png', 'sentence': '雾中的空街。', 'prompt_scene': '薄雾与街道'},
+            {'path': 'second.png', 'sentence': '维特根斯坦追问怎样生活。', 'prompt_scene': '西方人，男子；书房近景'},
+            {'path': 'third.png', 'sentence': '维特根斯坦反复追问语言与生活。', 'prompt_scene': '西方人，男子；远景'},
+        ]
+        script = ''.join(image['sentence'] for image in images)
+        self.assertEqual(1, select_history_cover(images, script, '维特根斯坦的一生'))
 
     def test_numbered_prompts_keep_cast_continuity_and_per_shot_era(self):
         card = {'id':'P1','aliases':['虚构人物甲'],'origin':'西方人','kind':'女子','age':'约40岁',

@@ -125,6 +125,7 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
     <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>成片后仍可修改。改写、信息设置与成片页共用同一份设置；留空并保存可隐藏对应文字。保存设置不会直接改变已有视频，重新成片后生效。</p>
     {ref && <p style={{fontSize:13,color:'var(--text-secondary)'}}>确认改写稿时会一并保存此处文字。{history?'历史社科封面的主标题和副标题必填，分别不超过24和36字符。':''}</p>}
     {scene && <p>主副标题仅在开头0.5秒封面显示；脚注从第一帧持续到最后。封面底图独立生成，发布时可下载静态封面。</p>}
+    {history && <p>主题封面展示前 10 帧。主标题和副标题全程显示。</p>}
     {scene && options.length > 0 && <div className="external-actions">{options.map((item,index)=><button key={index} type="button" className="secondary-action" disabled={disabled||busy||!ready||renderStatus==='processing'} onClick={()=>{dirty.current=true;setValue(previous=>({...previous,...item}));setMessage('已选方案，请保存文字');}}>方案{index+1}：{item.title} / {item.subtitle}</button>)}</div>}
     {fields.map(field => history && field.key === 'subtitle' ? <label key={field.key} style={{display:'block',margin:'12px 0',fontSize:13}}>
       画面副标题

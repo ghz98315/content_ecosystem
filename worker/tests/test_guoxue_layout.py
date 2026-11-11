@@ -38,7 +38,7 @@ class GuoxueLayoutTests(unittest.TestCase):
             content=path.read_text(encoding='utf-8-sig')
             self.assertIn('Style: Heading,PlayFont-ChenkunGBT,92,&H003B41BA,&H000000FF,&H00F1F3F5,',content)
             self.assertIn('Style: Subheading,KaiTi,56,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
-            self.assertIn('Style: Default,PlayFont-ChenkunGBT,72,&H00FFFFFF,',content)
+            self.assertIn('Style: Default,PlayFont-ChenkunGBT,78,&H00FFFFFF,',content)
             self.assertIn('Style: Footnote,KaiTi,32,&H001A1D20,&H000000FF,&H00FFFFFF,',content)
         with self.assertRaises(ValueError):
             _make_ass([], 'unused.ass', title_color='red,invalid')
@@ -158,8 +158,18 @@ class GuoxueLayoutTests(unittest.TestCase):
             self.assertIn('0:00:00.00,0:00:02.50,Heading',content)
             self.assertIn('Subheading',content)
             self.assertIn('Footnote',content)
-            self.assertIn(r'\pos(540,1280)',content)
+            self.assertIn(r'\an2\pos(540,1230)',content)
             self.assertIn('字幕正文',content)
+
+    def test_landscape_captions_clear_the_picture_bottom_for_both_ratios(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for ratio, expected_y in ((4 / 3, 1188), (1, 1230)):
+                path = Path(temp) / 'sample.ass'
+                _make_ass([{'start':0,'end':2,'text':'字幕正文'}], str(path),
+                          duration=2, landscape_layout=True, picture_ratio=ratio)
+                content = path.read_text(encoding='utf-8-sig')
+                self.assertIn(f'\\an2\\pos(540,{expected_y})', content)
+                self.assertRegex(content, r'Style: Default,[^,]+,78,')
 
     def test_invalid_overlay_coordinates_are_rejected(self):
         with self.assertRaises(ValueError):

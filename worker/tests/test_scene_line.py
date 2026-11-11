@@ -50,6 +50,9 @@ class SceneLineTests(unittest.TestCase):
             path=Path(temp)/'subs.ass'
             write_ass([{'text':'深圳的山海','start':0,'end':2}],12,'图片由AI生成',str(path))
             text=path.read_text(encoding='utf-8-sig')
+            narration_style = next(line for line in text.splitlines() if line.startswith('Style: Narration,'))
+            self.assertEqual('70', narration_style.split(',')[2])
+            self.assertEqual('487', narration_style.split(',')[-2])
             self.assertIn('Dialogue: 2,0:00:00.00,0:00:12.00,Footnote',text)
             self.assertIn('Dialogue: 1,0:00:00.50,0:00:02.00,Narration',text)
             self.assertNotIn('Heading',text)

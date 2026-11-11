@@ -5,7 +5,7 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import Link from "next/link";
 import { ProductionSetup } from "@/components/ProductionSetup";
 import { PRODUCTION_TEMPLATES, ProductionTemplateId, productionTemplate, configureProductionTasks, databaseCategory } from "@/lib/productionTemplates";
-import { MUSIC_PRESETS } from "@/lib/musicPresets";
+import { DEFAULT_BGM_VOLUME, MUSIC_PRESETS } from "@/lib/musicPresets";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
@@ -109,7 +109,7 @@ function VideoCollectionContent() {
   const [referenceMode, setReferenceMode] = useState("scene_continuity");
   const generationMode="prompt";
   const [visualMode, setVisualMode] = useState<'ai_images' | 'stock_video' | 'local_stock_video'>('ai_images');
-  const [bgmVolume, setBgmVolume] = useState("0.15");
+  const [bgmVolume, setBgmVolume] = useState(String(DEFAULT_BGM_VOLUME));
   const [ttsRate, setTtsRate] = useState("-8%");
   const [ttsSource, setTtsSource] = useState<'external' | 'automatic'>('external');
   const [productionTemplateId, setProductionTemplateId] = useState<ProductionTemplateId>("health-v1");
@@ -439,7 +439,7 @@ function VideoCollectionContent() {
 </>}
                 <section className="collection-import" aria-label="背景音乐预设">
         <div><h2>背景音乐预设</h2><p>国学和健康类新任务会自动保存对应类别的第一首音乐。预设曲目需要在发布简介中署名。</p></div>
-        <div className="collection-import-footer"><div className="collection-voice-setting"><span>配音下的背景音乐音量</span><select value={bgmVolume} onChange={event => setBgmVolume(event.target.value)} aria-label="默认背景音乐音量"><option value="0.05">轻柔 5%</option><option value="0.08">轻柔 8%</option><option value="0.12">清晰 12%</option><option value="0.15">标准 15%（推荐）</option><option value="0.20">明显 20%</option><option value="0.30">上限 30%</option></select><small>国学和健康任务自动选用对应类别的第一首预设音乐；可在任务中更换或移除。</small></div></div>
+        <div className="collection-import-footer"><div className="collection-voice-setting"><span>配音下的背景音乐音量</span><select value={bgmVolume} onChange={event => setBgmVolume(event.target.value)} aria-label="默认背景音乐音量"><option value="0.05">轻柔 5%</option><option value="0.08">轻柔 8%</option><option value={DEFAULT_BGM_VOLUME}>标准 10%（推荐）</option><option value="0.12">清晰 12%</option><option value="0.15">标准 15%</option><option value="0.20">明显 20%</option><option value="0.30">上限 30%</option></select><small>国学和健康任务自动选用对应类别的第一首预设音乐；可在任务中更换或移除。</small></div></div>
       </section>
 
           {visualMode==='ai_images'&&<>      <section className="collection-import" aria-label="生图通道设置">

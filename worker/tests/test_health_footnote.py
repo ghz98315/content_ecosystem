@@ -33,7 +33,7 @@ class HealthFootnoteTests(unittest.TestCase):
    path=Path(folder)/'sub.ass';settings=_render_text_settings({'params':{'production_template':'guoxue-v1','video_text':{'footnote':'第一行\n第二行'}}},{},{})
    _make_ass([],str(path),landscape_layout=True,picture_ratio=1,duration=10,**settings)
    value=path.read_text(encoding='utf-8');self.assertIn(r'\an9\pos(1010,1528)',value);self.assertIn('第一行 第二行',value)
-   self.assertIn('Style: Default,PlayFont-ChenkunGBT,72,&H0000E6FF,&H000000FF,&H00000000',value)
+   self.assertIn('Style: Default,PlayFont-ChenkunGBT,78,&H0000E6FF,&H000000FF,&H00000000',value)
  def test_health_subtitle_and_captions_share_configured_font(self):
   with tempfile.TemporaryDirectory() as folder:
    path=Path(folder)/'health.ass'
@@ -43,6 +43,6 @@ class HealthFootnoteTests(unittest.TestCase):
    value=path.read_text(encoding='utf-8')
    self.assertIn('Style: Subheading,HarmonyOS Sans SC,94,',value)
    self.assertIn('Style: Subheading,HarmonyOS Sans SC,94,&H0000E6FF,&H000000FF,&H00000000,&H80000000,-1,',value)
-   self.assertIn('Style: Default,HarmonyOS Sans SC,72,',value)
+   self.assertIn('Style: Default,HarmonyOS Sans SC,78,',value)
 
 if __name__=='__main__':unittest.main()

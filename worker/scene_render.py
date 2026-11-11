@@ -18,6 +18,7 @@ W,H,FPS=1080,1920,30
 COVER_SECONDS=0.5
 SCENE_ZOOM_AMOUNT=0.20
 SCENE_ZOOM_WORK_SCALE=2
+NARRATION_FONT_SIZE = 70
 
 
 def ass_time(seconds: float) -> str:
@@ -26,14 +27,15 @@ def ass_time(seconds: float) -> str:
 
 
 def write_ass(cues: list[dict], duration: float, footnote: str, path: str, account_name: str = ''):
-    from stages.render import _escape_ass
+    from stages.render import _escape_ass, narration_bottom_y
     if len(footnote)>60 or '\n' in footnote or '\r' in footnote:
         raise ValueError('脚注须为60字以内的单行文字')
     if len(account_name)>25 or '\n' in account_name or '\r' in account_name:
         raise ValueError('账号名称须为25字以内的单行文字')
+    narration_margin = H - narration_bottom_y(H, H - 410, NARRATION_FONT_SIZE)
     lines=['[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n',
            '[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n',
-           'Style: Narration,Microsoft YaHei,64,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,80,80,410,1\n',
+           f'Style: Narration,Microsoft YaHei,{NARRATION_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,80,80,{narration_margin},1\n',
            'Style: Footnote,Microsoft YaHei,28,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,80,80,150,1\n',
            'Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,70,1\n\n',
            '[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n']
