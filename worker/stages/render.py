@@ -1209,7 +1209,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         if is_history:
             text_settings['history_subtitle_style'] = True
             text_settings['title'], text_settings['subtitle'] = cover_title, cover_subtitle
-        if text_settings.get('health_text_style'):
+        if is_history or text_settings.get('health_text_style'):
             text_settings['title_color']='#FFFFFF'
         requested_font = text_settings['title_font']
         template_id = (stage.get('params') or {}).get('production_template')
