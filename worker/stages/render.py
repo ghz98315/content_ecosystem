@@ -343,16 +343,20 @@ def _make_ass(
         heading_outline = '&H00000000'
         sub_fill = '&H00FFFFFF'
         sub_outline = '&H00000000'
-    subheading_size = 94 if health_text_style else (64 if history_subtitle_style else (56 if landscape_layout else 52))
+        foot_fill = '&H00FFFFFF'
+        foot_outline = '&H00000000'
+        foot_border = 3
+    subheading_size = 94 if health_text_style else (70 if history_subtitle_style else (56 if landscape_layout else 52))
+    narration_size = 72 if history_subtitle_style else NARRATION_FONT_SIZE
     narration_fill = '&H0000E6FF' if (guoxue_text_style or health_text_style) else '&H00FFFFFF'
-    narration_bold = 0 if landscape_layout else -1
+    narration_bold = -1 if history_subtitle_style or not landscape_layout else 0
     # Anchor to the foreground image or the fullscreen safe area.
     picture_top = (H - round(W / picture_ratio)) // 2
     picture_bottom = H - picture_top
     caption_y = narration_bottom_y(
         picture_bottom if landscape_layout else H,
         round(H * subtitle_y) + LEGACY_NARRATION_FONT_SIZE // 2,
-        NARRATION_FONT_SIZE,
+        narration_size,
     )
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
@@ -360,10 +364,10 @@ def _make_ass(
         "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,"
         "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,"
         "Encoding\n"
-        f"Style: Default,{narration_font},{NARRATION_FONT_SIZE},{narration_fill},&H000000FF,&H00000000,&H90000000,"
-        f"{narration_bold},0,0,0,100,100,0,0,1,4,1,2,70,70,{H - caption_y},1\n"
-        f"Style: Heading,{title_font},{92 if landscape_layout else 88},{ass_title_color},&H000000FF,{heading_outline},&H80000000,0,0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
-        f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,{-1 if health_subtitle_bold else 0},0,0,0,100,100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
+        f"Style: Default,{narration_font},{narration_size},{narration_fill},&H000000FF,&H00000000,&H90000000,"
+        f"{narration_bold},0,0,0,100,100,0,0,1,{5 if history_subtitle_style else 4},1,2,70,70,{H - caption_y},1\n"
+        f"Style: Heading,{title_font},{60 if history_subtitle_style else (92 if landscape_layout else 88)},{ass_title_color},&H000000FF,{heading_outline},&H80000000,{-1 if history_subtitle_style else 0},0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
+        f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,{-1 if history_subtitle_style or health_subtitle_bold else 0},0,0,0,{90 if history_subtitle_style else 100},100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
         f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n"
         "Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,50,1\n"
         f"Style: ClassicQuote,{narration_font},86,&H00FFFFFF,&H000000FF,&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,6,1,5,90,90,0,1\n"
@@ -378,6 +382,15 @@ def _make_ass(
     }
     if history_subtitle_style and '\n' in subtitle:
         positions['Heading'] = (2, W // 2, positions['Heading'][2] - subheading_size)
+    if history_subtitle_style and landscape_layout:
+        # Bottom anchored to the foreground. Separate dialogue events give
+        # the two subtitle lines an exact 30% larger baseline interval.
+        positions['Subheading'] = (2, W // 2, picture_top - 40)
+        subtitle_lines = subtitle.split('\n')
+        subtitle_units = max((sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in line) for line in subtitle_lines), default=1)
+        history_subtitle_size = min(70, int((W - 100) / max(1, subtitle_units * 0.9)))
+        first_line_bottom = positions['Subheading'][2] - 90 * (len(subtitle_lines) - 1)
+        positions['Heading'] = (2, W // 2, first_line_bottom - history_subtitle_size - 16)
     if health_text_style and landscape_layout:
         # Half a subtitle line of clear space between its bottom and the picture.
         sub_gap=round(subheading_size*0.5)
@@ -405,6 +418,18 @@ def _make_ass(
             lines.append(f"Dialogue: 3,{start},{end},ClassicQuote,,0,0,0,,{{\\an5\\pos({W//2},{quote_y})\\fs{size}\\q2\\fad(250,350)}}{content}\n")
     for style, value in (("Heading", title), ("Subheading", subtitle), ("Footnote", footnote)):
         if value:
+            if history_subtitle_style and landscape_layout and style in ('Heading', 'Subheading'):
+                if style == 'Heading':
+                    units = sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in value)
+                    old_size = min(92, int((W - 160 - 2 * len(value)) / max(1, units)))
+                    size = max(1, min(60, round(old_size * 60 / 92)))
+                    lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},Heading,,0,0,0,,{{\\an2\\pos({W//2},{positions['Heading'][2]})\\fs{size}\\q2}}{_escape_ass(value)}\n")
+                else:
+                    for index, line in enumerate(subtitle_lines):
+                        y = positions['Subheading'][2] - 90 * (len(subtitle_lines) - index - 1)
+                        color = r'{\1c&H00E6FF&}' if index == 1 else ''
+                        lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},Subheading,,0,0,0,,{{\\an2\\pos({W//2},{y})\\fs{history_subtitle_size}\\q2}}{color}{_escape_ass(line)}\n")
+                continue
             placement = ''
             if landscape_layout or (style=='Footnote' and footnote_centered) or (style == 'Subheading' and history_subtitle_style):
                 alignment, x, y = positions[style]
@@ -1216,7 +1241,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         text_settings['title_font'], font_fallback = _prepare_title_font(requested_font, os.path.join(tmpdir,'fonts'), use_configured=template_id == 'guoxue-v1')
         if template_id == 'guoxue-v1' and (font_fallback or text_settings['title_font'] != requested_font):
             raise ValueError('国学模板缺少已确认的标题字体，请检查 RENDER_TITLE_FONT_FILE')
-        use_health_fonts = is_history or text_settings.get('health_text_style')
+        use_health_fonts = text_settings.get('health_text_style')
         if use_health_fonts and os.environ.get('HEALTH_TITLE_FONT_FILE'):
             from PIL import ImageFont
             health_title_path=Path(os.environ['HEALTH_TITLE_FONT_FILE'])
@@ -1247,6 +1272,21 @@ def run(stage: dict) -> tuple[str, str | None]:
                 if bold_name == font_name:
                     shutil.copyfile(bold_path, Path(tmpdir)/'fonts'/'health-subtitle-bold.ttf')
                     text_settings['health_subtitle_bold'] = True
+        if is_history:
+            # HarmonyOS heading and captions; LiJinHei two-line subtitle.
+            from PIL import ImageFont
+            if not config.HEALTH_TEXT_FONT_FILE or not Path(config.HEALTH_TEXT_FONT_FILE).is_file():
+                raise ValueError('历史社科副标题与字幕缺少 HarmonyOS 字体文件')
+            harmony_path = Path(config.HEALTH_TEXT_FONT_FILE)
+            harmony_family = ImageFont.truetype(str(harmony_path), NARRATION_FONT_SIZE).getname()[0]
+            shutil.copyfile(harmony_path, Path(tmpdir) / 'fonts' / 'history-harmony.ttf')
+            subtitle_path = Path(os.environ.get('HEALTH_TITLE_FONT_FILE', ''))
+            if not subtitle_path.is_file():
+                raise ValueError('历史社科副标题缺少俪金黑字体文件')
+            text_settings['title_font'] = harmony_family
+            text_settings['subtitle_font'] = ImageFont.truetype(str(subtitle_path), 75).getname()[0]
+            shutil.copyfile(subtitle_path, Path(tmpdir) / 'fonts' / 'history-subtitle.ttf')
+            text_settings['narration_font'] = harmony_family
         text_settings['footnote_font'] = kai_font if landscape_layout or is_history else 'Microsoft YaHei'
         from classic_quote import quote_overlays
         classic_quotes = quote_overlays(str(rewrite_data.get('final_text') or ''), segments, tts_duration) if expected_template == 'guoxue-v1' and isinstance(rewrite_data, dict) else []
