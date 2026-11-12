@@ -31,7 +31,9 @@ from history_visuals import (
     STYLE as HISTORY_PERIOD_STYLE,
     image_prompt as history_image_prompt,
     request_history_adjustment,
+    request_history_cover,
     request_history_plan,
+    uploaded_cover as uploaded_history_cover,
 )
 from guoxue_visuals import STYLE_ID as GUOXUE_STYLE, grid_prompt as guoxue_grid_prompt, single_prompt as guoxue_single_prompt
 
@@ -321,6 +323,37 @@ def _load_history_visual_plan(task_id: str, storyboard: list[dict]) -> tuple[lis
         'count': len(plan), 'aspect': '4:3', 'provider': 'deepseek', 'model': model,
     })
     return plan, signature
+
+
+def _history_render_params(task_id: str) -> dict:
+    rows = db.retry(lambda: db.get_client().table('stages').select('params')
+                    .eq('task_id', task_id).eq('kind', 'render').limit(1).execute()).data or []
+    return (rows[0].get('params') or {}) if rows else {}
+
+
+def _load_history_cover_plan(task_id: str, text: str, title: str, existing: dict) -> dict:
+    model = config.HISTORY_STORYBOARD_MODEL
+    signature = hashlib.sha256(json.dumps([model, text, title], ensure_ascii=False).encode()).hexdigest()[:20]
+    path = f'{task_id}/styles/history-cover-v1/plan-{signature}.json'
+    if path in existing:
+        try:
+            local = Path(storage.download_artifact(path, '.json'))
+        except Exception as exc:
+            if '404' not in str(exc) and 'Object not found' not in str(exc):
+                raise
+        else:
+            try:
+                plan = json.loads(local.read_text(encoding='utf-8'))
+                if isinstance(plan, dict) and plan.get('prompt') and plan.get('era'):
+                    return plan
+            finally:
+                local.unlink(missing_ok=True)
+    plan = request_history_cover(config.history_storyboard_client(), model, text, title)
+    storage.upload_bytes(path, json.dumps(plan, ensure_ascii=False).encode(), 'application/json')
+    storage.add_artifact(task_id, 'image', 'history_cover_plan', path, meta={
+        'reference_status': plan['reference_status'], 'model': model,
+    })
+    return plan
 
 
 def _guoxue_storyboard(text: str) -> list[dict]:
@@ -1013,6 +1046,7 @@ def _legacy_run_before_resume(stage: dict) -> tuple[str, str | None]:
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
         return "failed", None
+
     scenes = [shot["text"] for shot in storyboard]
     image_paths: list[str] = []
     meta_list: list[dict] = []
@@ -1153,19 +1187,46 @@ def run(stage: dict) -> tuple[str, str | None]:
                 shot['prompt_scene'] = plan['scene']
             history_analysis['checks'] = {'numbered_prompts_complete': True}
             history_analysis['visual_aspect'] = '4:3'
-        if history_analysis:
-            analysis_path = f"{task_id}/history_director_analysis.json"
-            storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
-            storage.add_artifact(task_id, "image", "history_director_analysis", analysis_path, meta={
-                "selected_count": history_analysis.get("selected_count", 0),
-                "max_final_images": history_analysis.get("max_images"),
-                "checks": history_analysis.get("checks", {}),
-            })
     else:
         storyboard = _split_storyboard(text)
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
         return "failed", None
+
+    existing_artifacts = _existing_image_artifacts(task_id)
+    history_cover = None
+    uploaded_cover_path = None
+    cover_reference_urls = None
+    if is_history and visual_style != GUOXUE_STYLE:
+        render_params = _history_render_params(task_id)
+        uploaded_cover_path = uploaded_history_cover(task_id, render_params)
+        if not uploaded_cover_path:
+            title = str((render_params.get('video_text') or {}).get('title') or task_context.get('title') or '')
+            history_cover = _load_history_cover_plan(task_id, text, title, existing_artifacts)
+            reference = history_cover.get('reference') or {}
+            if provider == 'apimart' and reference.get('image_url'):
+                cover_reference_urls = [reference['image_url']]
+            elif reference:
+                history_cover = {**history_cover, 'reference_status': 'text_only',
+                                 'prompt': history_cover['prompt'] + '当前通道仅按时代地域做示意性外貌。'}
+    if history_analysis:
+        if uploaded_cover_path or history_cover:
+            history_analysis['cover'] = (
+                {'source': 'uploaded', 'path': uploaded_cover_path} if uploaded_cover_path else
+                {'source': 'grid', 'batch': 0, 'cell': 0, 'design': history_cover}
+            )
+            if storyboard[0].get('beat_role') == 'cover':
+                storyboard[0]['beat_role'] = 'opening'
+            if history_analysis.get('beats') and history_analysis['beats'][0].get('role') == 'cover':
+                history_analysis['beats'][0]['role'] = 'opening'
+            history_analysis.get('checks', {}).pop('cover_representative', None)
+        analysis_path = f"{task_id}/history_director_analysis.json"
+        storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+        storage.add_artifact(task_id, "image", "history_director_analysis", analysis_path, meta={
+            "selected_count": history_analysis.get("selected_count", 0),
+            "max_final_images": history_analysis.get("max_images"),
+            "checks": history_analysis.get("checks", {}),
+        })
 
     # External manuscripts get their own reusable asset namespace. A changed
     # reading must never silently reuse old pictures solely by img_000 name.
@@ -1187,17 +1248,23 @@ def run(stage: dict) -> tuple[str, str | None]:
     if visual_style == GUOXUE_STYLE:
         asset_root += (f'/styles/guoxue_reference_v4_1x1_{grid_resolution}_2x2' if guoxue_aspect == '1:1'
                        else f'/styles/guoxue_reference_v3_4x3_{grid_resolution}_2x2')
+    if history_cover:
+        cover_signature = hashlib.sha256(json.dumps([history_cover, output_aspect], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+        asset_root += f'/cover-grid-v1/{cover_signature}'
     if generation_id:
         asset_root += f"/generations/{generation_id}"
-    existing_artifacts = _existing_image_artifacts(task_id)
     existing_paths = set(existing_artifacts)
     image_paths: list[str] = []
     meta_list: list[dict] = []
     batch_size = grid_cells * grid_cells
     # Reserve the first grid cell for a separate cover; narration ranges stay intact.
+    include_cover = visual_style == GUOXUE_STYLE or history_cover is not None
     batch_starts = ([0] + list(range(batch_size - 1, len(storyboard), batch_size))
-                    if visual_style == GUOXUE_STYLE else list(range(0, len(storyboard), batch_size)))
+                    if include_cover else list(range(0, len(storyboard), batch_size)))
     cover_path = f'{asset_root}/cover.png'
+    cover_index_fields = {'cover_path': cover_path if include_cover else None}
+    if history_cover:
+        cover_index_fields['cover_plan'] = history_cover
     prefetched_grids: dict[int, tuple[bytes, str]] = {}
     if visual_style == GUOXUE_STYLE and len(batch_starts) > 1:
         def generate_guoxue_batch(batch_number: int, batch_start: int) -> tuple[bytes, str]:
@@ -1241,10 +1308,14 @@ def run(stage: dict) -> tuple[str, str | None]:
                 prefetched_grids[batch_number] = future.result()
 
     for batch_number, batch_start in enumerate(batch_starts):
-        with_cover = visual_style == GUOXUE_STYLE and batch_number == 0
+        with_cover = include_cover and batch_number == 0
         batch = storyboard[batch_start: batch_start + batch_size - int(with_cover)]
         grid_path = f"{asset_root}/grid_{batch_number:03d}.png"
         expected_paths = [f"{asset_root}/img_{batch_start + i:03d}.png" for i in range(len(batch))]
+        if history_cover and with_cover:
+            saved_cover_plan = (existing_artifacts.get(grid_path) or {}).get('cover_plan')
+            if saved_cover_plan:
+                cover_index_fields['cover_plan'] = saved_cover_plan
         if (not with_cover or cover_path in existing_paths) and all(
             path in existing_paths
             and int(existing_artifacts[path].get("split_version") or 0) >= _IMAGE_SPLIT_VERSION
@@ -1253,7 +1324,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             for shot, path in zip(batch, expected_paths):
                 image_paths.append(path)
                 artifact_meta = existing_artifacts[path]
-                meta_list.append({**shot, "cell_ratio": output_aspect, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model"), "resolution_warning": artifact_meta.get("resolution_warning"), "source_size": artifact_meta.get("source_size")})
+                meta_list.append({**shot, **(cover_index_fields if visual_style == GUOXUE_STYLE or not meta_list else {}), "cell_ratio": output_aspect, "path": path, "sentence": shot["text"], "source_grid": artifact_meta.get("source_grid"), "prompt": artifact_meta.get("prompt"), "prompt_scene": artifact_meta.get("prompt_scene") or shot["text"], "image_model": artifact_meta.get("image_model"), "resolution_warning": artifact_meta.get("resolution_warning"), "source_size": artifact_meta.get("source_size")})
             continue
 
         raw: bytes | None = None
@@ -1277,28 +1348,36 @@ def run(stage: dict) -> tuple[str, str | None]:
             })
         else:
             scenes = [shot.get('prompt_scene', shot['text']) for shot in batch]
-            if with_cover:
+            history_cover_prompt = history_cover['prompt'] if history_cover and with_cover else None
+            if with_cover and not history_cover_prompt:
                 scenes = [text] + scenes
-            grid_prompt = (history_image_prompt(scenes, start=batch_start + 1) if history_period else
+            if history_cover_prompt and not history_period:
+                scenes = ['独立封面：' + history_cover_prompt] + scenes
+            grid_prompt = (history_image_prompt(scenes, start=batch_start + 1, cover=history_cover_prompt) if history_period else
                            guoxue_grid_prompt([_visual_scene(s) for s in scenes], cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
                            if visual_style == GUOXUE_STYLE else _build_grid_prompt(scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
-            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}" if history_period or visual_text or generation_id or visual_style == GUOXUE_STYLE
+            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}" if history_period or history_cover or visual_text or generation_id or visual_style == GUOXUE_STYLE
                          else f"grid_{batch_number:03d}")
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
                     size=guoxue_aspect if visual_style == GUOXUE_STYLE else ('4:3' if output_aspect == '4:3' else _GRID_SIZE),
                     resolution=grid_resolution if visual_style == GUOXUE_STYLE else None,
-                    image_urls=[guoxue_reference] if guoxue_reference else None,
+                    image_urls=[guoxue_reference] if guoxue_reference else cover_reference_urls if history_cover_prompt else None,
                 )
             except Exception as exc:
                 if not _is_safety_block(exc):
                     raise
                 fallback_scenes = _safe_fallback_scenes(len(batch) + int(with_cover), content_category)
-                grid_prompt = (history_image_prompt([f"{plan['era']}；相符年代的无字器物与环境空镜" for plan in period_plan[batch_start:batch_start + len(batch)]], start=batch_start + 1)
+                fallback_cover = f"{history_cover['era']}；从与全文主题有关的时代器物与环境构成封面" if history_cover_prompt else None
+                grid_prompt = (history_image_prompt([f"{plan['era']}；相符年代的无字器物与环境空镜" for plan in period_plan[batch_start:batch_start + len(batch)]], start=batch_start + 1, cover=fallback_cover)
                                if history_period else guoxue_grid_prompt(fallback_scenes, cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
                                if visual_style == GUOXUE_STYLE else
                                _build_grid_prompt(fallback_scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
+                if history_cover_prompt:
+                    cover_index_fields['cover_plan'] = {
+                        **history_cover, 'prompt': fallback_cover, 'reference_status': 'safe_fallback',
+                    }
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
                     size=guoxue_aspect if visual_style == GUOXUE_STYLE else ('4:3' if output_aspect == '4:3' else _GRID_SIZE),
@@ -1312,6 +1391,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "prompt": grid_prompt,
                 "prompt_scenes": [shot["text"] for shot in batch],
                 "image_model": image_model,
+                **({"cover_plan": cover_index_fields['cover_plan']} if history_cover and with_cover else {}),
             })
 
         assert raw is not None
@@ -1341,6 +1421,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "prompt_scenes": [shot["text"] for shot in batch],
             "image_model": image_model,
             "history_director_analysis": is_history,
+            **({"cover_plan": cover_index_fields['cover_plan']} if history_cover and with_cover else {}),
         })
         source_cells = grid_cells
         pieces = _split_grid(raw, len(batch) + int(with_cover), source_cells, output_ratio)
@@ -1349,6 +1430,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             storage.add_artifact(task_id, 'image', 'cover_image', cover_path, meta={
                 'source_grid': grid_path, 'visual_style': visual_style, 'resolution': grid_resolution,
                 'role': 'independent_cover', 'split_version': _IMAGE_SPLIT_VERSION,
+                **({'grid_cell': 0, **cover_index_fields['cover_plan']} if history_cover else {}),
             })
         for i, piece_bytes in enumerate(pieces):
             idx = batch_start + i
@@ -1374,7 +1456,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
             })
             image_paths.append(path)
-            meta_list.append({**shot, "cell_ratio": output_aspect, "cover_path": cover_path if visual_style == GUOXUE_STYLE else None, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": scene_prompt, "prompt_scene": shot.get('prompt_scene', shot['text']), "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
+            meta_list.append({**shot, **(cover_index_fields if visual_style == GUOXUE_STYLE or not meta_list else {}), "cell_ratio": output_aspect, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": scene_prompt, "prompt_scene": shot.get('prompt_scene', shot['text']), "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
 
     index_path = f"{task_id}/images_index.json"
     storage.upload_bytes(index_path, json.dumps(meta_list, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")

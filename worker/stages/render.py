@@ -244,6 +244,17 @@ def _select_stock_cover(task_id: str, params: dict, book_name: str, entries: lis
     return 'selected_frame', entries[0].get('cover_path')
 
 
+def _select_history_intro_cover(task_id: str, params: dict, entries: list[dict], script: str, title: str):
+    from history_visuals import select_history_cover, uploaded_cover
+    uploaded = uploaded_cover(task_id, params)
+    if uploaded:
+        return 'uploaded', uploaded, None
+    if entries[0].get('cover_path'):
+        return 'history_generated', entries[0]['cover_path'], None
+    index = select_history_cover(entries, script, title)
+    return 'history_theme_shot', entries[index]['path'], index
+
+
 def _audio_mix_filter(
     bgm_enabled: bool, bgm_volume: float, narration_volume: float, duration: float = 0.0
 ) -> str:
@@ -738,13 +749,16 @@ def _make_landscape_clip(img_path: str, duration: float, out_mp4: str, *, motion
         Path(still_path).unlink(missing_ok=True)
 
 
-def enhance_history_cover(source_path: str, output_path: str) -> None:
-    """Upscale the selected cover proportionally and sharpen small details."""
-    from PIL import Image, ImageFilter
+def enhance_history_cover(source_path: str, output_path: str, *, crop_top_4x3: bool = False) -> None:
+    """Prepare a cover for rendering with proportional scaling and light sharpening."""
+    from PIL import Image, ImageFilter, ImageOps
 
     with Image.open(source_path) as source:
-        cover = source.convert('RGB')
-        if cover.width < W:
+        cover = (ImageOps.exif_transpose(source) if crop_top_4x3 else source).convert('RGB')
+        if crop_top_4x3:
+            units = max((W + 3) // 4, min(cover.width // 4, cover.height // 3))
+            cover = ImageOps.fit(cover, (units * 4, units * 3), method=Image.Resampling.LANCZOS, centering=(0.5, 0.0))
+        elif cover.width < W:
             height = round(cover.height * W / cover.width)
             cover = cover.resize((W, height), Image.Resampling.LANCZOS)
         cover = cover.filter(ImageFilter.UnsharpMask(radius=1.4, percent=75, threshold=3))
@@ -1090,19 +1104,21 @@ def run(stage: dict) -> tuple[str, str | None]:
                     cover_book = next(iter(titles))
             cover_origin, selected_cover = _select_stock_cover(task_id, stage.get('params') or {}, cover_book, images)
         elif is_history:
-            from history_visuals import select_history_cover
-            cover_index = select_history_cover(images, str((rewrite_data or {}).get('final_text') or ''), cover_title)
-            cover_origin, selected_cover = 'history_theme_shot', images[cover_index]['path']
-            print(f'  [cover] 历史社科主题封面采用第 {cover_index + 1} 个镜头', flush=True)
+            cover_origin, selected_cover, cover_index = _select_history_intro_cover(
+                task_id, stage.get('params') or {}, images, str((rewrite_data or {}).get('final_text') or ''), cover_title,
+            )
+            if cover_index is not None:
+                print(f'  [cover] 历史社科主题封面采用第 {cover_index + 1} 个镜头', flush=True)
         cover_path = selected_cover or images[0]['path']
         cover_local = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path, '.png')
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
-        cover_enhanced = cover_origin == 'history_theme_shot'
+        uploaded_cover = cover_origin == 'uploaded'
+        cover_enhanced = uploaded_cover or cover_origin in ('history_theme_shot', 'history_generated')
         try:
             cover_input = cover_local
             if cover_enhanced:
-                cover_input = os.path.join(tmpdir, 'history-cover-enhanced.png')
-                enhance_history_cover(cover_local, cover_input)
+                cover_input = os.path.join(tmpdir, 'cover-enhanced.png')
+                enhance_history_cover(cover_local, cover_input, crop_top_4x3=uploaded_cover)
             cover_digest = hashlib.sha256(Path(cover_input).read_bytes()).hexdigest()
             frame_mode = (stage.get('params') or {}).get('frame_mode')
             landscape_layout = frame_mode == 'landscape_blur' or (frame_mode is None and _is_landscape_art(cover_local))
@@ -1110,7 +1126,11 @@ def run(stage: dict) -> tuple[str, str | None]:
                 from stock_media import make_video_clip
                 make_video_clip(images[0], intro_duration, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio, vertical_feather_only=stock_vertical_feather)
             else:
-                _make_cover_clip(cover_input, cover_layout_png, intro_duration, cover_mp4, frame_mode=frame_mode, picture_ratio=picture_ratio)
+                _make_cover_clip(
+                    cover_input, cover_layout_png, intro_duration, cover_mp4,
+                    frame_mode='landscape_blur' if uploaded_cover else frame_mode,
+                    picture_ratio=4/3 if uploaded_cover else picture_ratio,
+                )
         finally:
             try:
                 if cover_origin != 'local_preset':
@@ -1473,6 +1493,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "cover": "selected_storyboard_frame" if cover_origin == 'history_theme_shot' else ("independent_cover" if selected_cover else "first_image_frame"),
             "cover_origin": cover_origin,
             "cover_enhanced": cover_enhanced,
+            "cover_crop": "top_center_4x3" if uploaded_cover else None,
             "cover_shot_number": cover_index + 1 if cover_index is not None else None,
             "cover_frames": cover_frames,
             "visual_mode": 'stock_video' if stock else 'ai_images',

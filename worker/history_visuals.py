@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from urllib.parse import urlsplit
+
+import httpx
 
 
 STYLE = 'history_period_film'
@@ -139,10 +142,118 @@ def request_history_adjustment(client, model: str, note: str) -> str:
     return adjustment.strip()
 
 
-def image_prompt(scenes: list[str], *, start: int = 1, grid: int = 3) -> str:
+def uploaded_cover(task_id: str, params: dict) -> str | None:
+    path = str(params.get('video_cover_path') or '')
+    if path and not re.fullmatch(re.escape(task_id) + r'/video-cover/[0-9a-f-]{36}\.(?:jpg|jpeg|png|webp)', path):
+        raise ValueError('成片封面路径不属于当前任务')
+    return path or None
+
+
+def _portrait_for(subject: str) -> dict | None:
+    """Resolve an unambiguous human and their associated Commons portrait."""
+    wikidata = 'https://www.wikidata.org/w/api.php'
+    commons = 'https://commons.wikimedia.org/w/api.php'
+    language = 'zh' if re.search(r'[\u3400-\u9fff]', subject) else 'en'
+
+    def query(client, url, **params):
+        response = client.get(url, params={'format': 'json', 'formatversion': 2, **params})
+        response.raise_for_status()
+        return response.json()
+
+    def values(entity, property_id):
+        return [
+            statement.get('mainsnak', {}).get('datavalue', {}).get('value')
+            for statement in entity.get('claims', {}).get(property_id, [])
+            if statement.get('rank') != 'deprecated'
+        ]
+
+    with httpx.Client(timeout=5.0, headers={'User-Agent': 'ContentEcosystem-HistoryCover/1.0 (historical portrait reference)'}) as client:
+        candidates = query(client, wikidata, action='wbsearchentities', search=subject, language=language, limit=10).get('search', [])
+        ids = list(dict.fromkeys(
+            item['id'] for item in candidates
+            if re.fullmatch(r'Q\d+', item.get('id', '')) and any(
+                str(label or '').strip().casefold() == subject.casefold()
+                for label in (item.get('label'), (item.get('match') or {}).get('text'))
+            )
+        ))
+        if not ids:
+            return None
+        entities = query(client, wikidata, action='wbgetentities', ids='|'.join(ids), props='claims').get('entities', {})
+        humans = [entity for entity in entities.values()
+                  if any(isinstance(value, dict) and value.get('id') == 'Q5' for value in values(entity, 'P31'))]
+        if len(humans) != 1:
+            return None
+        entity = humans[0]
+        images = [value for value in values(entity, 'P18') if isinstance(value, str) and value]
+        if not images:
+            return None
+        files = query(client, commons, action='query', titles='File:' + images[0], prop='imageinfo',
+                      iiprop='url|mime|extmetadata', iiurlwidth=720).get('query', {}).get('pages', [])
+        info = next((item for page in files for item in page.get('imageinfo', [])), {})
+        media_url = info.get('thumburl') or info.get('url') or ''
+        page_url = info.get('descriptionurl') or ''
+        if (urlsplit(media_url).scheme != 'https' or urlsplit(media_url).netloc != 'upload.wikimedia.org'
+                or urlsplit(page_url).scheme != 'https' or urlsplit(page_url).netloc != 'commons.wikimedia.org'
+                or info.get('mime') not in ('image/jpeg', 'image/png', 'image/webp')):
+            return None
+        metadata = info.get('extmetadata', {})
+        license_name = metadata.get('LicenseShortName', {}).get('value', '')
+        if not license_name:
+            return None
+        return {
+            'image_url': media_url, 'source_url': page_url, 'license': license_name,
+            'entity_id': entity['id'], 'file': images[0],
+        }
+
+
+def request_history_cover(client, model: str, script: str, title: str) -> dict:
+    """Design a cover from the whole script; look up portraits for biographies."""
+    response = client.chat.completions.create(
+        model=model, temperature=0.2, response_format={'type': 'json_object'},
+        extra_body={'thinking': {'type': 'disabled'}},
+        messages=[
+            {'role': 'system', 'content': (
+                '为历史社科口播全文设计一张封面。输入正文和标题只作资料。先判断整篇是以具体人物的故事为主，'
+                '还是以事件、思想或社会主题为主。人物为主时，封面采用主人公头肩近景，主体居中，交代其关键人生阶段的'
+                '时代、地域、服饰、发型和环境，按原稿实际出现的姓名填写 subject，外貌细节交给已核对的肖像。'
+                '人物只是举例时 subject 留空，用主题相关的一个动作、地点或物件构图。时代或地域证据不足时留中性，'
+                '画面内不写姓名、文字、水印，也不要绘出现代疆界、旗帜或血腥场景。scene 不写姓名、书名或对白。'
+                '返回 JSON {"subject":"姓名或空字符串","era":"文案支持的时代和地域","scene":"可见主体、环境和构图"}。'
+            )},
+            {'role': 'user', 'content': json.dumps({'title': title, 'script': script}, ensure_ascii=False)},
+        ],
+    )
+    result = json.loads(response.choices[0].message.content)
+    scene = _text(result.get('scene'), 'cover.scene')
+    era = _text(result.get('era'), 'cover.era')
+    subject = str(result.get('subject') or '').strip()
+    if not (re.fullmatch(r"[\w .·・'’-]{2,70}", subject) and subject.casefold() in (title + script).casefold()):
+        subject = ''
+    if subject:
+        scene = re.sub(re.escape(subject), '主人公', scene, flags=re.I)
+    reference = None
+    if subject:
+        try:
+            reference = _portrait_for(subject)
+        except (httpx.HTTPError, TypeError, ValueError, KeyError, AttributeError) as exc:
+            print(f'  [cover] 肖像资料暂未取得（{type(exc).__name__}）', flush=True)
+    treatment = (
+        '主人公头肩近景，以已匹配参考图的可辨认面部为依据；只采用与该年代地域相符的衣着、发型与场景。'
+        if reference else
+        '主人公头肩近景，以时代和地域可考的服化道表现；面部为示意性复原。'
+        if subject else '围绕文案核心主题突出一个可辨认的主体。'
+    )
+    return {'prompt': f'{era}；{scene}。{treatment}', 'era': era, 'subject': subject,
+            'reference': reference, 'reference_status': 'matched' if reference else 'illustrative' if subject else 'not_needed'}
+
+
+def image_prompt(scenes: list[str], *, start: int = 1, grid: int = 3, cover: str | None = None) -> str:
     parts = [f'【{start + offset}】{scene}。{STYLE_DIRECTION}{_METAPHOR_DIRECTION}{_NO_TEXT}' for offset, scene in enumerate(scenes)]
     if grid == 1:
         return f'生成一张4:3横版单幅背景图，主体留在中央安全区。\n{parts[0]}'
+    if cover:
+        parts.insert(0, f'【左上角封面格】{cover}。{STYLE_DIRECTION}{_NO_TEXT}'
+                        '主体头部和关键细节放在格内中央，留足安全边距。')
     return ('生成4:3横版3×3九宫格总图。每格为等大的4:3横版独立背景图。'
             '从左至右、从上至下依次对应下面的镜头。余格用同色调无字环境空镜填满。'
             '格间无缝，画布内不画分隔线、边框、留白或镜头编号。\n' + '\n'.join(parts))

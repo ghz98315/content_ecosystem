@@ -4,6 +4,7 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { useEffect, useState } from "react";
 import { DetailShell, DetailCommon } from "./_shell";
 import { supabase } from "@/lib/supabase";
+import { StockCoverSettings } from "./StockCoverSettings";
 
 interface IndexEntry {
   index: number;
@@ -13,6 +14,8 @@ interface IndexEntry {
   estimated_duration?: number;
   motion?: string;
   source_grid?: string;
+  cover_path?: string;
+  cover_plan?: { prompt?: string; reference_status?: string; reference?: { source_url?: string } };
   prompt?: string;
   prompt_scene?: string;
   image_model?: string;
@@ -37,10 +40,16 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   const [reviewNote, setReviewNote] = useState("");
   const providerParams = (stage?.params || {}) as Record<string, unknown>;
   const isGuoxue = providerParams.production_template === "guoxue-v1" || providerParams.visual_style === "guoxue_gongbi_life";
+  const generatedHistoryCover = entries[0]?.cover_plan && entries[0]?.cover_path ? {
+    path: entries[0].cover_path,
+    prompt: entries[0].cover_plan.prompt,
+    referenceStatus: entries[0].cover_plan.reference_status,
+    sourceUrl: entries[0].cover_plan.reference?.source_url,
+  } : undefined;
   const gridCells = isGuoxue ? 2 : 3;
   const gridLabel = isGuoxue ? "四宫格" : "九宫格";
   const gridCount = new Set(entries.map(entry => entry.source_grid).filter(Boolean)).size
-    || Math.ceil((entries.length + (isGuoxue ? 1 : 0)) / (gridCells * gridCells));
+    || Math.ceil((entries.length + (isGuoxue || generatedHistoryCover ? 1 : 0)) / (gridCells * gridCells));
   const resolutionNotes = [...new Map(entries.filter(entry => entry.resolution_warning).map(entry => [entry.source_grid || entry.path, entry.resolution_warning!])).values()];
   const [selectedProvider, setSelectedProvider] = useState<"apimart" | "xcode">(
     String(providerParams.image_provider || "apimart") === "xcode" ? "xcode" : "apimart"
@@ -182,6 +191,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
 
   return (
     <DetailShell title="生图" stage={stage} onRerun={onRerun}>
+      <StockCoverSettings taskId={taskId} generatedCover={generatedHistoryCover} imageProcessing={stage?.status === 'processing'} />
       <section className="image-config-strip" aria-label="生图 Provider 选择">
         <div><span>当前通道</span><strong>{providerName}</strong><small>{imageModel}</small></div>
         <div><span>切换通道</span><select value={selectedProvider} onChange={event => setSelectedProvider(event.target.value as "apimart" | "xcode")} aria-label="切换生图 Provider"><option value="apimart">APIMart（默认）</option><option value="xcode">xcode.best（备用）</option></select><small>保存后只重跑生图及下游阶段</small></div>
@@ -195,13 +205,13 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
           </section>
           <section className="image-workbench-summary" aria-label="图片生成摘要">
             <div><span>分镜图片</span><strong>{entries.length}</strong><small>按文案时间轴排列</small></div>
-            <div><span>{gridLabel}批次</span><strong>{gridCount}</strong><small>每批最多 {gridCells * gridCells} 格{isGuoxue ? "，首批含封面" : ""}</small></div>
+            <div><span>{gridLabel}批次</span><strong>{gridCount}</strong><small>每批最多 {gridCells * gridCells} 格{isGuoxue || generatedHistoryCover ? "，首批含封面" : ""}</small></div>
             <div><span>预计画面时长</span><strong>{Math.round(entries.reduce((sum, entry) => sum + (entry.estimated_duration || 0), 0))}s</strong><small>跟随配音时间轴</small></div>
             <div><span>画面动效</span><strong>{isGuoxue ? "静帧" : "Zoom In"}</strong><small>{isGuoxue ? "静帧与叠化" : "缓慢放大与叠化"}</small></div>
           </section>
           <section className="image-config-strip" aria-label="当前生图配置">
             <div><span>生成模式</span><strong>{gridCells}×{gridCells} {gridLabel}切分</strong><small>每批最多 {gridCells * gridCells} 格</small></div>
-            <div><span>单图比例</span><strong>{isGuoxue ? "4:3" : "9:16"}</strong><small>{isGuoxue ? "竖版成片使用同图模糊背景填充" : "与成片画面一致"}</small></div>
+            <div><span>单图比例</span><strong>{String(providerParams.image_aspect_ratio || (isGuoxue ? "4:3" : "9:16"))}</strong><small>{providerParams.image_aspect_ratio === "4:3" || isGuoxue ? "竖版成片使用同图模糊背景填充" : "按模板画面比例"}</small></div>
             <div><span>Provider</span><strong>{providerName}</strong><small>{imageModel}</small></div>
             <div><span>安全规则</span><strong>无可见文字</strong><small>违规语义转生活化类比</small></div>
           </section>

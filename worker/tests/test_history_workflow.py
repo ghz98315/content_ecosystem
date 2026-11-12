@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 import config
-from history_visuals import compile_history_plan, image_prompt, request_history_plan, select_history_cover
+from history_visuals import _portrait_for, compile_history_plan, image_prompt, request_history_cover, request_history_plan, select_history_cover
 from production_templates import validate_template
 from rewrite_review import evaluate, history_conversion_tail, length_bounds, opening_hook
 from rewrite_skill import resolve_domain
@@ -126,6 +126,33 @@ class HistoryWorkflowTests(unittest.TestCase):
             with Image.open(source) as original:
                 self.assertEqual((460, 345), original.size)
 
+    def test_uploaded_cover_preserves_top_and_crops_wide_images_equally(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, result = (Path(directory) / name for name in ('source.png', 'enhanced.png'))
+            portrait = Image.new('RGB', (360, 640), '#303080')
+            portrait.paste('#206020', (0, 0, 360, 270))
+            portrait.paste('#a03030', (0, 0, 360, 60))
+            portrait.save(source)
+            render.enhance_history_cover(str(source), str(result), crop_top_4x3=True)
+            with Image.open(result) as image:
+                self.assertEqual((1080, 810), image.size)
+                self.assertEqual((160, 48, 48), image.getpixel((540, 45)))
+                self.assertEqual((32, 96, 32), image.getpixel((540, 760)))
+
+            landscape = Image.new('RGB', (1800, 900), '#303080')
+            landscape.paste('#a03030', (300, 0, 1500, 900))
+            landscape.save(source)
+            render.enhance_history_cover(str(source), str(result), crop_top_4x3=True)
+            with Image.open(result) as image:
+                self.assertEqual((1200, 900), image.size)
+                self.assertEqual((160, 48, 48), image.getpixel((0, 0)))
+                self.assertEqual((160, 48, 48), image.getpixel((1199, 899)))
+
+            Image.new('RGB', (1200, 900), '#206020').save(source)
+            render.enhance_history_cover(str(source), str(result), crop_top_4x3=True)
+            with Image.open(result) as image:
+                self.assertEqual((1200, 900), image.size)
+
     def test_numbered_prompts_keep_cast_continuity_and_per_shot_era(self):
         card = {'id':'P1','aliases':['虚构人物甲'],'origin':'西方人','kind':'女子','age':'约40岁',
                 'face':'方圆脸、眉骨清晰、棕发','clothing':'细纹粗呢外套'}
@@ -142,26 +169,107 @@ class HistoryWorkflowTests(unittest.TestCase):
         self.assertNotIn('虚构人物甲', prompt)
         self.assertNotIn('示例读本', prompt)
 
-    def test_image_stage_submits_numbered_landscape_grid_and_saves_individual_prompt(self):
+    def test_image_stage_reserves_first_grid_cell_only_for_automatic_history_cover(self):
         raw = io.BytesIO()
         Image.new('RGB', (1200, 900), '#bc885f').save(raw, 'PNG')
         stage = {'id':'stage','task_id':'task','params':{'production_template':'history-v1','template_version':2,
-            'content_line':'social_science','visual_style':'history_period_film','image_aspect_ratio':'4:3'}}
-        plan = [{'index':1,'era':'年代未定','scene':'年代未定的木门与廊道，斜侧光空镜'}]
-        with patch.object(image, 'validate_task_template'), \
-             patch.object(image, '_find_chosen_text', return_value='旧时街巷，木门轻轻合上。'), \
-             patch.object(image.config, 'image_client', return_value=(MagicMock(), 'test-model')), \
-             patch.object(image.db, 'get_task_prompt_context', return_value={'content_category':'social_science'}), \
-             patch.object(image, '_load_history_visual_plan', return_value=(plan, 'visual-signature')), \
-             patch.object(image, '_existing_image_artifacts', return_value={}), \
-             patch.object(image, '_generate_grid_bytes', return_value=raw.getvalue()) as generate, \
-             patch.object(image.storage, 'upload_bytes') as upload, patch.object(image.storage, 'add_artifact'):
-            self.assertEqual('done', image.run(stage)[0])
-        self.assertEqual('4:3', generate.call_args.kwargs['size'])
-        self.assertIn('【1】年代未定的木门', generate.call_args.args[2])
-        index = json.loads(next(call.args[1] for call in upload.call_args_list if call.args[0].endswith('images_index.json')))
-        self.assertEqual('4:3', index[0]['cell_ratio'])
-        self.assertIn('单幅背景图', index[0]['prompt'])
+            'content_line':'social_science','visual_style':'history_period_film','image_aspect_ratio':'4:3',
+            'image_provider':'apimart'}}
+        shots = [{'index': index, 'text': f'镜头 {index}', 'char_count': 2, 'char_start': index * 2,
+                  'char_end': index * 2 + 2, 'estimated_duration': 1, 'motion': 'zoom_in'} for index in range(9)]
+        plan = [{'index': index, 'era': '年代未定', 'scene': f'年代未定的木门 {index}'} for index in range(1, 10)]
+        cover = {'prompt': '中景下的主题物件', 'era': '年代未定', 'reference_status': 'matched',
+                 'reference': {'image_url': 'https://upload.wikimedia.org/ref.png'}}
+        for user_cover in (None, 'task/video-cover/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png'):
+            with self.subTest(user_cover=user_cover), \
+                 patch.object(image, 'validate_task_template'), \
+                 patch.object(image, '_find_chosen_text', return_value='旧时街巷，木门轻轻合上。'), \
+                 patch.object(image.config, 'image_client', return_value=(MagicMock(), 'test-model')), \
+                 patch.object(image.db, 'get_task_prompt_context', return_value={'content_category':'social_science'}), \
+                 patch.object(image, '_history_storyboard', return_value=([dict(shot) for shot in shots], {'max_images': 9})), \
+                 patch.object(image, '_load_history_visual_plan', return_value=(plan, 'visual-signature')), \
+                 patch.object(image, '_history_render_params', return_value={'video_cover_path': user_cover}), \
+                 patch.object(image, '_load_history_cover_plan', return_value=cover) as design, \
+                 patch.object(image, '_existing_image_artifacts', return_value={}), \
+                 patch.object(image, '_generate_grid_bytes', return_value=raw.getvalue()) as generate, \
+                 patch.object(image.storage, 'upload_bytes') as upload, patch.object(image.storage, 'add_artifact'):
+                self.assertEqual('done', image.run(stage)[0])
+            first = generate.call_args_list[0]
+            self.assertEqual('4:3', first.kwargs['size'])
+            self.assertIn('【1】年代未定的木门', first.args[2])
+            index = json.loads(next(call.args[1] for call in upload.call_args_list if call.args[0].endswith('images_index.json')))
+            self.assertEqual(list(range(9)), [shot['index'] for shot in index])
+            self.assertEqual([shot['char_start'] for shot in shots], [shot['char_start'] for shot in index])
+            self.assertIn('单幅背景图', index[0]['prompt'])
+            if user_cover:
+                design.assert_not_called()
+                self.assertEqual(1, generate.call_count)
+                self.assertNotIn('【左上角封面格】', first.args[2])
+                self.assertIsNone(index[0]['cover_path'])
+                self.assertIsNone(first.kwargs['image_urls'])
+            else:
+                design.assert_called_once()
+                self.assertEqual(2, generate.call_count)
+                self.assertLess(first.args[2].index('【左上角封面格】'), first.args[2].index('【1】'))
+                self.assertIn('【9】', generate.call_args_list[1].args[2])
+                self.assertEqual(['https://upload.wikimedia.org/ref.png'], first.kwargs['image_urls'])
+                self.assertIsNone(generate.call_args_list[1].kwargs['image_urls'])
+                self.assertTrue(index[0]['cover_path'].endswith('/cover.png'))
+
+    def test_history_cover_design_uses_whole_script_and_only_looks_up_main_subject(self):
+        client = MagicMock()
+        create = client.chat.completions.create
+        create.return_value.choices[0].message.content = json.dumps({
+            'subject':'示例人物', 'era':'十九世纪末法国', 'scene':'示例人物在书房的头肩近景',
+        }, ensure_ascii=False)
+        script = '开头从巴黎讲起。示例人物晚年仍在写作。'
+        with patch('history_visuals._portrait_for', return_value=None) as lookup:
+            plan = request_history_cover(client, 'model', script, '人物故事')
+        lookup.assert_called_once_with('示例人物')
+        self.assertEqual(script, json.loads(create.call_args.kwargs['messages'][1]['content'])['script'])
+        self.assertEqual('illustrative', plan['reference_status'])
+        self.assertIn('十九世纪末法国', plan['prompt'])
+        self.assertNotIn('示例人物', plan['prompt'])
+
+    def test_history_render_prioritizes_uploaded_then_generated_cover_and_keeps_legacy(self):
+        entries = [{'path': 'body.png', 'cover_path': 'generated.png'}]
+        uploaded = 'task/video-cover/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png'
+        self.assertEqual(('uploaded', uploaded, None),
+                         render._select_history_intro_cover('task', {'video_cover_path': uploaded}, entries, '', ''))
+        self.assertEqual(('history_generated', 'generated.png', None),
+                         render._select_history_intro_cover('task', {}, entries, '', ''))
+        self.assertEqual(('history_theme_shot', 'body.png', 0),
+                         render._select_history_intro_cover('task', {}, [{'path': 'body.png'}], '', ''))
+        with self.assertRaises(ValueError):
+            render._select_history_intro_cover('another', {'video_cover_path': uploaded}, entries, '', '')
+
+    def test_portrait_lookup_requires_unambiguous_person_and_commons_file(self):
+        def claim(value):
+            return {'mainsnak': {'datavalue': {'value': value}}}
+
+        person = {'id': 'Q12', 'claims': {
+            'P31': [claim({'id': 'Q5'})], 'P18': [claim('Portrait.jpg')],
+        }}
+        media = {'mime': 'image/jpeg', 'thumburl': 'https://upload.wikimedia.org/portrait.jpg',
+                 'descriptionurl': 'https://commons.wikimedia.org/wiki/File:Portrait.jpg',
+                 'extmetadata': {'LicenseShortName': {'value': 'Public domain'}}}
+        with patch('history_visuals.httpx.Client') as factory:
+            get = factory.return_value.__enter__.return_value.get
+            payloads = [
+                {'search': [{'id': 'Q12', 'label': '示例人物'}, {'id': 'Q13', 'label': '另一个人'}]},
+                {'entities': {'Q12': person}},
+                {'query': {'pages': [{'imageinfo': [media]}]}},
+            ]
+            get.side_effect = [MagicMock(**{'json.return_value': payload}) for payload in payloads]
+            self.assertEqual(media['descriptionurl'], _portrait_for('示例人物')['source_url'])
+            self.assertEqual('File:Portrait.jpg', get.call_args.kwargs['params']['titles'])
+
+            payloads[0]['search'][1]['label'] = '示例人物'
+            payloads[1]['entities']['Q13'] = {**person, 'id': 'Q13'}
+            get.reset_mock()
+            get.side_effect = [MagicMock(**{'json.return_value': payload}) for payload in payloads[:2]]
+            self.assertIsNone(_portrait_for('示例人物'))
+            self.assertEqual(2, get.call_count)
 
     def test_philosophical_scenes_pass_concrete_metaphors_to_the_image_model(self):
         client = MagicMock()

@@ -12,11 +12,18 @@ export async function POST(request: Request) {
     const user = token ? (await admin.auth.getUser(token)).data.user : null;
     if (!user) return NextResponse.json({error:'请先登录'},{status:401});
     const { taskId, name, size } = await request.json();
-    const {data:task} = await admin.from('tasks').select('id').eq('id', String(taskId || '')).eq('owner',user.id).maybeSingle();
+    const {data:task} = await admin.from('tasks').select('id,content_category,narration_mode').eq('id', String(taskId || '')).eq('owner',user.id).maybeSingle();
     if (!task) return NextResponse.json({error:'无权设置该任务封面'},{status:403});
     const { data: render } = await admin.from('stages').select('params,status').eq('task_id',task.id).eq('kind','render').single();
-    if (!render || render.params?.visual_mode !== 'stock_video' || render.status === 'processing') {
-      throw new Error('请在素材拼接任务开始成片前或结束后设置封面');
+    const stock = render?.params?.visual_mode === 'stock_video';
+    const history = !stock && task.narration_mode !== 'dual_dialogue'
+      && (render?.params?.content_line || task.content_category) === 'social_science';
+    if (!render || (!stock && !history) || render.status === 'processing') {
+      throw new Error('请在历史社科或素材拼接任务的成片前后设置封面');
+    }
+    if (history) {
+      const {data: image, error} = await admin.from('stages').select('status').eq('task_id',task.id).eq('kind','image').single();
+      if (error || !image || image.status === 'processing') throw new Error('请在生图前或本批图片生成后设置封面');
     }
     const extension = String(name || '').split('.').pop()?.toLowerCase();
     const limit = 5 * 1024 * 1024;
