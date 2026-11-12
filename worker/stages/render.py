@@ -366,7 +366,7 @@ def _make_ass(
         "Encoding\n"
         f"Style: Default,{narration_font},{narration_size},{narration_fill},&H000000FF,&H00000000,&H90000000,"
         f"{narration_bold},0,0,0,100,100,0,0,1,{5 if history_subtitle_style else 4},1,2,70,70,{H - caption_y},1\n"
-        f"Style: Heading,{title_font},{60 if history_subtitle_style else (92 if landscape_layout else 88)},{ass_title_color},&H000000FF,{heading_outline},&H80000000,{-1 if history_subtitle_style else 0},0,0,0,100,100,2,0,1,{6 if landscape_layout else 3},1,8,80,80,120,1\n"
+        f"Style: Heading,{title_font},{65 if history_subtitle_style else (92 if landscape_layout else 88)},{ass_title_color},&H000000FF,{heading_outline},&H80000000,{-1 if history_subtitle_style else 0},0,0,0,100,100,2,0,1,{3 if history_subtitle_style else (6 if landscape_layout else 3)},1,8,80,80,120,1\n"
         f"Style: Subheading,{subtitle_font},{subheading_size},{sub_fill},&H000000FF,{sub_outline},&H80000000,{-1 if history_subtitle_style or health_subtitle_bold else 0},0,0,0,{90 if history_subtitle_style else 100},100,{0 if landscape_layout else 1},0,1,2,{0 if landscape_layout else 1},8,90,90,238,1\n"
         f"Style: Footnote,{footnote_font},{foot_size},{foot_fill},&H000000FF,{foot_outline},&H80000000,0,0,0,0,100,100,0,0,1,{foot_border},{foot_shadow},3,70,70,110,1\n"
         "Style: Account,Microsoft YaHei,30,&H20FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,3,60,60,50,1\n"
@@ -422,7 +422,7 @@ def _make_ass(
                 if style == 'Heading':
                     units = sum(1 if unicodedata.east_asian_width(c) in 'WF' else 0.6 for c in value)
                     old_size = min(92, int((W - 160 - 2 * len(value)) / max(1, units)))
-                    size = max(1, min(60, round(old_size * 60 / 92)))
+                    size = max(1, min(65, round(old_size * 65 / 92)))
                     lines.append(f"Dialogue: 1,0:00:00.00,{overlay_end},Heading,,0,0,0,,{{\\an2\\pos({W//2},{positions['Heading'][2]})\\fs{size}\\q2}}{_escape_ass(value)}\n")
                 else:
                     for index, line in enumerate(subtitle_lines):
