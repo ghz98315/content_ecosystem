@@ -11,7 +11,8 @@ const VIDEO_TYPES = ['final'];
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const GRID_AGE_MS = 24 * 60 * 60 * 1000;
 const IMAGE_AGE_MS = 48 * 60 * 60 * 1000;
-const VIDEO_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const VIDEO_RETENTION_HOURS = 48;
+const VIDEO_AGE_MS = VIDEO_RETENTION_HOURS * 60 * 60 * 1000;
 const INFO_CONCURRENCY = 25;
 
 export async function GET(request: NextRequest) {
@@ -187,5 +188,5 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ dryRun, scanned: rows.length, eligible: candidates.length,
     removed, missingObjects, skippedNewer, expiredExternalVersions, removedExternalAudio, failures: failures.length,
     moreCandidates: (gridsResult.data?.length || 0) === 100 || (imagesResult.data?.length || 0) === 250 || (videosResult.data?.length || 0) === 50,
-    retentionHours: { sourceGrids: 24, images: 48, finalVideo: 168 }, cancelledResults });
+    retentionHours: { sourceGrids: 24, images: 48, finalVideo: VIDEO_RETENTION_HOURS }, cancelledResults });
 }

@@ -1,4 +1,4 @@
-"""Expire source grids after 24h, images after 48h, and final videos after 7d.
+"""Expire cloud source grids after 24h, images and final videos after 48h.
 
 Keep transcripts, rewrites, book data and publication metrics for history.
 Use the Storage API so physical objects are removed as well as artifact rows.
@@ -20,7 +20,7 @@ UUID = re.compile(r'^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$', re.I)
 
 
 def cleanup_local_high_quality_exports(*, dry_run: bool = False) -> dict:
-    """Apply the same seven-day retention to the Worker-only clear master."""
+    """Keep the Worker-only clear master for seven days."""
     root = Path(__file__).resolve().parent / 'output' / 'high-quality-exports'
     report = {'removed': 0, 'removed_bytes': 0}
     if not root.is_dir():
@@ -54,7 +54,7 @@ def cleanup_expired_media(*, limit: int = 100, dry_run: bool = False) -> dict:
     cutoffs = {
         **{kind: (now - timedelta(hours=24)).isoformat() for kind in GRID_TYPES},
         **{kind: (now - timedelta(hours=48)).isoformat() for kind in IMAGE_TYPES},
-        **{kind: (now - timedelta(days=7)).isoformat() for kind in VIDEO_TYPES},
+        **{kind: (now - timedelta(hours=48)).isoformat() for kind in VIDEO_TYPES},
     }
     rows = []
     for kinds in (GRID_TYPES, IMAGE_TYPES, VIDEO_TYPES):
