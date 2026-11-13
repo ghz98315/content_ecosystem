@@ -1,19 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { supabase } from '@/lib/supabase';
 
 type GeneratedCover = { path: string; sourceUrl?: string; referenceStatus?: string; prompt?: string };
 
-export function StockCoverSettings({ taskId, rerender = false, generatedCover, imageProcessing = false }: {
+export type StockCoverSettingsHandle = {
+  reviewValues: () => { path: string | null; previous: string | null };
+  markConfirmed: (path: string | null) => void;
+};
+export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
   taskId: string;
   rerender?: boolean;
   generatedCover?: GeneratedCover;
   imageProcessing?: boolean;
-}) {
-  const [mode, setMode] = useState<'stock' | 'history' | null>(null);
+  review?: boolean;
+  disabled?: boolean;
+}>(function StockCoverSettings({ taskId, rerender = false, generatedCover, imageProcessing = false, review = false, disabled = false }, ref) {
+  const [mode, setMode] = useState<'stock' | 'history' | 'scene' | 'default' | null>(null);
   const [path, setPath] = useState('');
+  const [savedPath, setSavedPath] = useState('');
   const [preview, setPreview] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -21,7 +28,7 @@ export function StockCoverSettings({ taskId, rerender = false, generatedCover, i
 
   useEffect(() => {
     let active = true;
-    setMode(null); setPath('');
+    setMode(null); setPath(''); setSavedPath('');
     void Promise.all([
       supabase.from('stages').select('params').eq('task_id', taskId).eq('kind', 'render').single(),
       supabase.from('tasks').select('content_category,narration_mode').eq('id', taskId).single(),
@@ -29,11 +36,24 @@ export function StockCoverSettings({ taskId, rerender = false, generatedCover, i
         if (!active || !data) return;
         const history = task?.narration_mode !== 'dual_dialogue'
           && (data.params?.content_line || task?.content_category) === 'social_science';
-        setMode(data.params?.visual_mode === 'stock_video' ? 'stock' : history ? 'history' : null);
-        setPath(String(data.params?.video_cover_path || ''));
+      setMode(data.params?.production_template === 'scene-v1' ? 'scene'
+        : data.params?.visual_mode === 'stock_video' ? 'stock' : history ? 'history' : 'default');
+      const uploaded = String(data.params?.video_cover_path || '');
+      setPath(uploaded); setSavedPath(uploaded);
       });
     return () => { active = false; };
   }, [taskId]);
+
+  useImperativeHandle(ref, () => ({
+    reviewValues: () => {
+      if (!mode || busy) throw new Error('请等封面读取或上传完成后再确认');
+      return { path: path || null, previous: savedPath || null };
+    },
+    markConfirmed: confirmed => {
+      setSavedPath(confirmed || '');
+      setMessage(confirmed ? '封面已随改写稿确认' : '已确认采用自动封面');
+    },
+  }));
 
   const previewPath = path || (mode === 'history' ? generatedCover?.path : '');
   useEffect(() => {
@@ -80,13 +100,18 @@ export function StockCoverSettings({ taskId, rerender = false, generatedCover, i
           if (uploadError) throw uploadError;
           next = upload.path;
         }
+        if (review) {
+          setPath(next || '');
+          setMessage(next ? '封面已上传，确认改写稿时会一并使用。' : '确认改写稿后将采用自动封面。');
+          return;
+        }
         const { data, error: saveError } = await supabase.from('stages').update({ params: { ...stage.params, video_cover_path: next } })
           .eq('id', stage.id).eq('updated_at', stage.updated_at).neq('status', 'processing').select('id');
         if (saveError || !data?.length) throw new Error('任务设置已变化，请刷新后重试');
-        setPath(next || '');
+        setPath(next || ''); setSavedPath(next || '');
         setMessage(next ? '任务封面已保存，下次成片时使用。' : mode === 'history'
           ? '已恢复自动封面。已有专用封面可直接复用，也可重跑生图生成新的首格封面。'
-          : '已恢复按书名查找本地预设或从素材中选帧。');
+          : mode === 'stock' ? '已恢复按书名查找本地预设或从素材中选帧。' : '已恢复自动封面。');
       }
       if (run) {
         const { error: rerunError } = await supabase.rpc('rerun_stage', {p_stage_id:stage.id});
@@ -98,20 +123,20 @@ export function StockCoverSettings({ taskId, rerender = false, generatedCover, i
     } finally { setBusy(false); }
   }
 
-  if (!mode) return null;
   const history = mode === 'history';
-  const canEdit = !busy && !(history && imageProcessing);
+  const canEdit = Boolean(mode) && !disabled && !busy && !(history && imageProcessing);
   return <section className="book-info-panel" aria-label="成片封面" style={{padding:16,margin:'16px 0'}}>
     <h3>成片封面（可选）</h3>
     <p>{history ? '生图前可上传封面。采用自动封面时，系统根据整篇文案设计首批九宫格左上角。'
-      : '可上传本任务封面。未上传时按书名查找「91_成片预设封面」，没有匹配项时从已选素材中取帧。'}</p>
+      : mode === 'stock' ? '可上传本任务封面。未上传时按书名查找预设封面，没有匹配项时从已选素材中取帧。'
+      : '可以上传自己的封面，也可以沿用本栏目的自动封面。'}{review && ' 请在确认改写稿前预览。'}</p>
     <label>上传成片封面 <input type="file" accept=".png,.jpg,.jpeg,.webp" disabled={!canEdit} onChange={event => {
       const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
       if (file) void save(file);
     }} /></label>
-    {path && <p>上传封面按顶部对齐裁为 4:3，成片时做高清处理。</p>}
+    {path && <p>{mode === 'scene' ? '上传封面按竖屏比例显示。' : '上传封面按顶部对齐裁为 4:3，成片时做高清处理。'}</p>}
     {preview && <img src={preview} alt="任务封面预览" style={path
-      ? {display:'block',width:'100%',maxWidth:240,aspectRatio:'4 / 3',objectFit:'cover',objectPosition:'center top'}
+      ? {display:'block',width:'100%',maxWidth:240,aspectRatio:mode === 'scene' ? '9 / 16' : '4 / 3',objectFit:'cover',objectPosition:mode === 'scene' ? 'center' : 'center top'}
       : {display:'block',maxWidth:240,maxHeight:200,objectFit:'contain'}} />}
     {history && !path && generatedCover?.referenceStatus !== 'safe_fallback' && generatedCover?.sourceUrl && /^https:\/\/commons\.wikimedia\.org\//.test(generatedCover.sourceUrl) &&
       <p><a href={generatedCover.sourceUrl} target="_blank" rel="noreferrer">查看肖像参考来源</a>{generatedCover.referenceStatus === 'text_only' ? '（本通道按时代地域示意）' : ''}</p>}
@@ -122,8 +147,8 @@ export function StockCoverSettings({ taskId, rerender = false, generatedCover, i
     </details>}
     <div className="external-actions">
       {path && <button type="button" disabled={!canEdit} onClick={() => void save(undefined,true)}>恢复自动封面</button>}
-      {rerender && <button type="button" disabled={busy} onClick={() => void save(undefined,false,true)}>应用封面并重新成片</button>}
+      {rerender && <button type="button" disabled={!canEdit} onClick={() => void save(undefined,false,true)}>应用封面并重新成片</button>}
     </div>
     {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
   </section>;
-}
+});

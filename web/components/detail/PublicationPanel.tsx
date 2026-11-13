@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
-import { characterCount, PublicationCopy, PUBLICATION_FIELDS, publicationText, publicationDescriptionAndTags, splitPublicationDescriptionAndTags, validatePublication } from '@/lib/publication';
+import { characterCount, ConfirmedPublicationCover, PublicationCopy, PUBLICATION_FIELDS, publicationText, publicationDescriptionAndTags, splitPublicationDescriptionAndTags, validatePublication, withConfirmedCover } from '@/lib/publication';
 import { publicationResponse } from '@/lib/publicationResponse';
 
 type RecordEntry = { id: string; created_at: string; meta: { copy: PublicationCopy; source_hash: string } };
-type Loaded = { record: RecordEntry | null; ready: boolean; sourceHash: string | null; stale: boolean; sourceTitle: string; sourceTags: string[] };
+type Loaded = { record: RecordEntry | null; cover: ConfirmedPublicationCover | null; ready: boolean; sourceHash: string | null; stale: boolean; sourceTitle: string; sourceTags: string[] };
 
 export function PublicationPanel({ taskId, scene=false }: { taskId: string; scene?:boolean }) {
   const [data, setData] = useState<Loaded | null>(null);
@@ -32,7 +32,8 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
         const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
         if (cached && (cached.baseId || null) === (result.record?.id || null)) {
           if (cached.copy && PUBLICATION_FIELDS.every(field => typeof cached.copy[field.key] === 'string') && Array.isArray(cached.copy.cover_options) && Array.isArray(cached.copy.publish_titles) && Array.isArray(cached.copy.tags) && Array.isArray(cached.copy.replies) && typeof cached.sourceHash === 'string') {
-            setCopy(cached.copy); setDescriptionTagsInput(publicationDescriptionAndTags(cached.copy)); setDraftHash(cached.sourceHash); setDirty(true); setMessage('已恢复本标签页的未保存草稿');
+            const restored = withConfirmedCover(cached.copy, result.cover);
+            setCopy(restored); setDescriptionTagsInput(publicationDescriptionAndTags(restored)); setDraftHash(cached.sourceHash); setDirty(true); setMessage('已恢复本标签页的未保存草稿');
           }
         }
       } catch { /* An incomplete local draft never replaces the saved version. */ }
@@ -53,11 +54,11 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
     if (dirty && !window.confirm('重新生成会替换当前未保存草稿，是否继续？')) return;
     setBusy('generate'); setError(''); setMessage('正在根据最终确认稿生成…');
     try {
-      let result: { copy: PublicationCopy; sourceHash: string } | undefined;
+      let result: { copy: PublicationCopy; cover: ConfirmedPublicationCover | null; sourceHash: string } | undefined;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const response = await authenticatedFetch('/api/publication', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, action: 'generate', sourceHash: data?.sourceHash }) });
-          result = await publicationResponse<{ copy: PublicationCopy; sourceHash: string }>(response, '发布文案生成失败');
+          result = await publicationResponse<typeof result>(response, '发布文案生成失败');
           break;
         } catch (failure) {
           const retryable = failure instanceof Error && /(?:HTTP\s*(?:502|503|504)|暂不可用（(?:502|503|504)）|生成超时|服务返回了非 JSON 响应)/.test(failure.message);
@@ -66,6 +67,8 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
         }
       }
       if (!result) throw new Error('发布文案生成失败，请稍后重试');
+      const currentCover = result.cover;
+      setData(previous => previous ? { ...previous, cover: currentCover } : previous);
       setCopy(result.copy); setDescriptionTagsInput(publicationDescriptionAndTags(result.copy)); setDraftHash(result.sourceHash); setDirty(true); setMessage('已生成草稿，检查后点击保存发布文案');
     } catch (err) { setError(err instanceof Error ? err.message : '生成失败'); setMessage(''); }
     finally { setBusy(''); }
@@ -75,10 +78,10 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
     if (!copy) return;
     setBusy('save'); setError('');
     try {
-      const valid = validatePublication(copy, scene);
+      const valid = validatePublication(copy, scene, data?.cover);
       const response = await authenticatedFetch('/api/publication', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, action: 'save', copy: valid, sourceHash: draftHash, baseId: data?.record?.id || null }) });
       const result = await publicationResponse<{ record: RecordEntry }>(response, '发布文案保存失败');
-      setData(previous => previous ? { ...previous, record: result.record, stale: false } : previous); setCopy(valid); setDirty(false);
+      setData(previous => previous ? { ...previous, record: result.record, stale: false } : previous); setCopy(result.record.meta.copy); setDirty(false);
       try { sessionStorage.removeItem(cacheKey); } catch { /* Optional local cache. */ }
       setMessage('已保存发布文案；历史版本保留，图片和视频清理不影响文案记录');
     } catch (err) { setError(err instanceof Error ? err.message : '保存失败'); }
@@ -91,18 +94,18 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
   }
 
   return <section className="publication-editor" aria-labelledby="publication-editor-title" aria-busy={Boolean(busy)}>
-    <div className="render-panel-heading"><div><strong id="publication-editor-title">发布文案包</strong><span>根据最终确认稿设计，可编辑并逐项复制。发布封面文案独立保存；视频画面文字仍在原设置中调整。</span></div>
+    <div className="render-panel-heading"><div><strong id="publication-editor-title">发布文案包</strong><span>发布标题显示在视频封面下方，含标点最多16字。封面文字可在画面文字设置中核对。</span></div>
       <button className="secondary-action" disabled={Boolean(busy) || !data?.ready} onClick={generate}>{busy === 'generate' ? '生成中…' : copy ? '重新生成' : '根据文案生成'}</button></div>
     {busy === 'load' && <p role="status">正在读取发布文案…</p>}
     {data && !data.ready && <p className="publication-warning">请先确认改写文案，完成后可生成发布内容。</p>}
     {stale && <p className="publication-warning" role="status">确认稿已经变化，当前为旧稿的发布文案，请重新生成后保存。</p>}
     {data?.sourceTitle && <details className="publication-source"><summary>参考原标题与标签</summary><p>{data.sourceTitle}</p><small>{data.sourceTags.map(tag => `#${tag}`).join(' ')}</small></details>}
     {copy && <>
-      <fieldset className="publication-choices"><legend>封面主副标题 · 三选一</legend><div className="cover-choice-grid">{copy.cover_options.map((option, index) => <button type="button" key={index} disabled={Boolean(busy)} aria-pressed={copy.cover_title === option.title && copy.cover_subtitle === option.subtitle} onClick={() => edit({ ...copy, cover_title: option.title, cover_subtitle: option.subtitle })}><small>方案 {String(index + 1).padStart(2, '0')}</small><strong>{option.title}</strong><span>{option.subtitle}</span></button>)}</div></fieldset>
+      {!data?.cover && copy.cover_options.length > 0 && <fieldset className="publication-choices"><legend>封面主副标题 · 三选一</legend><div className="cover-choice-grid">{copy.cover_options.map((option, index) => <button type="button" key={index} disabled={Boolean(busy)} aria-pressed={copy.cover_title === option.title && copy.cover_subtitle === option.subtitle} onClick={() => edit({ ...copy, cover_title: option.title, cover_subtitle: option.subtitle })}><small>方案 {String(index + 1).padStart(2, '0')}</small><strong>{option.title}</strong><span>{option.subtitle}</span></button>)}</div></fieldset>}
       <fieldset className="publication-choices"><legend>发布标题 · 三选一</legend><div className="publish-choice-list">{copy.publish_titles.map((title, index) => <button type="button" key={index} disabled={Boolean(busy)} aria-pressed={copy.publish_title === title} onClick={() => edit({ ...copy, publish_title: title })}><small>{String(index + 1).padStart(2, '0')}</small><span>{title}</span></button>)}</div></fieldset>
       <div className="publication-fields">{PUBLICATION_FIELDS.slice(0, 3).map(field => <label key={field.key}>
-        <span>{scene&&field.key==='purchase_comment'?'商品转化评论（无商品可留空）':field.label}<small>{characterCount(copy[field.key])}/{field.max}字</small></span>
-        <textarea aria-label={field.label} rows={field.rows} value={copy[field.key]} disabled={Boolean(busy)} onChange={event => edit({ ...copy, [field.key]: event.target.value })} />
+        <span>{field.label}<small>{data?.cover && field.key !== 'publish_title' ? '沿用已确认文字' : `${characterCount(copy[field.key])}/${field.max}字`}</small></span>
+        <textarea aria-label={field.label} rows={data?.cover && field.key === 'cover_subtitle' ? 2 : field.rows} value={copy[field.key]} disabled={Boolean(busy)} readOnly={Boolean(data?.cover && field.key !== 'publish_title')} onChange={event => edit({ ...copy, [field.key]: event.target.value })} />
         <button type="button" onClick={() => void clipboard(copy[field.key])}>复制{field.label}</button>
       </label>)}
       <label className="publication-wide"><span>发布简介与话题标签<small>简介最多200字；末行用 #话题 分隔，最多8个</small></span><textarea aria-label="发布简介与话题标签" rows={5} disabled={Boolean(busy)} value={descriptionTagsInput} onChange={event => { const value = event.target.value; setDescriptionTagsInput(value); edit({ ...copy, ...splitPublicationDescriptionAndTags(value) }); }} /><button type="button" onClick={() => void clipboard(descriptionTagsInput)}>复制简介与标签</button></label>

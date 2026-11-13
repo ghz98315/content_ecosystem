@@ -57,7 +57,7 @@ def make_cover(source: str, output: str, title: str, subtitle: str, footnote: st
     if len(title)>32 or len(subtitle)>48:
         raise ValueError('封面主副标题过长')
     with Image.open(source) as original:
-        image=ImageOps.fit(original.convert('RGB'),(W,H),method=Image.Resampling.LANCZOS)
+        image=ImageOps.fit(ImageOps.exif_transpose(original).convert('RGB'),(W,H),method=Image.Resampling.LANCZOS)
     draw=ImageDraw.Draw(image)
     font_path=_find_cjk_font(bold=True)
     for text,base_size,y,fill,outline,stroke in (
@@ -151,6 +151,11 @@ def run(stage: dict):
             cover_origin, cover_path = ('generated', images[0].get('cover_path'))
             if stock:
                 cover_origin, cover_path = r._select_stock_cover(task_id, params, str(rewrite.get('book_title') or ''), images)
+            if not stock:
+                from history_visuals import uploaded_cover
+                custom_cover = uploaded_cover(task_id, params)
+                if custom_cover:
+                    cover_origin, cover_path = 'uploaded', custom_cover
             cover = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path or images[0]['path'], '.png')
             try:
                 make_cover(cover,str(temp/'cover.png'),title,subtitle)

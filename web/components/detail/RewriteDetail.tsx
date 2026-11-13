@@ -8,7 +8,7 @@ import { DetailShell, TextBtn, DetailCommon } from "./_shell";
 import { VideoTextSettings, VideoTextSettingsHandle } from "./VideoTextSettings";
 import { RewriteReviewPanel, RewriteReview } from "./RewriteReviewPanel";
 import { RewriteDomainSettings, RewriteSkillInfo } from './RewriteDomainSettings';
-import { StockCoverSettings } from './StockCoverSettings';
+import { StockCoverSettings, StockCoverSettingsHandle } from './StockCoverSettings';
 
 interface RewriteData {
   candidates: string[];
@@ -32,6 +32,7 @@ interface RewriteData {
   cover_title?: string;
   cover_subtitle?: string;
   cover_confirmed?: boolean;
+  cover_suggestion?: { title: string; subtitle: string };
   source_text?: string;
   source_formatted?: string;
   rewrite_review?: RewriteReview;
@@ -67,33 +68,40 @@ function textLength(text: string) {
 
 export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   const [data, setData] = useState<RewriteData | null>(null);
+  const [loadedOutput, setLoadedOutput] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<string[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [activeIssue, setActiveIssue] = useState<number | null>(null);
   const videoTextRef = useRef<VideoTextSettingsHandle | null>(null);
+  const coverRef = useRef<StockCoverSettingsHandle | null>(null);
   const draftRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
 
   const artifactRevision = stage?.status === 'processing' ? 'processing' : stage?.updated_at;
   useEffect(() => {
     if (!stage?.output_ref) return;
-    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(stage.output_ref)}`)
+    const output = stage.output_ref;
+    let active = true;
+    authenticatedFetch(`/api/signed-url?path=${encodeURIComponent(output)}`)
       .then(r => r.json()).then(({ signedUrl }) => fetch(signedUrl))
       .then(r => r.json())
       .then((d: RewriteData) => {
+        if (!active) return;
         setData(d);
+        setLoadedOutput(output);
         const initial = [...(d.candidates || [])];
         if (d.manual_draft && initial[d.manual_draft.index] != null) initial[d.manual_draft.index] = d.manual_draft.text;
         setDrafts(initial);
         if (d.chosen != null) setSelected(d.chosen);
-        else if (d.candidates?.length === 1) setSelected(0);
+        else setSelected(d.candidates?.length === 1 ? 0 : null);
       })
-      .catch(() => setErr("改写稿加载失败，请刷新后重试"));
+      .catch(() => { if (active) setErr("改写稿加载失败，请刷新后重试"); });
+    return () => { active = false; };
   }, [stage?.output_ref, artifactRevision]);
 
   const confirm = async () => {
-    if (selected == null || !stage) return;
+    if (selected == null || !stage?.output_ref || stage.output_ref !== loadedOutput) return;
     const finalText = drafts[selected]?.trim();
     if (!finalText) {
       setErr("最终文案不能为空");
@@ -108,16 +116,22 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
     setBusy(true);
     setErr(null);
     try {
-      const titles = await videoTextRef.current?.saveForRewrite(isHistory);
-      if (!titles) { setErr('请检查上方“成片画面文字”的提示，处理后再确认改写稿。'); return; }
-      const { data: confirmed, error } = await supabase.rpc("confirm_rewrite", {
+      const titles = videoTextRef.current?.reviewValues(isHistory);
+      const cover = coverRef.current?.reviewValues();
+      if (!titles || !cover) throw new Error('请检查封面和画面文字后再确认。');
+      const { data: confirmed, error } = await supabase.rpc("confirm_rewrite_with_cover", {
         p_stage_id: stage.id,
         p_chosen_index: selected,
         p_final_text: finalText,
-        p_cover_title: isHistory ? titles.title : null,
-        p_cover_subtitle: isHistory ? titles.subtitle : null,
+        p_expected_rewrite_ref: stage.output_ref,
+        p_video_text: titles.text,
+        p_expected_video_text: titles.previous,
+        p_cover_path: cover.path,
+        p_expected_cover_path: cover.previous,
       });
       if (error || !confirmed) throw new Error(error?.message || "改写确认未生效，请刷新后重试");
+      if (titles.text) videoTextRef.current?.markConfirmed(titles.text);
+      coverRef.current?.markConfirmed(cover.path);
     } catch (error) {
       setErr(error instanceof Error ? error.message : '改写确认失败，请重试');
     } finally { setBusy(false); }
@@ -153,8 +167,8 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
     }, 0);
   };
   const actions = isReview ? (
-    <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null}>
-      {busy ? "提交中…" : "确认改写稿 →"}
+    <TextBtn variant="primary" onClick={confirm} disabled={busy || selected == null || !stage.output_ref || stage.output_ref !== loadedOutput}>
+      {busy ? "提交中…" : "确认改写稿与封面 →"}
     </TextBtn>
   ) : undefined;
 
@@ -162,8 +176,11 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
     <DetailShell title={isReadyScript ? '已导入成稿' : '改写'} stage={stage} onRerun={isReadyScript && isDone ? undefined : onRerun} actions={actions}>
       {stage?.params.input_mode === 'ready_script' && <p role="status">本任务直接使用已确认成稿，没有调用二创模型。配音和画面均以此稿为准。</p>}
       {stage?.params.input_mode !== 'ready_script' && task.narration_mode !== 'dual_dialogue' && <RewriteDomainSettings taskId={taskId} stage={stage} applied={data?.rewrite_skill} />}
-      <VideoTextSettings ref={videoTextRef} taskId={taskId} disabled={busy} historyCover={task.content_category === 'social_science'} legacyTitle={data?.cover_confirmed ? data.cover_title : undefined} legacySubtitle={data?.cover_confirmed ? data.cover_subtitle : undefined} />
-      <StockCoverSettings taskId={taskId} />
+      <VideoTextSettings ref={videoTextRef} taskId={taskId} disabled={busy} historyCover={task.content_category === 'social_science'} legacyTitle={data?.cover_confirmed ? data.cover_title : undefined} legacySubtitle={data?.cover_confirmed ? data.cover_subtitle : undefined}
+        suggestedTitle={data?.cover_suggestion?.title} suggestedSubtitle={data?.cover_suggestion?.subtitle} bookTitle={data?.book_title} />
+      <StockCoverSettings ref={coverRef} taskId={taskId} review={isReview} disabled={busy} />
+      {isReview && data?.cover_suggestion && (!data.cover_suggestion.title || !data.cover_suggestion.subtitle) && <p role="status">封面建议有未识别的项目，请根据稿件核对或补填。</p>}
+      {err && <p role="alert" style={{ fontSize: 12, color: "var(--status-failed)", marginTop: 8 }}>{err}</p>}
       {(isReview || isDone) && data && (
         <>
           <section className="rewrite-summary-grid" aria-label="改写稿摘要">
@@ -309,7 +326,6 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
           </div>
           </div>
 
-          {err && <p role="alert" style={{ fontSize: 12, color: "var(--status-failed)", marginTop: 8 }}>{err}</p>}
         </>
       )}
     </DetailShell>

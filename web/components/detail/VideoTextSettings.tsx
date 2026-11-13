@@ -5,14 +5,17 @@ import { supabase } from "@/lib/supabase";
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { resolveVideoText, validateVideoText, VideoText } from '@/lib/videoText';
 
-export type VideoTextSettingsHandle = {saveForRewrite:(requireHistoryCover:boolean)=>Promise<VideoText|null>};
+export type VideoTextSettingsHandle = {
+  reviewValues: (requireHistoryCover: boolean) => { text: VideoText | null; previous: VideoText | null };
+  markConfirmed: (text: VideoText) => void;
+};
 const fields = [
   { key: "title", label: "画面主标题", max: 32, hint: "建议6至12字，显示在图片上方" },
   { key: "subtitle", label: "画面副标题", max: 48, hint: "与图片上边缘留一行间距" },
   { key: "footnote", label: "右下脚注", max: 60, hint: "显示在图片下方右侧，留一行间距" },
 ] as const;
 
-export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:string;showRerender?:boolean;renderStatus?:string;disabled?:boolean;historyCover?:boolean;legacyTitle?:string;legacySubtitle?:string}>(function VideoTextSettings({ taskId, showRerender = false, renderStatus, disabled=false, historyCover=false,legacyTitle,legacySubtitle },ref) {
+export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:string;showRerender?:boolean;renderStatus?:string;disabled?:boolean;historyCover?:boolean;legacyTitle?:string;legacySubtitle?:string;suggestedTitle?:string;suggestedSubtitle?:string;bookTitle?:string}>(function VideoTextSettings({ taskId, showRerender = false, renderStatus, disabled=false, historyCover=false,legacyTitle,legacySubtitle,suggestedTitle,suggestedSubtitle,bookTitle },ref) {
   const [value, setValue] = useState<VideoText>({ title: "", subtitle: "", footnote: "读书分享", account_name: "" });
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -72,7 +75,18 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
           }
         }
         if (!active) return;
-        setValue(resolveVideoText(params,{cover_title:legacyTitle,cover_subtitle:legacySubtitle,...(rewrite.params || {}),...bookInfo}));
+        const defaults = resolveVideoText(params,{
+          book_title: suggestedTitle || bookTitle,
+          cover_title: legacyTitle,
+          cover_subtitle: legacySubtitle,
+          ...(rewrite.params || {}),
+          ...bookInfo,
+        });
+        setValue({
+          ...defaults,
+          title: String(params.main_title ?? (suggestedTitle || defaults.title)),
+          subtitle: String(params.subtitle ?? (suggestedSubtitle || defaults.subtitle)),
+        });
       }
       if (isScene) {
         const {data: records} = await supabase.from('artifacts').select('meta').eq('task_id',taskId).in('type',['rewrite','scene_visual_plan']).order('created_at',{ascending:false}).limit(8);
@@ -87,16 +101,28 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
       setReady(true);
     })().catch(() => { if (active) setError("画面文字读取失败，请刷新后重试"); });
     return () => { active = false; };
-  }, [taskId, reload,legacyTitle,legacySubtitle]);
+  }, [taskId, reload,legacyTitle,legacySubtitle,suggestedTitle,suggestedSubtitle,bookTitle]);
 
-  useImperativeHandle(ref,()=>({saveForRewrite:(required)=>save(false,required,true)}));
+  useImperativeHandle(ref, () => ({
+    reviewValues: required => {
+      if (!ready || busy) throw new Error('请等画面文字读取完成后再确认');
+      const text = validateVideoText(value, required, health, history);
+      const saveText = required || dirty.current || Boolean(health && (suggestedTitle || suggestedSubtitle));
+      return { text: saveText ? text : null, previous: JSON.parse(loadedText.current) };
+    },
+    markConfirmed: text => {
+      loadedText.current = JSON.stringify(text);
+      dirty.current = false;
+      setValue(text);
+      setMessage('画面文字已随改写稿确认');
+    },
+  }));
 
-  async function save(rerender = false, requireHistoryCover = false, skipUnchanged = false):Promise<VideoText|null> {
+  async function save(rerender = false):Promise<VideoText|null> {
     setBusy(true); setError(""); setMessage("");
     try {
       if (!ready) throw new Error('画面文字尚未读取完成，请稍后重试');
-      const text = validateVideoText(value,requireHistoryCover,health,history || requireHistoryCover);
-      if(skipUnchanged&&!dirty.current&&!requireHistoryCover)return text;
+      const text = validateVideoText(value,false,health,history);
       const { data: current, error: readError } = await supabase.from("stages").select("id,params,status,updated_at").eq("task_id", taskId).eq("kind", "render").single();
       if (readError || !current) throw new Error("读取成片设置失败，请重试");
       if (current.status === "processing") throw new Error("正在合成视频，请等本次合成完成后再保存");
@@ -121,22 +147,22 @@ export const VideoTextSettings = forwardRef<VideoTextSettingsHandle,{taskId:stri
   }
 
   return <section className="book-info-panel" aria-label="成片画面文字" style={{ margin: "16px 0", padding: 16 }}>
-    <h3>{scene ? '封面文字与全片脚注' : '成片画面文字'}</h3>
+    <h3>{scene ? '封面文字与全片脚注' : ref ? '封面与画面文字' : '成片画面文字'}</h3>
     <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>成片后仍可修改。改写、信息设置与成片页共用同一份设置；留空并保存可隐藏对应文字。保存设置不会直接改变已有视频，重新成片后生效。</p>
-    {ref && <p style={{fontSize:13,color:'var(--text-secondary)'}}>确认改写稿时会一并保存此处文字。{history?'历史社科封面的主标题和副标题必填，分别不超过24和36字符。':''}</p>}
+    {ref && <p style={{fontSize:13,color:'var(--text-secondary)'}}>确认改写稿时会一并保存此处文字。{history?'历史社科封面的主标题和副标题必填，分别不超过24和36字符。':health?'书名或作者未识别时可手动填写。':''}</p>}
     {scene && <p>主副标题仅在开头0.5秒封面显示；脚注从第一帧持续到最后。封面底图独立生成，发布时可下载静态封面。</p>}
     {history && <p>主题封面展示前 10 帧。主标题和副标题全程显示。</p>}
     {scene && options.length > 0 && <div className="external-actions">{options.map((item,index)=><button key={index} type="button" className="secondary-action" disabled={disabled||busy||!ready||renderStatus==='processing'} onClick={()=>{dirty.current=true;setValue(previous=>({...previous,...item}));setMessage('已选方案，请保存文字');}}>方案{index+1}：{item.title} / {item.subtitle}</button>)}</div>}
     {fields.map(field => history && field.key === 'subtitle' ? <label key={field.key} style={{display:'block',margin:'12px 0',fontSize:13}}>
-      画面副标题
+      {ref ? '封面副标题' : '画面副标题'}
       <textarea aria-label="画面副标题" rows={2} disabled={disabled||!ready||busy||renderStatus==='processing'}
         value={value.subtitle} maxLength={36} onChange={event=>{dirty.current=true;setValue(previous=>({...previous,subtitle:event.target.value}));setMessage('有未保存修改，请保存');}}
-        placeholder={'第一行 · 白色\n第二行 · 黄色'} style={{display:'block',width:'100%',boxSizing:'border-box',padding:'8px 10px',marginTop:6}}/>
+        placeholder={'第一行：人物介绍\n第二行：文案关键总结'} style={{display:'block',width:'100%',boxSizing:'border-box',padding:'8px 10px',marginTop:6}}/>
       <small>按回车分行，最多两行，均使用黑色描边。总长度不超过36字符（含换行）。</small>
     </label> : <label key={field.key} style={{ display: "block", margin: "12px 0", fontSize: 13 }}>
-      {health&&field.key==='footnote'?'居中脚注':scene ? field.key==='title'?'封面主标题':field.key==='subtitle'?'封面副标题':'全片脚注' : field.label}
+      {health&&field.key==='footnote'?'居中脚注':scene || ref && field.key!=='footnote' ? field.key==='title'?'封面主标题':field.key==='subtitle'?'封面副标题':'全片脚注' : field.label}
       {health&&field.key==='footnote'?<textarea aria-label="居中脚注" rows={3} disabled={disabled||!ready||busy||renderStatus==='processing'} value={value.footnote} maxLength={80} onChange={event=>{dirty.current=true;setValue(previous=>({...previous,footnote:event.target.value}));setMessage('有未保存修改，请保存');}} placeholder="图片下方居中，按回车分行" style={{display:'block',width:'100%',boxSizing:'border-box',padding:'8px 10px',marginTop:6}}/>:<input aria-label={field.label} disabled={disabled || !ready || busy || renderStatus === 'processing'} value={value[field.key]} maxLength={field.max} onChange={event => { dirty.current = true; setValue(previous => ({ ...previous, [field.key]: event.target.value })); setMessage("有未保存修改，请保存，或在确认改写稿时一并保存。"); }} placeholder={scene ? field.key==='footnote'?'图片由AI生成':'仅显示在0.5秒封面上' : field.hint} style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px",marginTop: 6 }} />}
-      <small style={{ color: "var(--text-secondary)" }}>{health&&field.key==='footnote'?'图片下方居中，留一行间距；回车换行，最多4行、共80字':scene ? field.key==='footnote'?'底部安全区域，全片持续显示':field.key==='title'?'封面中央，黄色字、红色描边':'封面主标题下方，白字、黑色描边' : field.hint}</small>
+      <small style={{ color: "var(--text-secondary)" }}>{health&&field.key==='footnote'?'图片下方居中，留一行间距；回车换行，最多4行、共80字':ref && health?'封面格式：'+(field.key==='title'?'《书名》':'作者名称（著）'):ref && history && field.key==='title'?'填写文案主要人物的名称':scene ? field.key==='footnote'?'底部安全区域，全片持续显示':field.key==='title'?'封面中央，黄色字、红色描边':'封面主标题下方，白字、黑色描边' : field.hint}</small>
     </label>)}
     <label style={{ display: "block", margin: "12px 0", fontSize: 13 }}>画面右下角账号标签
       <input aria-label="画面右下角账号标签" disabled={disabled || !ready || busy || renderStatus === 'processing'} value={value.account_name} maxLength={25} onChange={event => { dirty.current = true; setValue(previous => ({ ...previous, account_name: event.target.value })); setMessage('有未保存修改，请保存'); }} placeholder="@账号名称，留空则隐藏" style={{ display: 'block', width: '100%', boxSizing: 'border-box', padding: '8px 10px', marginTop: 6 }} />

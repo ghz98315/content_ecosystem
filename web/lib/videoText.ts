@@ -35,7 +35,8 @@ export function validateVideoText(value:VideoText,requireHistoryCover=false,heal
  }
  if(text.account_name.length>25||/[\r\n]/.test(text.account_name)||text.account_name.slice(1).includes('@'))throw new Error('账号名称请填写不超过24字的单行名称');
  if(requireHistoryCover){
-  if(!text.title||!text.subtitle)throw new Error('历史类请在上方“成片画面文字”填写主标题和副标题，再确认改写稿');
+  if(!text.title||!text.subtitle)throw new Error('历史类请在“封面与画面文字”填写主标题和副标题，再确认改写稿');
+  if(text.subtitle.split('\n').length!==2)throw new Error('历史社科副标题请分两行填写：人物介绍、文案关键总结');
   if(text.title.length>24||text.subtitle.length>36)throw new Error('历史类主标题不得超过24字，副标题不得超过36字');
  }
  return text;

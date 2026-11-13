@@ -6,18 +6,20 @@ const require = createRequire(import.meta.url);
 const originalFetch = globalThis.fetch;
 const moduleCache = new Map();
 let allowOwner = true, stageStatus = 'done', script = '人到了一定年纪，要学会关心家人，也给彼此空间。今天读《道德经》。';
-let saved = null, modelCalls = 0, writes = 0;
+let saved = null, modelCalls = 0, writes = 0, confirmedCover = null;
 const taskId = '11111111-1111-4111-8111-111111111111';
 const db = {
   auth: { getUser: async token => ({ data: { user: token === 'valid' ? { id: 'owner' } : null } }) },
   from(table) {
     let inserted;
+    let stageKind;
     const query = new Proxy({}, { get(_, method) {
       if (method === 'then') return resolve => resolve({ data: table === 'artifacts' ? (saved ? [saved] : []) : null });
       if (method === 'insert') return payload => { inserted = payload; return query; };
+      if (method === 'eq') return (key, value) => { if (key === 'kind') stageKind = value; return query; };
       if (method === 'maybeSingle') return async () => ({ data: allowOwner ? { id: taskId, title: '原标题 #家庭', source_tags: ['家庭'], content_category: 'health' } : null });
       if (method === 'single') return async () => {
-        if (table === 'stages') return { data: { status: stageStatus, params: { final_text: script } } };
+        if (table === 'stages') return { data: { status: stageStatus, params: stageKind === 'render' ? { video_text: confirmedCover } : { final_text: script } } };
         writes++; saved = { ...inserted, created_at: new Date().toISOString() }; return { data: saved };
       };
       return () => query;
@@ -44,6 +46,9 @@ assert.throws(() => validatePublication({ ...copy, replies: ['字'.repeat(51)] }
 assert.throws(() => validatePublication({ ...copy, replies: Array(6).fill('回复') }));
 assert.throws(() => validatePublication({ ...copy, tags: ['不合法 话题'] }));
 assert.match(publicationText(validatePublication(copy)), /回复建议1/);
+assert.doesNotThrow(() => validatePublication({ ...copy, publish_title: '字'.repeat(15) + '！' }));
+assert.throws(() => validatePublication({ ...copy, publish_titles: ['字'.repeat(16) + '！', ...copy.publish_titles.slice(1)] }));
+assert.throws(() => validatePublication({ ...copy, publish_title: '字'.repeat(16) + '！' }));
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.invalid';
 process.env.SUPABASE_SERVICE_KEY = 'unit-service';
 process.env.DEEPSEEK_API_KEY = 'unit-key';
@@ -55,6 +60,8 @@ try {
     const body = JSON.parse(options.body);
     assert.equal(url, 'https://api.deepseek.com/chat/completions');
     assert.equal(JSON.parse(body.messages[1].content).confirmed_script, script);
+    assert.equal(JSON.parse(body.messages[1].content).source_title, '原标题');
+    assert.deepEqual(JSON.parse(body.messages[1].content).confirmed_cover, confirmedCover);
     assert.match(body.messages[0].content, /100字以内/);
     return Response.json({ choices: [{ message: { content: JSON.stringify(copy) } }] });
   };
@@ -73,6 +80,13 @@ try {
   Object.defineProperty(get, 'nextUrl', { value: new URL(get.url) });
   const loaded = await (await route.GET(get)).json(); assert.equal(loaded.stale, true);
   assert.equal(writes, 1);
+  confirmedCover = { title: '路德维希·维特根斯坦', subtitle: '哲学家\n语言的边界就是世界的边界' };
+  const next = await (await route.POST(request({ action: 'generate' }))).json();
+  assert.deepEqual(next.copy.cover_options, []);
+  assert.equal(next.copy.cover_subtitle, confirmedCover.subtitle);
+  const nextSaved = await route.POST(request({ action: 'save', copy: next.copy, sourceHash: next.sourceHash, baseId: saved.id }));
+  assert.equal(nextSaved.status, 201);
+  assert.equal((await (await route.GET(get)).json()).record.meta.copy.cover_title, confirmedCover.title);
   const retention = fs.readFileSync('app/api/maintenance/media-retention/route.ts', 'utf8');
   assert.ok(!retention.match(/const MEDIA_TYPES = \[[^\]]*publication_copy/));
   console.log('PASS: publication lengths, owner authentication, confirmed script, draft-only generation, saved versions, stale detection and retention isolation');

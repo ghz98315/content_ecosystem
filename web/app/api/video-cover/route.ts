@@ -18,8 +18,8 @@ export async function POST(request: Request) {
     const stock = render?.params?.visual_mode === 'stock_video';
     const history = !stock && task.narration_mode !== 'dual_dialogue'
       && (render?.params?.content_line || task.content_category) === 'social_science';
-    if (!render || (!stock && !history) || render.status === 'processing') {
-      throw new Error('请在历史社科或素材拼接任务的成片前后设置封面');
+    if (!render || render.status === 'processing') {
+      throw new Error('请在成片开始前或结束后设置封面');
     }
     if (history) {
       const {data: image, error} = await admin.from('stages').select('status').eq('task_id',task.id).eq('kind','image').single();

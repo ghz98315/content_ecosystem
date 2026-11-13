@@ -66,6 +66,7 @@ assert.equal(validateVideoText(historyText,true).subtitle,'第一行\n第二行'
 assert.equal(validateVideoText(historyText,false,false,true).subtitle,'第一行\n第二行');
 assert.throws(()=>validateVideoText(historyText),/单行/);
 assert.throws(()=>validateVideoText({...historyText,subtitle:'一\n二\n三'},true),/最多两行/);
+assert.throws(()=>validateVideoText({...historyText,subtitle:'只有一行'},true),/分两行/);
 assert.equal(validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\r\n第二行'},false,true).footnote,'第一行\n第二行');
 assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'第一行\n第二行'}));
 assert.throws(()=>validateVideoText({title:'标题',subtitle:'副标题',footnote:'一\n二\n三\n四\n五'},false,true));

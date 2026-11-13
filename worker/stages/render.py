@@ -1109,6 +1109,11 @@ def run(stage: dict) -> tuple[str, str | None]:
             )
             if cover_index is not None:
                 print(f'  [cover] 历史社科主题封面采用第 {cover_index + 1} 个镜头', flush=True)
+        if not stock and not is_history:
+            from history_visuals import uploaded_cover as get_uploaded_cover
+            custom_cover = get_uploaded_cover(task_id, stage.get('params') or {})
+            if custom_cover:
+                cover_origin, selected_cover = 'uploaded', custom_cover
         cover_path = selected_cover or images[0]['path']
         cover_local = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path, '.png')
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")

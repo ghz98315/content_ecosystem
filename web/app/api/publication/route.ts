@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { PUBLICATION_PROMPT, validatePublication } from '@/lib/publication';
+import { PUBLICATION_PROMPT, validatePublication, withConfirmedCover } from '@/lib/publication';
 import { splitSourceDescription } from '@/lib/sourceMetadata';
 
 export const dynamic = 'force-dynamic';
@@ -54,12 +54,21 @@ async function latest(db: SupabaseClient, taskId: string) {
   return data?.[0] || null;
 }
 
+async function confirmedCover(db: SupabaseClient, taskId: string) {
+  const {data, error} = await db.from('stages').select('params').eq('task_id',taskId).eq('kind','render').single();
+  if (error) throw new RequestError('读取封面文字失败', 503);
+  const value = data?.params?.video_text;
+  if (typeof value?.title !== 'string' || typeof value?.subtitle !== 'string') return null;
+  return {title:value.title, subtitle:value.subtitle};
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { db, task } = await context(request, request.nextUrl.searchParams.get('taskId') || '');
-    const [record, script] = await Promise.all([latest(db, task.id), scriptContext(db, task.id)]);
+    const [stored, script, cover] = await Promise.all([latest(db, task.id), scriptContext(db, task.id), confirmedCover(db, task.id)]);
+    const record = stored?.meta?.copy ? { ...stored, meta:{...stored.meta, copy:withConfirmedCover(stored.meta.copy, cover)} } : stored;
     const source = splitSourceDescription(task.title);
-    return response({ record, ready: Boolean(script), sourceHash: script?.hash || null,
+    return response({ record, cover, ready: Boolean(script), sourceHash: script?.hash || null,
       stale: Boolean(record && (!script || record.meta.source_hash !== script.hash)),
       sourceTitle: source.title, sourceTags: task.source_tags?.length ? task.source_tags : source.tags });
   } catch (error) { return failure(error); }
@@ -70,7 +79,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { db, task } = await context(request, String(body.taskId || ''));
     if (!['generate', 'save'].includes(body.action)) throw new RequestError('不支持的操作');
-    const script = await scriptContext(db, task.id);
+    const [script, cover] = await Promise.all([scriptContext(db, task.id), confirmedCover(db, task.id)]);
     if (!script) throw new RequestError('请先完成并确认改写文案', 409);
     if (body.sourceHash && body.sourceHash !== script.hash) throw new RequestError('确认稿已变化，请刷新后根据最新文案生成', 409);
     if (body.action === 'generate') {
@@ -81,8 +90,8 @@ export async function POST(request: NextRequest) {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         signal: AbortSignal.timeout(45_000),
         body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.6, max_tokens: 2200, response_format: { type: 'json_object' }, messages: [
-          { role: 'system', content: PUBLICATION_PROMPT + (task.content_category==='scene' ? '\n本次为山河人文：围绕校园、风景、城市和旅行文化选题，三组封面角度采用视觉吸引、人文价值和问题悬念；若正文没有商品转化，purchase_comment 留空，不增加橱窗购书话术，replies 围绕地点、旅行体验和下一期选题。此场景专项规则覆盖通用购书要求。' : '') },
-          { role: 'user', content: JSON.stringify({ content_category: task.content_category, source_title: source.title, source_tags: task.source_tags || source.tags, confirmed_script: script.text }) },
+          { role: 'system', content: PUBLICATION_PROMPT + (task.content_category==='scene' ? '\n本次为山河人文：围绕校园、风景、城市和旅行文化选题，三组封面角度采用视觉吸引、人文价值和问题悬念；若正文没有商品转化，purchase_comment 留空，不增加橱窗购书话术，replies 围绕地点、旅行体验和下一期选题。此场景专项规则覆盖通用购书要求。' : '') + (cover ? '\n已有审核后的封面主副标题。cover_options 返回空数组，cover_title 和 cover_subtitle 直接沿用 confirmed_cover，不为封面另拟文案。' : '') },
+          { role: 'user', content: JSON.stringify({ content_category: task.content_category, source_title: source.title, source_tags: task.source_tags?.length ? task.source_tags : source.tags, confirmed_script: script.text, confirmed_cover: cover }) },
         ] }),
       });
       if (!result.ok) throw new RequestError(`文案服务暂不可用（${result.status}），请稍后重试`, 502);
@@ -90,16 +99,17 @@ export async function POST(request: NextRequest) {
       const raw = payload.choices?.[0]?.message?.content;
       if (typeof raw !== 'string') throw new RequestError('文案服务返回空内容，请重试', 502);
       let copy;
-      try { copy = validatePublication(JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')), task.content_category==='scene'); }
+      try { copy = validatePublication(JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')), task.content_category==='scene', cover); }
       catch (error) { throw new RequestError(`生成结果未满足要求：${error instanceof Error ? error.message : '格式错误'}。请重新生成`, 502); }
       // Recheck after the external request; an old draft must never masquerade as current.
-      const current = await scriptContext(db, task.id);
+      const [current, currentCover] = await Promise.all([scriptContext(db, task.id), confirmedCover(db, task.id)]);
       if (current?.hash !== script.hash) throw new RequestError('生成期间确认稿发生变化，请重新生成', 409);
-      return response({ copy, sourceHash: script.hash, model: 'deepseek-chat' });
+      if (JSON.stringify(currentCover) !== JSON.stringify(cover)) throw new RequestError('生成期间封面文字发生变化，请重新生成', 409);
+      return response({ copy, cover, sourceHash: script.hash, model: 'deepseek-chat' });
     }
     if (body.sourceHash !== script.hash) throw new RequestError('缺少有效的文案版本，请刷新后重试', 409);
     let copy;
-    try { copy = validatePublication(body.copy, task.content_category==='scene'); }
+    try { copy = validatePublication(body.copy, task.content_category==='scene', cover); }
     catch (error) { throw new RequestError(error instanceof Error ? error.message : '发布文案格式无效'); }
     const previous = await latest(db, task.id);
     if ((previous?.id || null) !== (body.baseId || null)) throw new RequestError('发布文案已有新版本，请刷新并保留需要的修改', 409);
