@@ -1,4 +1,12 @@
-export type MusicCategory = 'guoxue' | 'health';
+export const MUSIC_CATEGORIES = {
+  guoxue: '国学类',
+  health: '女性成长与健康',
+  social_science: '历史哲科类',
+} as const;
+export type MusicCategory = keyof typeof MUSIC_CATEGORIES;
+export function isMusicCategory(value: unknown): value is MusicCategory {
+  return typeof value === 'string' && Object.hasOwn(MUSIC_CATEGORIES, value);
+}
 
 export const DEFAULT_BGM_VOLUME = 0.10;
 

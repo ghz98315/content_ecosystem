@@ -100,6 +100,8 @@ class BookCoverInsertTests(unittest.TestCase):
         owner = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
         path = f'user-music/{owner}/health/bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb--5rWL6K-V.mp3'
         self.assertTrue(is_user_preset(path, owner))
+        self.assertTrue(is_user_preset(path.replace('/health/', '/social_science/'), owner))
+        self.assertFalse(is_user_preset(path.replace('/health/', '/unknown/'), owner))
         self.assertFalse(is_user_preset(path, 'other-owner'))
         self.assertFalse(is_user_preset(path.replace('/health/', '/health/../'), owner))
 

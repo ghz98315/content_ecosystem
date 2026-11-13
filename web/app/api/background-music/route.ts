@@ -2,6 +2,7 @@ import {createClient} from '@supabase/supabase-js';
 import {NextResponse} from 'next/server';
 import { assertStorageUploadSize } from '@/lib/uploadPolicyServer';
 import { userMusicPresetMatch } from '@/lib/userMusicPresets';
+import { isMusicCategory } from '@/lib/musicPresets';
 
 async function session(request: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
     const auth = await session(request);
     if (!auth) return NextResponse.json({error:'请先登录'},{status:401});
     const category = new URL(request.url).searchParams.get('category');
-    if (category !== 'guoxue' && category !== 'health') throw new Error('无效音乐类别');
+    if (!isMusicCategory(category)) throw new Error('无效音乐类别');
     const prefix = `user-music/${auth.owner}/${category}`;
     const presets = [];
     for (let offset = 0; ; offset += 100) {
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
     let path = `${task.id}/background-music/${crypto.randomUUID()}.${extension}`;
     if (body.preset === true) {
       const category = body.category;
-      if (category !== 'guoxue' && category !== 'health') throw new Error('无效音乐类别');
+      if (!isMusicCategory(category)) throw new Error('无效音乐类别');
       const label = Array.from(String(body.label || '').trim().replace(/[\u0000-\u001f\u007f]/g, '')).slice(0, 36).join('');
       if (!label) throw new Error('请填写预设音乐名称');
       path = `user-music/${owner}/${category}/${crypto.randomUUID()}--${Buffer.from(label).toString('base64url')}.${extension}`;
@@ -64,4 +65,23 @@ export async function POST(request: Request) {
     if(error || !data)throw new Error('准备音乐上传失败');
     return NextResponse.json({path,token:data.token},{headers:{'Cache-Control':'no-store'}});
   } catch(err) {return NextResponse.json({error:err instanceof Error?err.message:'音乐上传失败'},{status:400});}
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const auth = await session(request);
+    if (!auth) return NextResponse.json({error:'请先登录'},{status:401});
+    const {path} = await request.json();
+    if (typeof path !== 'string' || userMusicPresetMatch(path)?.[1] !== auth.owner) {
+      return NextResponse.json({error:'只能删除本账号的个人预设'},{status:403});
+    }
+    const { data, error } = await auth.admin.from('tasks').select('id').eq('bgm_path', path).limit(1);
+    if (error) throw new Error('无法检查预设是否正在使用');
+    if (data.length) return NextResponse.json({error:'仍有任务使用这首音乐，请先在对应任务更换配乐并保存。'},{status:409});
+    const { error: removeError } = await auth.admin.storage.from('artifacts').remove([path]);
+    if (removeError) throw new Error('预设删除失败，请稍后重试');
+    return NextResponse.json({deleted:true});
+  } catch (err) {
+    return NextResponse.json({error:err instanceof Error ? err.message : '预设删除失败'},{status:400});
+  }
 }

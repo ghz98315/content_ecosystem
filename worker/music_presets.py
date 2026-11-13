@@ -18,5 +18,5 @@ PRESET_PATHS = frozenset({
 
 def is_user_preset(path: str, owner: str) -> bool:
     return bool(owner and re.fullmatch(
-        rf'user-music/{re.escape(owner)}/(?:guoxue|health)/[0-9a-f-]{{36}}--[A-Za-z0-9_-]+\.(?:mp3|wav|m4a)', path,
+        rf'user-music/{re.escape(owner)}/(?:guoxue|health|social_science)/[0-9a-f-]{{36}}--[A-Za-z0-9_-]+\.(?:mp3|wav|m4a)', path,
     ))
