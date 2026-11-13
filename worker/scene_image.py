@@ -8,7 +8,7 @@ from PIL import Image
 import config
 import db
 import storage
-from scene_visuals import storyboard, plan_visuals, grid_prompt
+from scene_visuals import RULE_VERSION, storyboard, plan_visuals, grid_prompt
 
 
 def run(stage: dict):
@@ -17,7 +17,7 @@ def run(stage: dict):
     params = stage.get('params') or {}
     text = (_find_chosen_text(task_id, stage) or '').strip()
     shots = storyboard(text)
-    signature = hashlib.sha256((text + str(params.get('generation_id','')) + 'scene-1.0').encode()).hexdigest()[:20]
+    signature = hashlib.sha256((text + str(params.get('generation_id','')) + RULE_VERSION).encode()).hexdigest()[:20]
     root = f'{task_id}/scene/{signature}'
     existing = _existing_image_artifacts(task_id)
     plan_path = root + '/visual-plan.json'
@@ -35,7 +35,7 @@ def run(stage: dict):
         if len(rewrite.get('cover_options') or []) == 3:
             plan['cover_options'] = rewrite['cover_options']
         storage.upload_bytes(plan_path, json.dumps(plan,ensure_ascii=False).encode(), 'application/json')
-        storage.add_artifact(task_id,'image','scene_visual_plan',plan_path,meta={'source_sha256':plan['source_sha256'],'cover_options':plan['cover_options'],'rule_version':'scene-1.0'})
+        storage.add_artifact(task_id,'image','scene_visual_plan',plan_path,meta={'source_sha256':plan['source_sha256'],'cover_options':plan['cover_options'],'rule_version':RULE_VERSION})
     client, model = config.image_client(str(params.get('image_provider') or config.IMAGE_PROVIDER))
     cover_path = root + '/cover.png'
     if cover_path not in existing:

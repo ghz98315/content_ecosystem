@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
+import { usesDesignedCover } from '@/lib/productionTemplates';
 import { supabase } from '@/lib/supabase';
 
 type GeneratedCover = { path: string; sourceUrl?: string; referenceStatus?: string; prompt?: string };
@@ -18,7 +19,7 @@ export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
   review?: boolean;
   disabled?: boolean;
 }>(function StockCoverSettings({ taskId, rerender = false, generatedCover, imageProcessing = false, review = false, disabled = false }, ref) {
-  const [mode, setMode] = useState<'stock' | 'history' | 'scene' | 'default' | null>(null);
+  const [mode, setMode] = useState<'stock' | 'designed' | 'scene' | 'default' | null>(null);
   const [path, setPath] = useState('');
   const [savedPath, setSavedPath] = useState('');
   const [preview, setPreview] = useState('');
@@ -34,10 +35,8 @@ export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
       supabase.from('tasks').select('content_category,narration_mode').eq('id', taskId).single(),
     ]).then(([{ data }, { data: task }]) => {
         if (!active || !data) return;
-        const history = task?.narration_mode !== 'dual_dialogue'
-          && (data.params?.content_line || task?.content_category) === 'social_science';
       setMode(data.params?.production_template === 'scene-v1' ? 'scene'
-        : data.params?.visual_mode === 'stock_video' ? 'stock' : history ? 'history' : 'default');
+        : data.params?.visual_mode === 'stock_video' ? 'stock' : usesDesignedCover(data.params || {}, task) ? 'designed' : 'default');
       const uploaded = String(data.params?.video_cover_path || '');
       setPath(uploaded); setSavedPath(uploaded);
       });
@@ -55,7 +54,8 @@ export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
     },
   }));
 
-  const previewPath = path || (mode === 'history' ? generatedCover?.path : '');
+  const designed = mode === 'designed';
+  const previewPath = path || (designed ? generatedCover?.path : '');
   useEffect(() => {
     let active = true;
     setPreview('');
@@ -75,7 +75,7 @@ export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
         .eq('task_id', taskId).eq('kind', 'render').single();
       if (readError || !stage) throw new Error('成片设置读取失败');
       if (stage.status === 'processing') throw new Error('视频正在合成，请稍后再修改');
-      if (mode === 'history' && (file || reset)) {
+      if (designed && (file || reset)) {
         const { data: image, error: imageError } = await supabase.from('stages').select('status')
           .eq('task_id', taskId).eq('kind', 'image').single();
         if (imageError || !image) throw new Error('生图状态读取失败');
@@ -109,7 +109,7 @@ export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
           .eq('id', stage.id).eq('updated_at', stage.updated_at).neq('status', 'processing').select('id');
         if (saveError || !data?.length) throw new Error('任务设置已变化，请刷新后重试');
         setPath(next || ''); setSavedPath(next || '');
-        setMessage(next ? '任务封面已保存，下次成片时使用。' : mode === 'history'
+        setMessage(next ? '任务封面已保存，下次成片时使用。' : designed
           ? '已恢复自动封面。已有专用封面可直接复用，也可重跑生图生成新的首格封面。'
           : mode === 'stock' ? '已恢复按书名查找本地预设或从素材中选帧。' : '已恢复自动封面。');
       }
@@ -123,12 +123,11 @@ export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
     } finally { setBusy(false); }
   }
 
-  const history = mode === 'history';
-  const canEdit = Boolean(mode) && !disabled && !busy && !(history && imageProcessing);
+  const canEdit = Boolean(mode) && !disabled && !busy && !(designed && imageProcessing);
   return <section className="book-info-panel" aria-label="成片封面" style={{padding:16,margin:'16px 0'}}>
     <h3>成片封面（可选）</h3>
-    <p>{history ? '生图前可上传封面。采用自动封面时，系统根据整篇文案设计首批九宫格左上角。'
-      : mode === 'stock' ? '可上传本任务封面。未上传时按书名查找预设封面，没有匹配项时从已选素材中取帧。'
+    <p>{designed ? '生图前可上传封面。自动封面优先匹配本地人物预设，未匹配时按全文设计首批图片左上格。'
+      : mode === 'stock' ? '可上传本任务封面。未上传时优先匹配本地人物预设，其次按书名查找，最后从已选素材中取帧。'
       : '可以上传自己的封面，也可以沿用本栏目的自动封面。'}{review && ' 请在确认改写稿前预览。'}</p>
     <label>上传成片封面 <input type="file" accept=".png,.jpg,.jpeg,.webp" disabled={!canEdit} onChange={event => {
       const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
@@ -138,11 +137,11 @@ export const StockCoverSettings = forwardRef<StockCoverSettingsHandle, {
     {preview && <img src={preview} alt="任务封面预览" style={path
       ? {display:'block',width:'100%',maxWidth:240,aspectRatio:mode === 'scene' ? '9 / 16' : '4 / 3',objectFit:'cover',objectPosition:mode === 'scene' ? 'center' : 'center top'}
       : {display:'block',maxWidth:240,maxHeight:200,objectFit:'contain'}} />}
-    {history && !path && generatedCover?.referenceStatus !== 'safe_fallback' && generatedCover?.sourceUrl && /^https:\/\/commons\.wikimedia\.org\//.test(generatedCover.sourceUrl) &&
+    {designed && !path && generatedCover?.referenceStatus !== 'safe_fallback' && generatedCover?.sourceUrl && /^https:\/\/commons\.wikimedia\.org\//.test(generatedCover.sourceUrl) &&
       <p><a href={generatedCover.sourceUrl} target="_blank" rel="noreferrer">查看肖像参考来源</a>{generatedCover.referenceStatus === 'text_only' ? '（本通道按时代地域示意）' : ''}</p>}
-    {history && !path && generatedCover?.referenceStatus === 'illustrative' && <p>封面为时代与地域相符的示意形象。</p>}
-    {history && !path && generatedCover?.referenceStatus === 'safe_fallback' && <p>封面采用与主题相符的场景与器物。</p>}
-    {history && !path && generatedCover?.prompt && <details className="image-prompt-full">
+    {designed && !path && generatedCover?.referenceStatus === 'illustrative' && <p>封面为时代与地域相符的示意形象。</p>}
+    {designed && !path && generatedCover?.referenceStatus === 'safe_fallback' && <p>封面采用与主题相符的场景与器物。</p>}
+    {designed && !path && generatedCover?.prompt && <details className="image-prompt-full">
       <summary>封面提示词</summary><pre>{generatedCover.prompt}</pre>
     </details>}
     <div className="external-actions">

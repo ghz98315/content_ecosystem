@@ -1,6 +1,6 @@
 import {createClient} from '@supabase/supabase-js';
 import {NextResponse} from 'next/server';
-import {productionTemplate} from '@/lib/productionTemplates';
+import {productionTemplate, productionVisualSettings} from '@/lib/productionTemplates';
 export const dynamic='force-dynamic';
 
 export async function PATCH(request:Request){
@@ -27,11 +27,12 @@ export async function PATCH(request:Request){
     if(stages.some(s=>s.status==='processing')||by.image?.status!=='pending'||by.render?.status!=='pending')throw new Error('已有图片或成片开始生成，不能直接切换类别');
     if(!(by.rewrite?.status==='pending'||(by.rewrite?.status==='done'&&by.rewrite?.params?.input_mode==='ready_script')))throw new Error('改写已完成；请先处理稿件，再调整类别');
     for(const kind of ['rewrite','image','render'])originals[kind]={id:by[kind].id,params:by[kind].params||{}};
-    const line=template.category,version=line==='guoxue'?3:2;
+    const line=template.category;
+    const visual=productionVisualSettings(template, originals.image.params.visual_mode === 'stock_video');
     const rewrite={...originals.rewrite.params,content_line:line,rewrite_domain:line};
-    const image:Record<string,unknown>={...originals.image.params,content_line:line,production_template:template.id,template_version:version,visual_style:template.style,visual_preset_id:template.preset,image_aspect_ratio:template.aspect,grid_cells:template.gridCells};
+    const image:Record<string,unknown>={...originals.image.params,content_line:line,production_template:template.id,...visual,image_aspect_ratio:template.aspect,grid_cells:template.gridCells};
     if(template.gridResolution)image.grid_resolution=template.gridResolution;else delete image.grid_resolution;
-    const render={...originals.render.params,content_line:line,production_template:template.id,template_version:version,title_font:template.font,title_color:template.color,frame_mode:template.frameMode};
+    const render={...originals.render.params,content_line:line,production_template:template.id,template_version:visual.template_version,title_font:template.font,title_color:template.color,frame_mode:template.frameMode};
     for(const [kind,params] of Object.entries({rewrite,image,render})){
       const {data,error}=await admin.from('stages').update({params}).eq('id',originals[kind].id).eq('status',by[kind].status).select('id');
       if(error||data?.length!==1)throw new Error(error?.message||'阶段状态已变化，请刷新重试');

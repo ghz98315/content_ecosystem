@@ -415,14 +415,14 @@ class RenderAndNarrationRegressionTests(unittest.TestCase):
 
 class StoryboardTests(unittest.TestCase):
 
-    def test_history_storyboard_caps_at_three_per_minute_and_marks_cover(self):
+    def test_history_storyboard_uses_common_bounds_and_marks_cover(self):
         source = "。".join(["第%d段记录了人物、时间、地点和关键事件" % i for i in range(1, 13)])
         shots, analysis = _history_storyboard(source)
         self.assertGreaterEqual(len(shots), 1)
-        self.assertLessEqual(len(shots), analysis["max_images"])
+        self.assertEqual(source, ''.join(shot['text'] for shot in shots))
+        self.assertTrue(all(90 <= shot['effective_char_count'] <= 120 for shot in shots))
         self.assertEqual("cover", shots[0]["beat_role"])
         self.assertTrue(all(shot["beat_role"] == ("cover" if i == 0 else "key_event") for i, shot in enumerate(shots)))
-        self.assertTrue(analysis["checks"]["within_three_images_per_minute"])
         self.assertEqual(len(shots), analysis["selected_count"])
 
     def test_wechat_channels_routes_to_dedicated_acquisition(self):
@@ -742,16 +742,27 @@ class StoryboardTests(unittest.TestCase):
         )
         self.assertEqual("failed", report["status"])
         self.assertEqual("failed", next(check for check in report["checks"] if check["id"] == "audio")["status"])
-    def test_storyboard_targets_eight_seconds(self):
+    def test_storyboard_targets_90_to_120_effective_characters(self):
         source = "这是一个用于测试语义分镜的完整文案，它包含多个观点和自然停顿。" * 12
         shots = _split_storyboard(source)
         self.assertTrue(shots)
         self.assertEqual(len(source), sum(shot["char_count"] for shot in shots))
-        self.assertTrue(all(32 <= shot["char_count"] <= 42 for shot in shots))
+        self.assertTrue(all(90 <= shot["effective_char_count"] <= 120 for shot in shots))
         self.assertTrue(all(shot["motion"] == "zoom_in" for shot in shots))
         self.assertEqual(0, shots[0]["char_start"])
         self.assertEqual(shots[-1]["char_end"], sum(shot["char_count"] for shot in shots))
         self.assertTrue(all(a["char_end"] == b["char_start"] for a, b in zip(shots, shots[1:])))
+
+    def test_storyboard_short_tail_is_only_used_when_bounds_cannot_all_fit(self):
+        for length in (89, 90, 120, 121, 179, 180, 240, 241, 270):
+            with self.subTest(length=length):
+                source = '山' * length + '。\n'
+                shots = _split_storyboard(source)
+                sizes = [shot['effective_char_count'] for shot in shots]
+                self.assertEqual(source, ''.join(shot['text'] for shot in shots))
+                self.assertTrue(all(90 <= size <= 120 for size in sizes[:-1]))
+                self.assertLessEqual(sizes[-1], 120)
+                self.assertEqual(length < 90 * len(shots), sizes[-1] < 90)
 
     def test_tts_numbers_use_natural_reading_rules(self):
         self.assertIn("十天", normalize_tts_numbers("10天"))

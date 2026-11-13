@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { assertStorageUploadSize } from '@/lib/uploadPolicyServer';
+import { usesDesignedCover } from '@/lib/productionTemplates';
 
 export async function POST(request: Request) {
   try {
@@ -15,13 +16,10 @@ export async function POST(request: Request) {
     const {data:task} = await admin.from('tasks').select('id,content_category,narration_mode').eq('id', String(taskId || '')).eq('owner',user.id).maybeSingle();
     if (!task) return NextResponse.json({error:'无权设置该任务封面'},{status:403});
     const { data: render } = await admin.from('stages').select('params,status').eq('task_id',task.id).eq('kind','render').single();
-    const stock = render?.params?.visual_mode === 'stock_video';
-    const history = !stock && task.narration_mode !== 'dual_dialogue'
-      && (render?.params?.content_line || task.content_category) === 'social_science';
     if (!render || render.status === 'processing') {
       throw new Error('请在成片开始前或结束后设置封面');
     }
-    if (history) {
+    if (usesDesignedCover(render.params || {}, task)) {
       const {data: image, error} = await admin.from('stages').select('status').eq('task_id',task.id).eq('kind','image').single();
       if (error || !image || image.status === 'processing') throw new Error('请在生图前或本批图片生成后设置封面');
     }

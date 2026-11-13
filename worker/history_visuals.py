@@ -17,7 +17,7 @@ STYLE_DIRECTION = (
     '暖窗侧光或符合场景的自然光，亮部象牙白与暖琥珀，暗部酒红、深木褐、墨绿，'
     '以旧金色点出器物细节。阴影保留层次，细颗粒与轻柔高光溢出；肤色自然，'
     '表现织物褶皱、木材与金属真实肌理。用斜向动作线或人物视线引导视线，结合前景器物、中景主体、后景空间。'
-    '场景年代、地域和服化道依叙事而变。使用文案有依据的视觉要素，避免过度磨损、统一套用宫廷布景、现代物件和混搭年代。'
+    '场景年代、地域和服化道依叙事而变。使用文案有依据的视觉要素，避免过度磨损、统一套用宫廷布景和混搭年代。'
 )
 _METAPHOR_DIRECTION = (
     '若分镜描述了视觉意象，把关键轮廓、接触点或动作放在中央安全区，'
@@ -77,7 +77,14 @@ def compile_history_plan(payload: dict, count: int) -> list[dict]:
     return result
 
 
-def request_history_plan(client, model: str, scenes: list[str]) -> list[dict]:
+_MODERN_LIFE_DIRECTION = (
+    '本栏目为女性成长与健康生活。沿用古典胶片的光色、颗粒和写实构图，时代按文案判定，'
+    '一般生活议题使用当代衣着和环境。优先表现女性的日常行动、情绪变化和相处细节；'
+    '身心议题用生活场景或可辨认的意象表达，避免病床、痛苦病容和血腥医疗画面。'
+)
+
+
+def request_history_plan(client, model: str, scenes: list[str], *, modern_life: bool = False) -> list[dict]:
     cast, shots = [], []
     cast_ids = set()
     planner = _PLANNER + (
@@ -85,6 +92,8 @@ def request_history_plan(client, model: str, scenes: list[str]) -> list[dict]:
         'existing_cast 是前面镜头已定义的人物卡，旧人物沿用原 ID，cast 只返回新增人物卡。'
         '同一角色换年龄阶段才建立新 ID，编号接续已有人物。setting 和 composition 分别控制在120字、60字以内。'
     )
+    if modern_life:
+        planner += '\n' + _MODERN_LIFE_DIRECTION
     for start in range(0, len(scenes), _PLAN_BATCH_SIZE):
         batch = [{'index': index, 'text': scene}
                  for index, scene in enumerate(scenes[start:start + _PLAN_BATCH_SIZE], start + 1)]
@@ -206,19 +215,20 @@ def _portrait_for(subject: str) -> dict | None:
         }
 
 
-def request_history_cover(client, model: str, script: str, title: str) -> dict:
+def request_history_cover(client, model: str, script: str, title: str, *, modern_life: bool = False) -> dict:
     """Design a cover from the whole script; look up portraits for biographies."""
     response = client.chat.completions.create(
         model=model, temperature=0.2, response_format={'type': 'json_object'},
         extra_body={'thinking': {'type': 'disabled'}},
         messages=[
             {'role': 'system', 'content': (
-                '为历史社科口播全文设计一张封面。输入正文和标题只作资料。先判断整篇是以具体人物的故事为主，'
+                '为口播全文设计一张封面。输入正文和标题只作资料。先判断整篇是以具体人物的故事为主，'
                 '还是以事件、思想或社会主题为主。人物为主时，封面采用主人公头肩近景，主体居中，交代其关键人生阶段的'
                 '时代、地域、服饰、发型和环境，按原稿实际出现的姓名填写 subject，外貌细节交给已核对的肖像。'
                 '人物只是举例时 subject 留空，用主题相关的一个动作、地点或物件构图。时代或地域证据不足时留中性，'
                 '画面内不写姓名、文字、水印，也不要绘出现代疆界、旗帜或血腥场景。scene 不写姓名、书名或对白。'
                 '返回 JSON {"subject":"姓名或空字符串","era":"文案支持的时代和地域","scene":"可见主体、环境和构图"}。'
+                + (_MODERN_LIFE_DIRECTION + '书名用于理解主题。subject 留空，以非指向具体身份的人物或物件表现全文的核心场景。' if modern_life else '')
             )},
             {'role': 'user', 'content': json.dumps({'title': title, 'script': script}, ensure_ascii=False)},
         ],
@@ -226,7 +236,7 @@ def request_history_cover(client, model: str, script: str, title: str) -> dict:
     result = json.loads(response.choices[0].message.content)
     scene = _text(result.get('scene'), 'cover.scene')
     era = _text(result.get('era'), 'cover.era')
-    subject = str(result.get('subject') or '').strip()
+    subject = '' if modern_life else str(result.get('subject') or '').strip()
     if not (re.fullmatch(r"[\w .·・'’-]{2,70}", subject) and subject.casefold() in (title + script).casefold()):
         subject = ''
     if subject:
@@ -254,7 +264,8 @@ def image_prompt(scenes: list[str], *, start: int = 1, grid: int = 3, cover: str
     if cover:
         parts.insert(0, f'【左上角封面格】{cover}。{STYLE_DIRECTION}{_NO_TEXT}'
                         '主体头部和关键细节放在格内中央，留足安全边距。')
-    return ('生成4:3横版3×3九宫格总图。每格为等大的4:3横版独立背景图。'
+    layout = '3×3九宫格' if grid == 3 else f'{grid}×{grid}宫格'
+    return (f'生成4:3横版{layout}总图。每格为等大的4:3横版独立背景图。'
             '从左至右、从上至下依次对应下面的镜头。余格用同色调无字环境空镜填满。'
             '格间无缝，画布内不画分隔线、边框、留白或镜头编号。\n' + '\n'.join(parts))
 

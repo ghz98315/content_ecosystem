@@ -11,10 +11,12 @@ class RepostImageTests(unittest.TestCase):
     def setUp(self):
         self.stage = {'task_id': 'new', 'params': {'image_aspect_ratio': '4:3'}}
         self.context = {'rewrite_mode': 'repost_dedup', 'source_task_id': 'first'}
-        self.text = '先看看山上的风景。再说说海边的步道。'
+        hill = '先看看山上的风景。' * 13
+        sea = '再说说海边的步道。' * 13
+        self.text = hill + sea
         self.entries = [
-            {'path': 'first/sea.png', 'sentence': '再说说海边的步道。', 'char_count': 9},
-            {'path': 'first/hill.png', 'sentence': '先看看山上的风景。', 'char_count': 9},
+            {'path': 'first/sea.png', 'sentence': sea, 'char_count': len(sea)},
+            {'path': 'first/hill.png', 'sentence': hill, 'char_count': len(hill)},
         ]
         self.client = MagicMock()
         self.client.table.return_value.select.return_value.in_.return_value.execute.return_value.data = [

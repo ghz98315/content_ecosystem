@@ -149,13 +149,20 @@ def run(stage: dict):
             temp=Path(temp)
             rewrite=r._load_json_artifact(task_id,'rewrite') or {}
             cover_origin, cover_path = ('generated', images[0].get('cover_path'))
+            script = str(subs.get('text') or rewrite.get('final_text') or '')
             if stock:
-                cover_origin, cover_path = r._select_stock_cover(task_id, params, str(rewrite.get('book_title') or ''), images)
+                cover_origin, cover_path = r._select_stock_cover(task_id, params, str(rewrite.get('book_title') or ''), images,
+                                                                 script=script, title=title)
             if not stock:
                 from history_visuals import uploaded_cover
+                from local_materials import preset_video_cover
                 custom_cover = uploaded_cover(task_id, params)
                 if custom_cover:
                     cover_origin, cover_path = 'uploaded', custom_cover
+                else:
+                    preset = preset_video_cover(script=script, title=title, task_id=task_id)
+                    if preset:
+                        cover_origin, cover_path = 'local_preset', str(preset)
             cover = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path or images[0]['path'], '.png')
             try:
                 make_cover(cover,str(temp/'cover.png'),title,subtitle)

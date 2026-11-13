@@ -231,6 +231,52 @@ class HistoryWorkflowTests(unittest.TestCase):
         self.assertIn('十九世纪末法国', plan['prompt'])
         self.assertNotIn('示例人物', plan['prompt'])
 
+    def test_womens_growth_uses_full_script_without_portrait_lookup(self):
+        client = MagicMock()
+        create = client.chat.completions.create
+        create.return_value.choices[0].message.content = json.dumps({
+            'subject': '示例读本', 'era': '当代', 'scene': '两位女性在窗边聊天',
+        })
+        script = '她从学会拒绝开始。最后找回了自己的时间。'
+        with patch('history_visuals._portrait_for') as lookup:
+            plan = request_history_cover(client, 'model', script, '《示例读本》', modern_life=True)
+        lookup.assert_not_called()
+        self.assertEqual(script, json.loads(create.call_args.kwargs['messages'][1]['content'])['script'])
+        self.assertIn('当代衣着', create.call_args.kwargs['messages'][0]['content'])
+        prompt = image_prompt(['当代窗边的生活细节'], cover=plan['prompt'])
+        self.assertIn('【左上角封面格】当代；两位女性在窗边聊天', prompt)
+        self.assertIn('胶片老照片风格', prompt)
+
+    def test_womens_growth_image_stage_saves_cover_separately(self):
+        raw = io.BytesIO()
+        Image.new('RGB', (1200, 900), '#bc885f').save(raw, 'PNG')
+        stage = {'id': 'stage', 'task_id': 'task', 'params': {
+            'production_template': 'health-v1', 'template_version': 3, 'content_line': 'health',
+            'visual_style': 'history_period_film', 'image_aspect_ratio': '4:3', 'image_provider': 'apimart',
+        }}
+        script = '她从学会拒绝开始，重新给自己留出一点时间。'
+        plan = [{'index': 1, 'era': '当代', 'scene': '一位女子在窗边读书'}]
+        cover = {'prompt': '两位女性在窗边聊天', 'era': '当代', 'reference_status': 'not_needed'}
+        with patch.object(image, 'validate_task_template'), \
+             patch.object(image, '_find_chosen_text', return_value=script), \
+             patch.object(image.config, 'image_client', return_value=(MagicMock(), 'test-model')), \
+             patch.object(image.db, 'get_task_prompt_context', return_value={'content_category': 'health'}), \
+             patch.object(image, '_history_render_params', return_value={}), \
+             patch.object(image, '_load_history_visual_plan', return_value=(plan, 'visual-signature')) as body_plan, \
+             patch.object(image, '_load_history_cover_plan', return_value=cover) as cover_plan, \
+             patch.object(image, '_existing_image_artifacts', return_value={}), \
+             patch.object(image, '_generate_grid_bytes', return_value=raw.getvalue()) as generate, \
+             patch.object(image.storage, 'upload_bytes') as upload, patch.object(image.storage, 'add_artifact'):
+            self.assertEqual('done', image.run(stage)[0])
+        self.assertTrue(body_plan.call_args.kwargs['modern_life'])
+        cover_plan.assert_called_once_with('task', script, '', {}, modern_life=True)
+        self.assertIn('【左上角封面格】两位女性在窗边聊天', generate.call_args.args[2])
+        self.assertIn('【1】一位女子在窗边读书', generate.call_args.args[2])
+        index = json.loads(next(call.args[1] for call in upload.call_args_list if call.args[0].endswith('images_index.json')))
+        self.assertEqual(1, len(index))
+        self.assertEqual(script, index[0]['sentence'])
+        self.assertNotEqual(index[0]['cover_path'], index[0]['path'])
+
     def test_history_render_prioritizes_uploaded_then_generated_cover_and_keeps_legacy(self):
         entries = [{'path': 'body.png', 'cover_path': 'generated.png'}]
         uploaded = 'task/video-cover/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png'

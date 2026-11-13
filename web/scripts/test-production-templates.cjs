@@ -2,13 +2,13 @@ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),asse
 const source=fs.readFileSync(path.join(__dirname,'../lib/productionTemplates.ts'),'utf8');
 const exports_={};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,{exports:exports_,require:id=>require(path.join(__dirname,'../lib',id))});
 
-async function configured(templateId){
+async function configured(templateId, extra={}){
  const updates=[];
  const client={from:table=>({
    select:()=>({in:()=>({eq:async()=>({data:[{id:'rewrite-one',task_id:'one',params:{narration_mode:'single'}}]})})}),
    update:payload=>{updates.push({table,payload});const q={in:()=>q,eq:()=>q,select:async()=>({data:[{id:'one'}]})};return q;}
  })};
- await exports_.configureProductionTasks(client,['one'],templateId,{visual_style:'history_ink_scroll',image_aspect_ratio:'9:16'});
+ await exports_.configureProductionTasks(client,['one'],templateId,{visual_style:'history_ink_scroll',image_aspect_ratio:'9:16',...extra});
  return updates;
 }
 
@@ -20,6 +20,7 @@ async function configured(templateId){
  assert.equal(guoxue.frameMode,'landscape_blur');assert.equal(guoxue.color,'#BA413B');
  const guoxueUpdates=await configured('guoxue-v1');
  const healthUpdates=await configured('health-v1');
+ const healthStockUpdates=await configured('health-v1',{visual_mode:'stock_video'});
  const rewrite=updates=>updates.find(item=>item.table==='stages'&&item.payload.params?.rewrite_domain).payload.params;
  const image=updates=>updates.find(item=>item.payload.params?.visual_style).payload.params;
  const render=updates=>updates.find(item=>item.payload.params?.frame_mode).payload.params;
@@ -32,9 +33,13 @@ async function configured(templateId){
  assert.equal(render(guoxueUpdates).frame_mode,'landscape_blur');
  assert.equal(task(guoxueUpdates).content_category,'guoxue');
  assert.equal(rewrite(healthUpdates).rewrite_domain,'health');
- assert.equal(image(healthUpdates).visual_style,'warm_editorial');
- assert.equal(image(healthUpdates).image_aspect_ratio,'9:16');
- assert.equal(render(healthUpdates).frame_mode,'portrait');
+ assert.equal(image(healthUpdates).visual_style,exports_.productionTemplate('history-v1').style);
+ assert.equal(image(healthUpdates).image_aspect_ratio,'4:3');
+ assert.equal(render(healthUpdates).frame_mode,'landscape_blur');
+ assert.equal(render(healthUpdates).template_version,3);
+ assert.equal(exports_.usesDesignedCover(render(healthUpdates)),true);
+ assert.equal(image(healthStockUpdates).visual_style,'warm_editorial');
+ assert.equal(exports_.usesDesignedCover(render(healthStockUpdates)),false);
  assert.equal(task(healthUpdates).content_category,'health');
  assert.throws(()=>exports_.productionTemplate('wrong'));
  console.log('Production lines: guoxue and health remain independently configured');

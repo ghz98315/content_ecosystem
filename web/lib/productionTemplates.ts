@@ -13,14 +13,28 @@ export function productionTemplate(id: string) {
 /** Compatibility with installations whose legacy tasks category CHECK predates scene-v1.
  * Scene routing uses the independent, validated content_line stage snapshots. */
 export function databaseCategory(id: string) { const template=productionTemplate(id); return template.databaseCategory || template.category; }
+export function usesDesignedCover(params: {visual_mode?:string; content_line?:string; production_template?:string; template_version?:number}, task?: {content_category?:string; narration_mode?:string} | null) {
+  if (params.visual_mode === 'stock_video' || task?.narration_mode === 'dual_dialogue') return false;
+  return (params.content_line || task?.content_category) === 'social_science'
+    || (params.production_template === 'health-v1' && params.template_version === 3);
+}
+export function productionVisualSettings(template: TemplateDefinition, stock: boolean) {
+  const healthStock = template.category === 'health' && stock;
+  return {
+    template_version: template.category === 'guoxue' || (template.category === 'health' && !stock) ? 3
+      : ['health','social_science'].includes(template.category) ? 2 : 1,
+    visual_style: healthStock ? 'warm_editorial' : template.style,
+    visual_preset_id: healthStock ? 'health-warm-editorial' : template.preset,
+  };
+}
 export async function configureProductionTasks(client: any, taskIds: string[], templateId: string, image: Record<string, unknown> = {}) {
   const template = productionTemplate(templateId);
-  const version = template.category === 'guoxue' ? 3 : ['health','social_science'].includes(template.category) ? 2 : 1;
   const localStock = image.visual_mode === 'local_stock_video' || image.stock_source === 'local_library';
   if (localStock && !['guoxue','health'].includes(template.category)) throw new Error('本地素材库目前仅支持国学和健康类');
   const stock = image.visual_mode === 'stock_video' || localStock;
-  const imageParams = { ...image, visual_mode:stock?'stock_video':'ai_images', ...(localStock?{stock_source:'local_library'}:{}), ...(stock ? {stock_visual_policy:template.category === 'health' ? healthStockVisualPolicy : stockVisualPolicy} : {}), production_template: template.id, template_version: version, content_line: template.category, visual_style: template.style, visual_preset_id: template.preset, image_aspect_ratio: template.aspect, ...(template.gridResolution ? { grid_resolution: template.gridResolution } : {}) };
-  const renderParams = { production_template: template.id, template_version: version, content_line: template.category, title_font: template.font, title_color: template.color, frame_mode: template.frameMode, visual_mode: stock ? 'stock_video' : 'ai_images', ...(localStock?{stock_source:'local_library'}:{}), ...(template.category === 'scene' ? {footnote:stock?'':'图片由AI生成', cover_duration:0.5} : {}) };
+  const visualSettings = productionVisualSettings(template, stock);
+  const imageParams = { ...image, visual_mode:stock?'stock_video':'ai_images', ...(localStock?{stock_source:'local_library'}:{}), ...(stock ? {stock_visual_policy:template.category === 'health' ? healthStockVisualPolicy : stockVisualPolicy} : {}), production_template: template.id, ...visualSettings, content_line: template.category, image_aspect_ratio: template.aspect, ...(template.gridResolution ? { grid_resolution: template.gridResolution } : {}) };
+  const renderParams = { production_template: template.id, template_version: visualSettings.template_version, content_line: template.category, title_font: template.font, title_color: template.color, frame_mode: template.frameMode, visual_mode: stock ? 'stock_video' : 'ai_images', ...(localStock?{stock_source:'local_library'}:{}), ...(template.category === 'scene' ? {footnote:stock?'':'图片由AI生成', cover_duration:0.5} : {}) };
   const { data: rewriteStages, error: rewriteError } = await client.from('stages').select('id,task_id,params').in('task_id', taskIds).eq('kind', 'rewrite');
   if (rewriteError || rewriteStages?.length !== taskIds.length) throw new Error(rewriteError?.message || '文案规则快照不完整，请重试');
   for (const stage of rewriteStages) {

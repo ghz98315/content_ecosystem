@@ -8,42 +8,21 @@ from storage3.exceptions import StorageApiError
 
 import db
 import storage
-from scene_visuals import count as scene_count
+from storyboard import VERSION, effective_count, split_shots
 
 
-def _resegment(text: str, entries: list[dict], scene: bool) -> list[dict]:
-    # Keep the original pacing proportions, snapping to nearby sentence breaks.
-    count = scene_count if scene else lambda value: len(re.sub(r'\s+', '', value))
-    weights = [max(1, int(entry.get('char_count') or 1)) for entry in entries]
-    remaining = sum(weights)
-    start = cursor = 0
+def _resegment(text: str, scene: bool) -> list[dict]:
+    count = effective_count if scene else lambda value: sum(not char.isspace() for char in value)
+    cursor = 0
     result = []
-    for index, weight in enumerate(weights):
-        left = len(entries) - index - 1
-        if not left:
-            end = len(text)
-        else:
-            goal = start + round((len(text) - start) * weight / remaining)
-            low = start + 2
-            high = len(text) - 2 * left
-            if high < low:
-                return []
-            end = min(high, max(low, goal))
-            breaks = [i for i in range(max(low, end - 8), min(high, end + 8) + 1)
-                      if text[i - 1] in '。！？；，\n!?']
-            if breaks:
-                end = min(breaks, key=lambda i: abs(i - goal))
-        sentence = text[start:end]
+    for index, sentence in enumerate(split_shots(text)):
         length = count(sentence)
-        if length < 2 and len(entries) > 1:
-            return []
         result.append({'index': index, 'sentence': sentence, 'text': sentence,
                        'char_start': cursor, 'char_end': cursor + length, 'char_count': length,
+                       'effective_char_count': effective_count(sentence),
                        'estimated_duration': max(1.0, length / 3.5),
                        'motion': 'zoom_in' if index % 2 == 0 else 'zoom_out'})
         cursor += length
-        start = end
-        remaining -= weight
     return result
 
 
@@ -68,8 +47,11 @@ def _match_images(shots: list[dict], entries: list[dict]) -> list[dict]:
         if target not in assigned and source not in used:
             assigned[target] = source
             used.add(source)
-    available = iter(i for i in range(len(entries)) if i not in used)
-    return [entries[assigned[i] if i in assigned else next(available)] for i in range(len(shots))]
+    available = [i for i in range(len(entries)) if i not in used] or list(range(len(entries)))
+    unmatched = [i for i in range(len(shots)) if i not in assigned]
+    for index, target in enumerate(unmatched):
+        assigned[target] = available[index * len(available) // len(unmatched)]
+    return [entries[assigned[i]] for i in range(len(shots))]
 
 
 def reuse_first_publication(stage: dict, text: str, context: dict) -> str | None:
@@ -104,8 +86,7 @@ def reuse_first_publication(stage: dict, text: str, context: dict) -> str | None
     expected_ratio = params.get('image_aspect_ratio')
     if expected_ratio and any(e.get('cell_ratio') and e['cell_ratio'] != expected_ratio for e in entries):
         return None
-    text = text if scene else re.sub(r'\s+', '', text)
-    shots = _resegment(text, entries, scene)
+    shots = _resegment(text, scene)
     if not shots:
         return None
     sources = _match_images(shots, entries)
@@ -116,7 +97,7 @@ def reuse_first_publication(stage: dict, text: str, context: dict) -> str | None
            or not re.search(r'\.(?:png|jpe?g|webp)$', path, re.I) for path in paths):
         return None
     bucket = client.storage.from_('artifacts')
-    signature = hashlib.sha256(json.dumps([text, paths], ensure_ascii=False).encode()).hexdigest()[:20]
+    signature = hashlib.sha256(json.dumps([VERSION, text, paths], ensure_ascii=False).encode()).hexdigest()[:20]
     root = f'{task_id}/repost-images/{signature}'
     destinations = {path: f"{root}/{i:03d}.{path.rsplit('.', 1)[1].lower()}" for i, path in enumerate(paths)}
     # Copy on the server so the first task can expire without breaking the new task.

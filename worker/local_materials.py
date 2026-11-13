@@ -27,6 +27,7 @@ import local_material_history
 from narration import clean_tts_text, visible_len
 from stock_processing import motion_probe, settings
 from stock_timing import timed_blocks
+from storyboard import split_shots
 
 DEFAULT_ROOT = r"D:\Obsidian\99_剪映素材库\剪映公用素材库"
 FOLDERS = {
@@ -130,12 +131,50 @@ def _matching_cover(folders: list[Path], book_name: str) -> Path | None:
     return min(candidates)[1] if candidates else None
 
 
-def preset_video_cover(book_name: str) -> Path | None:
-    if not book_name:
+def preset_video_cover(book_name: str = '', *, script: str = '', title: str = '', task_id: str = '') -> Path | None:
+    """Select an unambiguous protagonist's cover, with book lookup as a fallback."""
+    try:
+        root = library_root()
+    except (OSError, ValueError):
         return None
-    root = library_root()
     folder = root / VIDEO_COVER_FOLDER
-    return _matching_cover([folder], book_name) if folder.resolve().is_relative_to(root) else None
+    resolved = folder.resolve()
+    if not resolved.is_relative_to(root) or not folder.is_dir():
+        return None
+    if script:
+        names: dict[str, list[Path]] = {}
+        # Remove book titles before identity matching. An author's name appearing
+        # only as a citation is not enough to choose their portrait.
+        body = _book_key(re.sub(r'《[^》]*》', '', script))
+        heading = _book_key(re.sub(r'《[^》]*》', '', title))
+        opening = body[:180]
+        for path in folder.rglob('*'):
+            if not path.is_file() or path.suffix.lower() not in BOOK_COVER_EXTENSIONS:
+                continue
+            actual = path.resolve()
+            if not actual.is_relative_to(resolved):
+                continue
+            name = re.sub(r'[\s_-]*[0-9０-９]+$', '', path.stem)
+            key = _book_key(name)
+            if len(key) < 2 or key not in body:
+                continue
+            # Reject a bare substring when a known longer name explains the mention.
+            try:
+                with Image.open(actual) as picture:
+                    picture.verify()
+            except (OSError, ValueError, Image.DecompressionBombError):
+                continue
+            names.setdefault(key, []).append(actual)
+        names = {key: paths for key, paths in names.items()
+                 if not any(key != other and key in other and key not in body.replace(other, '') for other in names)}
+        titled = [key for key in names if key == heading]
+        featured = [key for key in names if key in opening and body.count(key) >= 2]
+        matches = titled or featured
+        if len(matches) == 1:
+            variants = sorted(set(names[matches[0]]))
+            seed = hashlib.sha256(f'{task_id}:{matches[0]}'.encode()).digest()
+            return variants[int.from_bytes(seed[:8], 'big') % len(variants)]
+    return _matching_cover([folder], book_name) if book_name else None
 
 
 def local_book_cover(book_name: str) -> dict | None:
@@ -482,25 +521,6 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
     from stages import render
 
     duration = float(subtitles["duration"])
-    target = 13 + int(_seed_value(selection_seed, 'shot-length') * 9)
-    parts = timed_blocks(text, subtitles, target=target, minimum=7, maximum=target + 5)
-    # A tiny trailing clip feels like a glitch. Attach it to its predecessor.
-    if len(parts) > 1:
-        prefix = sum(visible_len(part) for part in parts[:-1])
-        if duration - render._cue_time_at_char(prefix, subtitles["segments"], duration) < 4:
-            parts[-2] += parts[-1]
-            parts.pop()
-    cursor = 0
-    sketches = []
-    for part in parts:
-        size = visible_len(part)
-        sketches.append({"index": len(sketches), "sentence": part, "char_start": cursor,
-                         "char_end": cursor + size, "char_count": size, "path": "pending"})
-        cursor += size
-    timeline = render._build_timeline(sketches, subtitles["segments"], duration)
-    for sketch, timing in zip(sketches, timeline):
-        sketch.update(start=timing["start"], end=timing["end"], duration=timing["duration"])
-
     assets = scan(category) if assets is None else assets
     if require_native:
         assets = [asset for asset in assets if meets_native_resolution(asset, aspect, output_width)]
@@ -509,6 +529,27 @@ def plan(text: str, subtitles: dict, category: str, *, aspect: str = "1:1",
                 f"本地素材在裁成{aspect}后均不足{output_width}像素宽，已暂停选片以避免模糊；"
                 "请补充更清晰的视频素材"
             )
+    max_clip = max(((asset['duration'] - .25) / .3 for asset in assets), default=0)
+    sketches = []
+    cursor = 0
+    for part in split_shots(text):
+        end = cursor + visible_len(part)
+        cues = subtitles['segments']
+        shot_duration = render._cue_time_at_char(end, cues, duration) - render._cue_time_at_char(cursor, cues, duration)
+        if max_clip >= 3 and shot_duration > max_clip:
+            # Keep the script shot, but use multiple short excerpts to cover it.
+            excerpts = timed_blocks(part, subtitles, target=max_clip * .85, minimum=max_clip * .65,
+                                    maximum=max_clip * .9, char_offset=cursor)
+        else:
+            excerpts = [part]
+        for excerpt in excerpts:
+            size = visible_len(excerpt)
+            sketches.append({"index": len(sketches), "sentence": excerpt, "char_start": cursor,
+                             "char_end": cursor + size, "char_count": size, "path": "pending"})
+            cursor += size
+    timeline = render._build_timeline(sketches, subtitles["segments"], duration)
+    for sketch, timing in zip(sketches, timeline):
+        sketch.update(start=timing["start"], end=timing["end"], duration=timing["duration"])
     recent_uses = Counter()
     recent_positions = Counter()
     recent_pairs = Counter()

@@ -2,48 +2,22 @@
 from __future__ import annotations
 import hashlib
 import json
-import re
 from pathlib import Path
+
+from storyboard import MAX_CHARS, MIN_CHARS, VERSION, effective_count as count, split_shots
 
 STYLE_ID = 'scene_documentary'
 RULE_ROOT = Path(__file__).resolve().parents[1] / 'skills/scene-video-pipeline/references'
 TYPES = {'campus', 'nature', 'heritage', 'city', 'neighborhood', 'transition'}
 
 
-def count(text: str) -> int:
-    return sum(char.isalnum() for char in text)
+RULE_VERSION = f'scene-1.1-{VERSION}'
 
 
 def storyboard(text: str) -> list[dict]:
-    """Preserve every original character, including whitespace and punctuation."""
-    if not text.strip():
+    parts = split_shots(text)
+    if not parts:
         raise ValueError('场景文案为空')
-    parts = []
-    remaining = text
-    while remaining:
-        if count(remaining) <= 80:
-            parts.append(remaining)
-            break
-        candidates = []
-        for match in re.finditer(r'[。！？!?；;，,\n]+', remaining):
-            end = match.end()
-            size = count(remaining[:end])
-            if size > 80:
-                break
-            if size >= 50:
-                # Prefer sentence/paragraph boundaries, then proximity to 65.
-                penalty = 0 if re.search(r'[。！？!?\n]', match.group()) else 20
-                candidates.append((abs(size - 65) + penalty, end))
-        if candidates:
-            cut = min(candidates)[1]
-        else:
-            cut = next(i + 1 for i in range(len(remaining)) if count(remaining[:i+1]) >= 80)
-            # A complete short sentence is better than bisecting a location.
-            short = [m.end() for m in re.finditer(r'[。！？!?\n]+', remaining[:cut]) if count(remaining[:m.end()]) >= 20]
-            if short:
-                cut = short[-1]
-        parts.append(remaining[:cut])
-        remaining = remaining[cut:]
     shots = []
     cursor = 0
     for index, part in enumerate(parts):
@@ -51,7 +25,7 @@ def storyboard(text: str) -> list[dict]:
         shots.append({'index':index, 'text':part, 'sentence':part, 'char_count':size,
                       'char_start':cursor, 'char_end':cursor+size,
                       'motion':'zoom_in' if index % 2 == 0 else 'zoom_out',
-                      'length_exception':None if 50 <= size <= 80 else '保持结尾或完整语义，不删改原文'})
+                      'length_exception':None if MIN_CHARS <= size <= MAX_CHARS else '正文或末镜不足 90 有效字，保留原文'})
         cursor += size
     if ''.join(s['text'] for s in shots) != text:
         raise ValueError('场景分镜无损检查失败')
@@ -108,7 +82,7 @@ def plan_visuals(text: str, shots: list[dict], context: dict) -> dict:
             raw = json.loads(response.choices[0].message.content)
             plan = validate_plan(raw, shots)
             return {**plan, 'source_sha256':hashlib.sha256(text.encode()).hexdigest(),
-                    'rule_version':'scene-1.0', 'requested_resolution':'2k',
+                    'rule_version':RULE_VERSION, 'requested_resolution':'2k',
                     'authenticity':'AI场景示意，地标外观未通过独立图像核验'}
         except (ValueError, TypeError, KeyError) as exc:
             actual = len(raw.get('shots',[])) if isinstance(raw,dict) and isinstance(raw.get('shots'),list) else 'missing'

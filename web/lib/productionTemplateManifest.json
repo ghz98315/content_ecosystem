@@ -28,10 +28,10 @@
   },
   {
     "id": "health-v1",
-    "label": "健康 · 阳光生活 · 4:3九宫格",
+    "label": "女性成长与健康 · 古典胶片写实 · 4:3九宫格",
     "category": "health",
-    "style": "warm_editorial",
-    "preset": "health-warm-editorial",
+    "style": "history_period_film",
+    "preset": "history-period-film",
     "aspect": "4:3",
     "frameMode": "landscape_blur",
     "gridCells": 3,

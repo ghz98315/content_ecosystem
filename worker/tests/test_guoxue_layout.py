@@ -131,7 +131,7 @@ class GuoxueLayoutTests(unittest.TestCase):
         text = ('家人一起商量日常安排，理解彼此的心意。\n' * 60)
         shots = _guoxue_storyboard(text)
         self.assertEqual(text, ''.join(s['text'] for s in shots))
-        self.assertTrue(all(100 <= s['char_count'] <= 130 for s in shots))
+        self.assertTrue(all(90 <= s['effective_char_count'] <= 120 for s in shots))
         self.assertEqual(_char_count(text), shots[-1]['char_end'])
         self.assertTrue(all(a['char_end'] == b['char_start'] for a,b in zip(shots,shots[1:])))
 

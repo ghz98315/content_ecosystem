@@ -226,7 +226,8 @@ def _load_bgm_config(task_id: str) -> tuple[str | None, float, float]:
     return (bgm_path if bgm_path and approved else None, bgm_volume, narration_volume)
 
 
-def _select_stock_cover(task_id: str, params: dict, book_name: str, entries: list[dict]) -> tuple[str, str | None]:
+def _select_stock_cover(task_id: str, params: dict, book_name: str, entries: list[dict], *,
+                        script: str = '', title: str = '') -> tuple[str, str | None]:
     """Return the cover origin and local file or private storage key."""
     uploaded = str(params.get('video_cover_path') or '')
     if uploaded:
@@ -234,13 +235,9 @@ def _select_stock_cover(task_id: str, params: dict, book_name: str, entries: lis
             raise ValueError('成片封面路径不属于当前任务')
         return 'uploaded', uploaded
     from local_materials import preset_video_cover
-    if book_name:
-        try:
-            preset = preset_video_cover(book_name)
-        except (OSError, ValueError):
-            preset = None
-        if preset:
-            return 'local_preset', str(preset)
+    preset = preset_video_cover(book_name, script=script, title=title, task_id=task_id)
+    if preset:
+        return 'local_preset', str(preset)
     return 'selected_frame', entries[0].get('cover_path')
 
 
@@ -1096,29 +1093,37 @@ def run(stage: dict) -> tuple[str, str | None]:
             _make_layout_frame("", "", cover_layout_png, show_book_metadata=False, show_disclaimer=False, cover_title=cover_title, cover_subtitle=cover_subtitle)
         cover_origin, selected_cover = ('generated', images[0].get('cover_path'))
         cover_index = None
+        cover_params = stage.get('params') or {}
+        cover_script = ''.join(str(image.get('text') or image.get('sentence') or '') for image in images)
+        cover_subject_title = str((cover_params.get('video_text') or {}).get('title') or task_context.get('title') or '')
         if stock:
             cover_book = book_name or str((rewrite_data or {}).get('book_title') or '')
             if not cover_book:
                 titles = set(re.findall(r'《([^《》\n]{1,60})》', str(subs_data.get('text') or '')))
                 if len(titles) == 1:
                     cover_book = next(iter(titles))
-            cover_origin, selected_cover = _select_stock_cover(task_id, stage.get('params') or {}, cover_book, images)
-        elif is_history:
+            cover_origin, selected_cover = _select_stock_cover(task_id, cover_params, cover_book, images,
+                                                               script=str(subs_data.get('text') or cover_script), title=cover_subject_title)
+        else:
+            from history_visuals import uploaded_cover as get_uploaded_cover
+            from local_materials import preset_video_cover
+            custom_cover = get_uploaded_cover(task_id, cover_params)
+            local_cover = not custom_cover and preset_video_cover(script=cover_script, title=cover_subject_title, task_id=task_id)
+            if custom_cover or local_cover:
+                cover_origin = 'uploaded' if custom_cover else 'local_preset'
+                selected_cover = custom_cover or str(local_cover)
+        if is_history and not stock and cover_origin not in ('uploaded', 'local_preset'):
             cover_origin, selected_cover, cover_index = _select_history_intro_cover(
                 task_id, stage.get('params') or {}, images, str((rewrite_data or {}).get('final_text') or ''), cover_title,
             )
             if cover_index is not None:
                 print(f'  [cover] 历史社科主题封面采用第 {cover_index + 1} 个镜头', flush=True)
-        if not stock and not is_history:
-            from history_visuals import uploaded_cover as get_uploaded_cover
-            custom_cover = get_uploaded_cover(task_id, stage.get('params') or {})
-            if custom_cover:
-                cover_origin, selected_cover = 'uploaded', custom_cover
         cover_path = selected_cover or images[0]['path']
         cover_local = cover_path if cover_origin == 'local_preset' else storage.download_artifact(cover_path, '.png')
         cover_mp4 = os.path.join(tmpdir, "cover.mp4")
         uploaded_cover = cover_origin == 'uploaded'
-        cover_enhanced = uploaded_cover or cover_origin in ('history_theme_shot', 'history_generated')
+        cover_enhanced = (uploaded_cover or cover_origin in ('local_preset', 'history_theme_shot', 'history_generated')
+                          or (cover_origin == 'generated' and bool(images[0].get('cover_plan'))))
         try:
             cover_input = cover_local
             if cover_enhanced:
@@ -1497,6 +1502,7 @@ def run(stage: dict) -> tuple[str, str | None]:
             "intro_duration": intro_duration,
             "cover": "selected_storyboard_frame" if cover_origin == 'history_theme_shot' else ("independent_cover" if selected_cover else "first_image_frame"),
             "cover_origin": cover_origin,
+            "local_cover_name": Path(selected_cover).name if cover_origin == 'local_preset' else None,
             "cover_enhanced": cover_enhanced,
             "cover_crop": "top_center_4x3" if uploaded_cover else None,
             "cover_shot_number": cover_index + 1 if cover_index is not None else None,

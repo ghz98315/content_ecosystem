@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings, book_cover_pip_intervals, book_cover_relevant, render_book_cover, shared_book_cover_settings, resolve_book_cover
+from local_materials import add_book_cover_inserts, add_book_cover_pip, local_book_cover, _book_cover_settings, book_cover_pip_intervals, book_cover_relevant, render_book_cover, shared_book_cover_settings, resolve_book_cover, preset_video_cover
 from stages.render import _book_cover_pip_graph, _prepare_book_cover_pip, _select_stock_cover
 from music_presets import is_user_preset
 
@@ -102,6 +102,25 @@ class BookCoverInsertTests(unittest.TestCase):
         self.assertTrue(is_user_preset(path, owner))
         self.assertFalse(is_user_preset(path, 'other-owner'))
         self.assertFalse(is_user_preset(path.replace('/health/', '/health/../'), owner))
+
+    def test_protagonist_cover_checks_identity_and_varies_between_tasks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            folder = root / '91_成片预设封面'
+            folder.mkdir()
+            for name in ('阿德勒.png', '梅耶马斯克01.png', '梅耶马斯克02.jpg', '马斯克.png'):
+                Image.new('RGB', (32, 24)).save(folder / name)
+            (folder / '梅耶马斯克03.png').write_text('invalid image')
+            script = '今天聊梅耶·马斯克。梅耶·马斯克如何重新开始？'
+            with patch('local_materials.library_root', return_value=root):
+                results = {preset_video_cover(script=script, task_id=str(i)).name for i in range(16)}
+                self.assertEqual({'梅耶马斯克01.png', '梅耶马斯克02.jpg'}, results)
+                self.assertEqual(preset_video_cover(script=script, task_id='task'),
+                                 preset_video_cover(script=script, task_id='task'))
+                self.assertIsNone(preset_video_cover(script='这句话也让人想起阿德勒。'))
+                self.assertIsNone(preset_video_cover(script='《阿德勒的故事》是书名。', title='阿德勒'))
+                self.assertIsNone(preset_video_cover(script='阿德勒和梅耶马斯克。阿德勒与梅耶马斯克。'))
+                self.assertEqual('阿德勒.png', preset_video_cover(script='今天聊阿德勒。', title='阿德勒').name)
 
     def test_first_and_last_spoken_title_use_confirmed_cover(self):
         text='今天读养生书。中间讲饮食和运动。最后再回到养生书。'

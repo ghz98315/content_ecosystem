@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 import config, db, storage
 from narration import clean_tts_text, visible_len
+from storyboard import split_shots as split_blocks
 from stock_processing import POLICY,LEGACY,settings,source_filters,feather_mask,motion_probe,candidate_score
 
 VERSION='stock-video-v1'
@@ -31,22 +32,6 @@ def digest(value):
 def allowed_url(url):
     p=urlsplit(str(url))
     return p.scheme=='https' and p.hostname in MEDIA_HOSTS and not p.username and not p.password and p.port in (None,443)
-
-def split_blocks(text):
-    """Retain every character, prefer sentence/comma boundaries at 80–100 chars."""
-    blocks=[]; start=0
-    while start<len(text):
-        count=0; choices=[]; end=start
-        while end<len(text):
-            char=text[end]; count+=int(char.isalnum()); end+=1
-            if count>=80 and char in '，。！？；：、\n': choices.append(end)
-            if count>=100: break
-        cut=choices[-1] if choices else end
-        chunk=text[start:cut]
-        if chunk.strip(): blocks.append(chunk)
-        elif blocks: blocks[-1]+=chunk
-        start=cut
-    return blocks
 
 def plan_queries(blocks, category, policy=None):
     policy=policy or (HEALTH_POLICY if category=='health' else {})
@@ -157,7 +142,7 @@ def build_plan(text,subs,category,queries=None,overrides=None,policy=None):
     policy=policy or (HEALTH_POLICY if category=='health' else {})
     timed=bool(policy.get('shot_target_seconds'))
     from stock_timing import timed_blocks
-    blocks=timed_blocks(text,subs) if timed else split_blocks(text)
+    blocks=split_blocks(text)
     atmosphere=policy.get('matching_mode')=='atmosphere'
     broad=policy.get('atmosphere_queries') or ['mountain','ocean','forest','countryside','hiking','park']
     intents=queries if queries is not None else ([{'query':broad[i%len(broad)],'entity':'','role':'lifestyle','reason':'开阔舒展的氛围配画，优先长镜头，无需逐句内容对应'} for i in range(len(blocks))] if atmosphere else plan_queries(blocks,category,policy))

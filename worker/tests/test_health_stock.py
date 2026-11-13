@@ -12,6 +12,8 @@ class HealthStockTests(unittest.TestCase):
    validate_template({'production_template':'health-v1','template_version':version,'visual_style':'warm_editorial','image_aspect_ratio':aspect},'image')
    validate_template({'production_template':'health-v1','template_version':version,'frame_mode':mode},'render')
   with self.assertRaises(ValueError):validate_template({'production_template':'health-v1','template_version':2,'frame_mode':'portrait'},'render')
+  validate_template({'production_template':'health-v1','template_version':3,'visual_style':'history_period_film','image_aspect_ratio':'4:3'},'image')
+  validate_template({'production_template':'health-v1','template_version':3,'frame_mode':'landscape_blur'},'render')
 
  def test_negative_medical_and_explanation_roles(self):
   for title in ['hospice care','bloody surgery','terminally ill patient','痛苦病床','funeral']:

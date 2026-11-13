@@ -17,7 +17,8 @@ class SceneLineTests(unittest.TestCase):
         self.assertEqual(count(source),shots[-1]['char_end'])
         for previous,current in zip(shots,shots[1:]):
             self.assertEqual(previous['char_end'],current['char_start'])
-        self.assertTrue(all(0 < s['char_count']<=80 for s in shots))
+        self.assertTrue(all(90 <= s['char_count'] <= 120 for s in shots[:-1]))
+        self.assertTrue(0 < shots[-1]['char_count'] <= 120)
 
     def test_scene_domain_and_visual_contract_cannot_use_book_rules(self):
         self.assertEqual('scene',resolve_domain('深圳大学校园','auto',('scene-v1',),'scene')['domain'])

@@ -11,10 +11,12 @@ interface IndexEntry {
   path: string;
   sentence: string;
   char_count?: number;
+  effective_char_count?: number;
   estimated_duration?: number;
   motion?: string;
   source_grid?: string;
   cover_path?: string;
+  local_cover_name?: string;
   cover_plan?: { prompt?: string; reference_status?: string; reference?: { source_url?: string } };
   prompt?: string;
   prompt_scene?: string;
@@ -192,6 +194,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
   return (
     <DetailShell title="生图" stage={stage} onRerun={onRerun}>
       <StockCoverSettings taskId={taskId} generatedCover={generatedHistoryCover} imageProcessing={stage?.status === 'processing'} />
+      {entries[0]?.local_cover_name && <p className="capability-note">生图时匹配的本地预设封面 · {entries[0].local_cover_name}</p>}
       <section className="image-config-strip" aria-label="生图 Provider 选择">
         <div><span>当前通道</span><strong>{providerName}</strong><small>{imageModel}</small></div>
         <div><span>切换通道</span><select value={selectedProvider} onChange={event => setSelectedProvider(event.target.value as "apimart" | "xcode")} aria-label="切换生图 Provider"><option value="apimart">APIMart（默认）</option><option value="xcode">xcode.best（备用）</option></select><small>保存后只重跑生图及下游阶段</small></div>
@@ -245,7 +248,7 @@ export function ImageDetail({ stage, taskId, onRerun }: DetailCommon) {
                   </div>
                   <div className="image-caption">
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3 }}>
-                      分镜 {String(e.index + 1).padStart(2, "0")} · {e.char_count ?? "—"} 字 · 约 {e.estimated_duration?.toFixed(1) ?? "—"} 秒
+                      分镜 {String(e.index + 1).padStart(2, "0")} · {e.effective_char_count ?? e.char_count ?? "—"} 字 · 约 {e.estimated_duration?.toFixed(1) ?? "—"} 秒
                     </div>
                     <div style={{ fontSize: 10, color: "var(--text-disabled)" }}>{isGuoxue ? "静帧" : e.motion === "zoom_in" || !e.motion ? "缓慢放大" : e.motion} · 叠化</div>
                     <div className="image-sentence">{e.sentence}</div>

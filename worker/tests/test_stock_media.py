@@ -10,7 +10,7 @@ class StockMediaTests(unittest.TestCase):
   blocks=stock.split_blocks(text)
   self.assertEqual(text,''.join(blocks))
   self.assertGreater(len(blocks),1)
-  self.assertTrue(all(80<=sum(c.isalnum() for c in b)<=100 for b in blocks[:-1]))
+  self.assertTrue(all(90<=sum(c.isalnum() for c in b)<=120 for b in blocks[:-1]))
 
  def test_untrusted_sources_are_rejected(self):
   for url in ['http://upload.wikimedia.org/a','https://localhost/a','https://upload.wikimedia.org.evil.com/a','https://user:pass@upload.wikimedia.org/a','https://upload.wikimedia.org:8443/a']:

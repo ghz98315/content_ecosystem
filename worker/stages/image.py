@@ -10,7 +10,6 @@ from concurrent.futures import ThreadPoolExecutor
 import io
 import hashlib
 import json
-import math
 import os
 import re
 import time
@@ -25,6 +24,7 @@ from production_templates import validate_template, validate_task_template, DEFI
 import db
 import storage
 from narration import clean_tts_text
+from storyboard import MIN_CHARS, VERSION as STORYBOARD_VERSION, effective_count, split_shots
 from image_style_profiles import get_profile, historical_era_lock, history_visual_safe
 from history_visuals import (
     PLAN_VERSION as HISTORY_PLAN_VERSION,
@@ -167,69 +167,12 @@ def _dialogue_visual_scene(category: str) -> str:
     )
 
 # ── 语义分镜 ───────────────────────────────────────────────────────────────
-_MAJOR_BREAKS = set("。！？!?…")
-_MINOR_BREAKS = set("，,；;：:")
-
-
 def _char_count(text: str) -> int:
-    return len(re.sub(r"\s+", "", text or ""))
+    return sum(not char.isspace() for char in text)
 
 
-def _preferred_cut(text: str, min_chars: int, target_chars: int, max_chars: int) -> int:
-    upper = min(max_chars, len(text))
-    candidates: list[tuple[int, int]] = []
-    for cut in range(min_chars, upper + 1):
-        char = text[cut - 1]
-        if char in _MAJOR_BREAKS:
-            candidates.append((0, cut))
-        elif char in _MINOR_BREAKS:
-            candidates.append((1, cut))
-    if candidates:
-        _, cut = min(candidates, key=lambda item: (item[0], abs(item[1] - target_chars)))
-        return cut
-
-    cut = min(target_chars, upper)
-    # Avoid splitting a book title when a nearby closing bracket fits the range.
-    left = text.rfind("《", 0, cut)
-    right = text.find("》", cut)
-    if left >= 0 and right >= cut:
-        after_title = right + 1
-        if after_title <= upper:
-            cut = after_title
-        elif left >= min_chars:
-            cut = left
-    return max(1, cut)
-
-
-def _split_storyboard(
-    text: str,
-    min_chars: int = 32,
-    target_chars: int = 36,
-    max_chars: int = 42,
-) -> list[dict]:
-    """Split narration into longer semantic shots averaging about ten seconds."""
-    remaining = re.sub(r"\s+", "", text or "").strip()
-    if not remaining:
-        return []
-    parts: list[str] = []
-    while len(remaining) > max_chars:
-        cut = _preferred_cut(remaining, min_chars, target_chars, max_chars)
-        parts.append(remaining[:cut])
-        remaining = remaining[cut:]
-    if remaining:
-        if parts and len(remaining) < min_chars:
-            combined = parts[-1] + remaining
-            if len(combined) <= max_chars + 2:
-                parts[-1] = combined
-            elif len(combined) >= min_chars * 2:
-                split_at = len(combined) // 2
-                parts[-1] = combined[:split_at]
-                parts.append(combined[split_at:])
-            else:
-                parts.append(remaining)
-        else:
-            parts.append(remaining)
-
+def _split_storyboard(text: str) -> list[dict]:
+    parts = split_shots(text)
     shots: list[dict] = []
     char_start = 0
     for i, part in enumerate(parts):
@@ -238,6 +181,7 @@ def _split_storyboard(
             "index": i,
             "text": part,
             "char_count": char_count,
+            "effective_char_count": effective_count(part),
             "char_start": char_start,
             "char_end": char_start + char_count,
             "estimated_duration": round(max(1.0, char_count / 3.5), 2),
@@ -250,53 +194,26 @@ def _split_storyboard(
 
 
 def _history_storyboard(text: str) -> tuple[list[dict], dict]:
-    """Plan historical visuals by semantic beats, capped at three images/minute."""
-    base = _split_storyboard(text, min_chars=42, target_chars=70, max_chars=92)
-    if not base:
-        return [], {"version": 1, "mode": "history_director", "selected_count": 0}
-    max_images = max(3, math.ceil(sum(item["estimated_duration"] for item in base) / 60) * 3)
-    if len(base) > max_images:
-        size = math.ceil(len(base) / max_images)
-        grouped = []
-        for start in range(0, len(base), size):
-            chunk = base[start:start + size]
-            grouped.append({
-                "text": "".join(item["text"] for item in chunk),
-                "char_count": sum(item["char_count"] for item in chunk),
-                "char_start": chunk[0]["char_start"],
-                "char_end": chunk[-1]["char_end"],
-            })
-    else:
-        grouped = base
-    shots = []
-    for index, item in enumerate(grouped):
-        shots.append({
-            "index": index,
-            "text": item["text"],
-            "char_count": item["char_count"],
-            "char_start": item["char_start"],
-            "char_end": item["char_end"],
-            "estimated_duration": round(max(1.0, item["char_count"] / 3.5), 2),
-            "motion": "zoom_in",
-            "transition": "dissolve",
-            "transition_duration": 0.5,
-            "beat_role": "cover" if index == 0 else "key_event",
-        })
+    """Use the common cuts and annotate the historical director plan."""
+    shots = _split_storyboard(text)
+    if not shots:
+        return [], {"version": 2, "mode": "history_director", "selected_count": 0}
+    for index, shot in enumerate(shots):
+        shot["beat_role"] = "cover" if index == 0 else "key_event"
     return shots, {
-        "version": 1,
+        "version": 2,
         "mode": "history_director",
         "selected_count": len(shots),
         "cover": {"index": 0, "purpose": "全文总结性封面", "scene_text": shots[0]["text"]},
         "beats": [{"index": shot["index"], "role": shot["beat_role"], "scene_text": shot["text"]} for shot in shots],
-        "max_images": max_images,
-        "checks": {"cover_representative": True, "beats_match_copy": True, "no_redundancy": True, "within_three_images_per_minute": True},
+        "checks": {"cover_representative": True, "beats_match_copy": True, "no_redundancy": True},
     }
 
 
-def _load_history_visual_plan(task_id: str, storyboard: list[dict]) -> tuple[list[dict], str]:
+def _load_history_visual_plan(task_id: str, storyboard: list[dict], *, modern_life: bool = False) -> tuple[list[dict], str]:
     scenes = [shot['text'] for shot in storyboard]
     model = config.HISTORY_STORYBOARD_MODEL
-    signature = hashlib.sha256(json.dumps(['deepseek', model, scenes], ensure_ascii=False).encode()).hexdigest()[:20]
+    signature = hashlib.sha256(json.dumps(['deepseek', model, scenes, modern_life], ensure_ascii=False).encode()).hexdigest()[:20]
     path = f'{task_id}/styles/{HISTORY_PLAN_VERSION}/plan-{signature}.json'
     existing = db.retry(lambda: db.get_client().table('artifacts').select('id')
                         .eq('task_id', task_id).eq('type', 'history_prompt_plan')
@@ -317,7 +234,7 @@ def _load_history_visual_plan(task_id: str, storyboard: list[dict]) -> tuple[lis
                     return plan, signature
             finally:
                 local.unlink(missing_ok=True)
-    plan = request_history_plan(config.history_storyboard_client(), model, scenes)
+    plan = request_history_plan(config.history_storyboard_client(), model, scenes, modern_life=modern_life)
     storage.upload_bytes(path, json.dumps(plan, ensure_ascii=False).encode(), 'application/json')
     storage.add_artifact(task_id, 'image', 'history_prompt_plan', path, meta={
         'count': len(plan), 'aspect': '4:3', 'provider': 'deepseek', 'model': model,
@@ -331,9 +248,9 @@ def _history_render_params(task_id: str) -> dict:
     return (rows[0].get('params') or {}) if rows else {}
 
 
-def _load_history_cover_plan(task_id: str, text: str, title: str, existing: dict) -> dict:
+def _load_history_cover_plan(task_id: str, text: str, title: str, existing: dict, *, modern_life: bool = False) -> dict:
     model = config.HISTORY_STORYBOARD_MODEL
-    signature = hashlib.sha256(json.dumps([model, text, title], ensure_ascii=False).encode()).hexdigest()[:20]
+    signature = hashlib.sha256(json.dumps([model, text, title, modern_life], ensure_ascii=False).encode()).hexdigest()[:20]
     path = f'{task_id}/styles/history-cover-v1/plan-{signature}.json'
     if path in existing:
         try:
@@ -348,7 +265,7 @@ def _load_history_cover_plan(task_id: str, text: str, title: str, existing: dict
                     return plan
             finally:
                 local.unlink(missing_ok=True)
-    plan = request_history_cover(config.history_storyboard_client(), model, text, title)
+    plan = request_history_cover(config.history_storyboard_client(), model, text, title, modern_life=modern_life)
     storage.upload_bytes(path, json.dumps(plan, ensure_ascii=False).encode(), 'application/json')
     storage.add_artifact(task_id, 'image', 'history_cover_plan', path, meta={
         'reference_status': plan['reference_status'], 'model': model,
@@ -357,40 +274,11 @@ def _load_history_cover_plan(task_id: str, text: str, title: str, existing: dict
 
 
 def _guoxue_storyboard(text: str) -> list[dict]:
-    """Keep every source character; timings are subsequently derived from ASR."""
-    remaining = text or ''
-    total = _char_count(remaining)
-    if not total:
-        return []
-    count = math.ceil(total / 130)
-    shots = []
-    start = 0
-    for index in range(count):
-        left = count - index
-        positions = [i + 1 for i, char in enumerate(remaining) if not char.isspace()]
-        if left == 1:
-            cut = len(remaining)
-        else:
-            low = max(100, len(positions) - 130 * (left - 1))
-            high = min(130, len(positions) - 100 * (left - 1))
-            if low > high:  # Short scripts can contain one smaller final shot.
-                low, high = min(100, len(positions)), min(130, len(positions))
-            target = min(high, max(low, round(len(positions) / left)))
-            candidates = [n for n in range(low, high + 1) if remaining[positions[n-1]-1] in _MAJOR_BREAKS | _MINOR_BREAKS]
-            size = min(candidates, key=lambda n: abs(n-target)) if candidates else target
-            cut = positions[size-1]
-            while cut < len(remaining) and remaining[cut].isspace():
-                cut += 1
-        part, remaining = remaining[:cut], remaining[cut:]
-        length = _char_count(part)
-        shots.append({'index': index, 'text': part, 'char_count': length,
-                      'char_start': start, 'char_end': start + length,
-                      'estimated_duration': round(length / 3.5, 2),
-                      'motion': 'zoom_in', 'transition': 'dissolve',
-                      'transition_duration': 0.2, 'short_source_exception': length < 100})
-        start += length
-    assert ''.join(s['text'] for s in shots) == text
+    shots = _split_storyboard(text)
+    for shot in shots:
+        shot.update(transition_duration=0.2, short_source_exception=shot['effective_char_count'] < MIN_CHARS)
     return shots
+
 
 # ── 9宫格生图 ─────────────────────────────────────────────────────────────
 _GRID = max(1, int(os.environ.get("IMAGE_GRID_CELLS", "3")))
@@ -1179,7 +1067,8 @@ def run(stage: dict) -> tuple[str, str | None]:
             )
     content_category = str(task_context.get("content_category") or "health")
     is_history = content_category == "social_science"
-    history_period = is_history and visual_style == HISTORY_PERIOD_STYLE
+    history_period = visual_style == HISTORY_PERIOD_STYLE
+    modern_life = history_period and content_category == "health"
     if str(task_context.get("narration_mode") or "single") == "dual_dialogue":
         return _run_dialogue_visual(stage, text, content_category, client, image_model)
     history_analysis = None
@@ -1189,14 +1078,15 @@ def run(stage: dict) -> tuple[str, str | None]:
         storyboard = _guoxue_storyboard(text)
     elif is_history:
         storyboard, history_analysis = _history_storyboard(text)
-        if history_period and storyboard:
-            period_plan, period_signature = _load_history_visual_plan(task_id, storyboard)
-            for shot, plan in zip(storyboard, period_plan):
-                shot['prompt_scene'] = plan['scene']
-            history_analysis['checks'] = {'numbered_prompts_complete': True}
-            history_analysis['visual_aspect'] = '4:3'
     else:
         storyboard = _split_storyboard(text)
+    if history_period and storyboard:
+        period_plan, period_signature = _load_history_visual_plan(task_id, storyboard, modern_life=modern_life)
+        for shot, plan in zip(storyboard, period_plan):
+            shot['prompt_scene'] = plan['scene']
+        if history_analysis:
+            history_analysis['checks'] = {'numbered_prompts_complete': True}
+            history_analysis['visual_aspect'] = '4:3'
     if not storyboard:
         db.set_stage(stage["id"], "failed", error="最终文案无法生成分镜")
         return "failed", None
@@ -1204,13 +1094,16 @@ def run(stage: dict) -> tuple[str, str | None]:
     existing_artifacts = _existing_image_artifacts(task_id)
     history_cover = None
     uploaded_cover_path = None
+    local_cover = None
     cover_reference_urls = None
-    if is_history and visual_style != GUOXUE_STYLE:
+    if history_period or (is_history and visual_style != GUOXUE_STYLE):
+        from local_materials import preset_video_cover
         render_params = _history_render_params(task_id)
         uploaded_cover_path = uploaded_history_cover(task_id, render_params)
-        if not uploaded_cover_path:
-            title = str((render_params.get('video_text') or {}).get('title') or task_context.get('title') or '')
-            history_cover = _load_history_cover_plan(task_id, text, title, existing_artifacts)
+        title = str((render_params.get('video_text') or {}).get('title') or task_context.get('title') or '')
+        local_cover = not uploaded_cover_path and preset_video_cover(script=text, title=title, task_id=task_id)
+        if not uploaded_cover_path and not local_cover:
+            history_cover = _load_history_cover_plan(task_id, text, title, existing_artifacts, modern_life=modern_life)
             reference = history_cover.get('reference') or {}
             if provider == 'apimart' and reference.get('image_url'):
                 cover_reference_urls = [reference['image_url']]
@@ -1218,9 +1111,10 @@ def run(stage: dict) -> tuple[str, str | None]:
                 history_cover = {**history_cover, 'reference_status': 'text_only',
                                  'prompt': history_cover['prompt'] + '当前通道仅按时代地域做示意性外貌。'}
     if history_analysis:
-        if uploaded_cover_path or history_cover:
+        if uploaded_cover_path or local_cover or history_cover:
             history_analysis['cover'] = (
                 {'source': 'uploaded', 'path': uploaded_cover_path} if uploaded_cover_path else
+                {'source': 'local_preset', 'name': local_cover.name} if local_cover else
                 {'source': 'grid', 'batch': 0, 'cell': 0, 'design': history_cover}
             )
             if storyboard[0].get('beat_role') == 'cover':
@@ -1232,15 +1126,11 @@ def run(stage: dict) -> tuple[str, str | None]:
         storage.upload_bytes(analysis_path, json.dumps(history_analysis, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
         storage.add_artifact(task_id, "image", "history_director_analysis", analysis_path, meta={
             "selected_count": history_analysis.get("selected_count", 0),
-            "max_final_images": history_analysis.get("max_images"),
             "checks": history_analysis.get("checks", {}),
         })
 
-    # External manuscripts get their own reusable asset namespace. A changed
-    # reading must never silently reuse old pictures solely by img_000 name.
-    visual_text = (stage.get('params') or {}).get('external_visual_text')
-    asset_root = (f"{task_id}/external-visuals/{hashlib.sha256(text.encode()).hexdigest()[:16]}"
-                  if visual_text else task_id)
+    script_key = hashlib.sha256(text.encode()).hexdigest()[:16]
+    asset_root = f"{task_id}/{STORYBOARD_VERSION}/{script_key}"
     generation_id = (stage.get('params') or {}).get('generation_id')
     grid_cells = _GUOXUE_GRID if visual_style == GUOXUE_STYLE else _GRID
     grid_resolution = _guoxue_grid_resolution(stage) if visual_style == GUOXUE_STYLE else config.APIMART_IMAGE_RESOLUTION
@@ -1271,6 +1161,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                     if include_cover else list(range(0, len(storyboard), batch_size)))
     cover_path = f'{asset_root}/cover.png'
     cover_index_fields = {'cover_path': cover_path if include_cover else None}
+    if local_cover:
+        cover_index_fields['local_cover_name'] = local_cover.name
     if history_cover:
         cover_index_fields['cover_plan'] = history_cover
     prefetched_grids: dict[int, tuple[bytes, str]] = {}
@@ -1361,11 +1253,10 @@ def run(stage: dict) -> tuple[str, str | None]:
                 scenes = [text] + scenes
             if history_cover_prompt and not history_period:
                 scenes = ['独立封面：' + history_cover_prompt] + scenes
-            grid_prompt = (history_image_prompt(scenes, start=batch_start + 1, cover=history_cover_prompt) if history_period else
+            grid_prompt = (history_image_prompt(scenes, start=batch_start + 1, grid=grid_cells, cover=history_cover_prompt) if history_period else
                            guoxue_grid_prompt([_visual_scene(s) for s in scenes], cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
                            if visual_style == GUOXUE_STYLE else _build_grid_prompt(scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
-            batch_key = (f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}" if history_period or history_cover or visual_text or generation_id or visual_style == GUOXUE_STYLE
-                         else f"grid_{batch_number:03d}")
+            batch_key = f"{asset_root.removeprefix(task_id + '/')}_grid_{batch_number:03d}"
             try:
                 raw = _generate_grid_bytes(
                     client, image_model, grid_prompt, stage_id=stage["id"], batch_key=batch_key,
@@ -1378,7 +1269,7 @@ def run(stage: dict) -> tuple[str, str | None]:
                     raise
                 fallback_scenes = _safe_fallback_scenes(len(batch) + int(with_cover), content_category)
                 fallback_cover = f"{history_cover['era']}；从与全文主题有关的时代器物与环境构成封面" if history_cover_prompt else None
-                grid_prompt = (history_image_prompt([f"{plan['era']}；相符年代的无字器物与环境空镜" for plan in period_plan[batch_start:batch_start + len(batch)]], start=batch_start + 1, cover=fallback_cover)
+                grid_prompt = (history_image_prompt([f"{plan['era']}；相符年代的无字器物与环境空镜" for plan in period_plan[batch_start:batch_start + len(batch)]], start=batch_start + 1, grid=grid_cells, cover=fallback_cover)
                                if history_period else guoxue_grid_prompt(fallback_scenes, cover=with_cover, grid_cells=grid_cells, aspect=guoxue_aspect)
                                if visual_style == GUOXUE_STYLE else
                                _build_grid_prompt(fallback_scenes, content_category, visual_style, reference_mode, aspect=output_aspect))
@@ -1461,7 +1352,6 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "image_model": image_model,
                 "beat_role": shot.get("beat_role"),
                 "history_director_analysis": is_history,
-                "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
             })
             image_paths.append(path)
             meta_list.append({**shot, **(cover_index_fields if visual_style == GUOXUE_STYLE or not meta_list else {}), "cell_ratio": output_aspect, "path": path, "sentence": shot["text"], "source_grid": grid_path, "prompt": scene_prompt, "prompt_scene": shot.get('prompt_scene', shot['text']), "image_model": image_model, "source_size": list(grid_size), "resolution_warning": resolution_warning})
@@ -1473,6 +1363,5 @@ def run(stage: dict) -> tuple[str, str | None]:
         "resolution_warnings": list({entry.get('source_grid'): entry['resolution_warning'] for entry in meta_list if entry.get('resolution_warning')}.values()),
         "narration_char_count": sum(shot["char_count"] for shot in storyboard),
         "history_director_analysis": is_history,
-        "max_final_images": history_analysis.get("max_images") if is_history and history_analysis else None,
     })
     return "done", index_path
