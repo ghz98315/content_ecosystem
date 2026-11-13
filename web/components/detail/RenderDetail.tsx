@@ -234,7 +234,7 @@ export function RenderDetail({ stage, taskId, task, onRerun, onApprove }: Detail
   };
 
   const createRepost = async () => {
-    if (!window.confirm("请确认当前成片已经验证为爆款，再生成独立的二次发布版本。")) return;
+    if (!window.confirm("基于首发确认稿创建二次发布版本。首发图片可用时沿用，已清理则重新生图；稿件仍需你确认。继续吗？")) return;
     setCreatingRepost(true);
     setRepostError(null);
     const { data, error } = await supabase.rpc("create_repost_task", {

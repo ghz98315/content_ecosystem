@@ -9,6 +9,7 @@ import re
 import time
 import uuid
 from difflib import SequenceMatcher
+from pathlib import Path
 from types import SimpleNamespace
 
 import config
@@ -378,13 +379,18 @@ def _length_budget(body: str, locked_chars: int, plan: tuple[int, int, int, int]
     return '\n'.join(lines)
 
 
+def _repost_rules() -> str:
+    path = Path(__file__).resolve().parents[2] / 'skills/book-video-rewrite/references/repost.md'
+    return path.read_text(encoding='utf-8')
+
+
 def _generate_single_candidates(source: str, context: dict, notes: str, mode: str) -> tuple[list[str], list[int], dict]:
     """Initial generation plus at most three content revisions, then human review."""
     category = context['category']
     historical = category == 'social_science'
     hook = opening_hook(source, category)
     tail = history_conversion_tail(source) if historical else ''
-    polish_only = category == 'health' and context.get('rewrite_approach') == 'polish'
+    polish_only = mode != 'repost_dedup' and category == 'health' and context.get('rewrite_approach') == 'polish'
     prompt_kind = 'history_rewrite' if historical else 'polish' if polish_only else 'initial_dedup'
     prompt = load_prompt(category, prompt_kind)
     prompt += '\n\n' + SPOKEN_STYLE_RULES
@@ -392,6 +398,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     if skill_profile:
         extension, skill_profile = prompt_extension(skill_profile)
         prompt += '\n\n' + extension
+    if mode == 'repost_dedup':
+        prompt += '\n\n' + _repost_rules()
     source_body = editable_middle(source, hook, tail)
     source_chars = effective_length(source)
     plan = length_plan(source, category)
@@ -771,6 +779,13 @@ def _task_context(task_id: str, source: str) -> dict[str, str]:
 
 
 def _load_final_text(task_id: str) -> str:
+    stage = db.retry(lambda: db.get_client().table('stages').select('params')
+                     .eq('task_id', task_id).eq('kind', 'rewrite').eq('status', 'done').maybe_single().execute()).data
+    if not stage:
+        return ""
+    confirmed = str((stage.get('params') or {}).get('final_text') or '').strip()
+    if confirmed:
+        return confirmed
     res = (
         db.get_client().table("artifacts")
         .select("storage_path")
@@ -827,7 +842,7 @@ def run(stage: dict) -> tuple[str, str | None]:
         db.set_stage(stage["id"], "failed", error=message)
         return "failed", None
     context = _task_context(task_id, source)
-    if context['category'] == 'health' and params.get('rewrite_approach') == 'polish':
+    if mode != 'repost_dedup' and context['category'] == 'health' and params.get('rewrite_approach') == 'polish':
         context['rewrite_approach'] = 'polish'
     if params.get('content_line') and params['content_line'] != context['category']:
         db.set_stage(stage['id'], 'needs_review', error='任务内容类型与二创规则快照不一致，请检查任务设置')
@@ -934,7 +949,10 @@ def run(stage: dict) -> tuple[str, str | None]:
         _extension, context['rewrite_skill'] = prompt_extension(context['rewrite_skill'])
         prompt_kind = ('history_rewrite' if context['category'] == 'social_science' else
                        'polish' if context.get('rewrite_approach') == 'polish' else 'initial_dedup')
-        context['rewrite_skill']['base_prompt_sha256'] = hashlib.sha256(load_prompt(context['category'], prompt_kind).encode()).hexdigest()
+        base_prompt = load_prompt(context['category'], prompt_kind)
+        if mode == 'repost_dedup':
+            base_prompt += '\n\n' + _repost_rules()
+        context['rewrite_skill']['base_prompt_sha256'] = hashlib.sha256(base_prompt.encode()).hexdigest()
         resumed, checkpoint = prepare(stage, params, source, context['rewrite_skill'], rewrite_notes, mode)
         context['rewrite_resume'], context['rewrite_checkpoint'] = resumed, checkpoint
     candidates, lengths, structure = _generate_candidates(

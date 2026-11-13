@@ -1143,10 +1143,19 @@ def run(stage: dict) -> tuple[str, str | None]:
     if (stage.get('params') or {}).get('visual_mode') == 'stock_video':
         from stock_media import run as run_stock
         return run_stock(stage)
+    task_id = stage["task_id"]
+    task_context = db.get_task_prompt_context(task_id)
+    if task_context.get('rewrite_mode') == 'repost_dedup':
+        from repost_images import reuse_first_publication
+        repost_text = _find_chosen_text(task_id, stage) or ''
+        if (stage.get('params') or {}).get('production_template') != 'scene-v1':
+            repost_text = clean_tts_text(repost_text)
+        reused_index = reuse_first_publication(stage, repost_text, task_context)
+        if reused_index:
+            return 'done', reused_index
     if (stage.get('params') or {}).get('production_template') == 'scene-v1':
         from scene_image import run as run_scene
         return run_scene(stage)
-    task_id = stage["task_id"]
     text = clean_tts_text(_find_chosen_text(task_id, stage) or "")
     if not text:
         db.set_stage(stage["id"], "failed", error="未找到选定改写稿")
@@ -1168,7 +1177,6 @@ def run(stage: dict) -> tuple[str, str | None]:
                 "Reference-image generation was requested but is not available on the selected route: "
                 f"{capability.get('reason', capability['state'])}"
             )
-    task_context = db.get_task_prompt_context(task_id)
     content_category = str(task_context.get("content_category") or "health")
     is_history = content_category == "social_science"
     history_period = is_history and visual_style == HISTORY_PERIOD_STYLE

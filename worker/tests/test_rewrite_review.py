@@ -139,6 +139,7 @@ class RevisionLoopTests(unittest.TestCase):
         self.assertEqual(2, request.call_count)
         self.assertEqual('passed', data['rewrite_review']['status'])
         self.assertEqual(1, data['rewrite_review']['revisions_used'])
+        self.assertIn('读者能感知的新切入点', request.call_args_list[0].kwargs['messages'][0]['content'])
 
     def test_health_revises_until_length_is_between_original_and_ten_percent_growth(self):
         target = round(effective_length(SOURCE) * 1.05) - effective_length(HOOK)
