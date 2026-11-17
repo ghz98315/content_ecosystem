@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { MUSIC_PRESET_PATHS } from "@/lib/musicPresets";
 import { userMusicPresetMatch } from '@/lib/userMusicPresets';
+import { r2MediaInfo, signR2Media } from '@/lib/r2Media';
 
 const BUCKET = "artifacts";
 
@@ -41,6 +42,13 @@ export async function GET(req: NextRequest) {
   }
   const requestedName = req.nextUrl.searchParams.get('download');
   const downloadName = requestedName?.replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 120);
+  try {
+    if (await r2MediaInfo(path)) {
+      return NextResponse.json({ signedUrl: await signR2Media(path) }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+  } catch {
+    return NextResponse.json({ error: 'R2 媒体暂时无法读取，请稍后再试' }, { status: 502 });
+  }
   const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(
     path, 300, downloadName ? { download: downloadName } : undefined,
   );

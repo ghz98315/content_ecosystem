@@ -6,6 +6,7 @@ opencc-python-reimplemented>=0.1.7
 # HTTP / SSL（supabase-py 底层；certifi 修复 Windows SSL EOF 问题）
 httpx>=0.28.0
 certifi>=2026.0.0
+boto3>=1.36,<2
 
 # 大模型调用
 openai>=1.30.0

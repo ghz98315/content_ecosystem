@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import { listR2TaskMedia, removeR2Media } from './r2Media';
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const BUCKET = 'artifacts';
@@ -42,8 +43,12 @@ export async function cleanupCancelledTask(db: SupabaseClient, taskId: string, o
     const { error } = await db.storage.from(BUCKET).remove(files.slice(index, index + 100));
     if (error) throw error;
   }
+  const r2Files = await listR2TaskMedia(taskId);
+  for (let index = 0; index < r2Files.length; index += 100) {
+    await removeR2Media(r2Files.slice(index, index + 100));
+  }
   const { data: deleted, error: deleteError } = await db.from('tasks').delete()
     .eq('id', taskId).eq('owner', task.owner).eq('status', 'cancelled').select('id');
   if (deleteError) throw deleteError;
-  return { result: deleted?.length ? 'deleted' as const : 'not_found' as const, removedFiles: files.length };
+  return { result: deleted?.length ? 'deleted' as const : 'not_found' as const, removedFiles: files.length + r2Files.length };
 }

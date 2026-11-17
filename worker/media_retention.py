@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import db
+import r2_media
 
 GRID_TYPES = ('image_grid',)
 IMAGE_TYPES = ('image', 'image_replacement', 'cover_image', 'publication_cover')
@@ -97,28 +98,38 @@ def cleanup_expired_media(*, limit: int = 100, dry_run: bool = False) -> dict:
             if not latest or _timestamp(latest[0]['created_at']) >= _timestamp(cutoff):
                 report['skipped'] += 1
                 continue
+            r2_object = r2_media.info(path) if r2_media.enabled() and r2_media.media_path(path) else None
+            info = None
             try:
                 info = sb.storage.from_('artifacts').info(path)
             except Exception as exc:
                 if 'not found' not in str(exc).lower() and '404' not in str(exc):
                     raise
+            if not info and not r2_object:
                 report['missing'] += 1
                 if not dry_run:
                     sb.table('artifacts').delete().eq('storage_path', path).eq('type', kind).lt('created_at', cutoff).execute()
                 continue
-            modified = info.get('last_modified')
-            if not modified:
+            timestamps = [info.get('last_modified')] if info else []
+            if r2_object:
+                timestamps.append((r2_object.get('Metadata') or {}).get('source-modified-at') or r2_object['LastModified'].isoformat())
+            if not all(timestamps):
                 raise RuntimeError('Storage object timestamp unavailable')
+            modified = max(timestamps, key=_timestamp)
             if _timestamp(modified) >= _timestamp(cutoff):
                 report['refreshed'] += 1
                 if not dry_run:
                     sb.table('artifacts').update({'created_at': modified}).eq('storage_path', path).eq('type', kind).lt('created_at', cutoff).execute()
                 continue
             if not dry_run:
-                sb.storage.from_('artifacts').remove([path])
+                if info:
+                    sb.storage.from_('artifacts').remove([path])
+                if r2_object:
+                    r2_media.remove(path)
                 sb.table('artifacts').delete().eq('storage_path', path).eq('type', kind).lt('created_at', cutoff).execute()
             report['removed'] += 1
-            report['removed_bytes'] += int(info.get('size') or (info.get('metadata') or {}).get('size') or 0)
+            report['removed_bytes'] += int((info or {}).get('size') or ((info or {}).get('metadata') or {}).get('size') or 0)
+            report['removed_bytes'] += int((r2_object or {}).get('ContentLength') or 0)
         except Exception as exc:
             report['failures'].append({'path': path, 'error': str(exc)[:180]})
     return report

@@ -2,12 +2,14 @@
 import hashlib
 import json
 import re
+from pathlib import Path
 from difflib import SequenceMatcher
 
 from storage3.exceptions import StorageApiError
 
 import db
 import storage
+import r2_media
 from storyboard import VERSION, effective_count, split_shots
 
 
@@ -102,24 +104,36 @@ def reuse_first_publication(stage: dict, text: str, context: dict) -> str | None
     destinations = {path: f"{root}/{i:03d}.{path.rsplit('.', 1)[1].lower()}" for i, path in enumerate(paths)}
     # Copy on the server so the first task can expire without breaking the new task.
     existing = _existing_image_artifacts(task_id)
+    use_r2 = r2_media.enabled()
+    def media_info(path):
+        return (r2_media.info(path) if use_r2 else None) or bucket.info(path)
+
     try:
         for path, target in destinations.items():
             if target in existing:
                 try:
-                    bucket.info(target)
+                    media_info(target)
                     continue
                 except StorageApiError as exc:
                     if str(exc.status) != '404':
                         raise
                     existing.pop(target)
-            bucket.info(path)
+            media_info(path)
         for path, target in destinations.items():
             if target not in existing:
                 try:
-                    bucket.copy(path, target)
+                    if use_r2:
+                        from mimetypes import guess_type
+                        local = Path(storage.download_artifact(path))
+                        try:
+                            storage.upload(target, str(local), guess_type(path)[0] or 'image/png')
+                        finally:
+                            local.unlink(missing_ok=True)
+                    else:
+                        bucket.copy(path, target)
                 except StorageApiError as exc:
                     if str(exc.status) == '409' or exc.code in ('Duplicate', 'ResourceAlreadyExists', 'KeyAlreadyExists'):
-                        bucket.info(target)
+                        media_info(target)
                     else:
                         raise
                 storage.add_artifact(task_id, 'image', 'cover_image' if path == cover else 'image', target,

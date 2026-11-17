@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanupCancelledTask } from '@/lib/cancelledTaskCleanup';
+import { r2MediaInfo, removeR2Media } from '@/lib/r2Media';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -97,8 +98,12 @@ export async function GET(request: NextRequest) {
         if (latestError) throw latestError;
         if (!latest?.length || latest[0].created_at >= cutoff) { skippedNewer++; return; }
         // Older releases did not refresh artifact.created_at on overwrite.
-        const { data: objectInfo, error: infoError } = await supabase.storage.from('artifacts').info(path);
-        if (infoError && /object not found/i.test(infoError.message)) {
+        const [r2Object, { data: objectInfo, error: infoError }] = await Promise.all([
+          r2MediaInfo(path), supabase.storage.from('artifacts').info(path),
+        ]);
+        const missingSupabase = infoError && /object not found|404/i.test(infoError.message);
+        if (infoError && !missingSupabase) throw infoError;
+        if (missingSupabase && !r2Object) {
           // Older manual cleanups removed the object but left its DB row.
           // Clear only the stale media record; no Storage deletion is needed.
           missingObjects++;
@@ -109,20 +114,30 @@ export async function GET(request: NextRequest) {
           }
           return;
         }
-        if (infoError || !objectInfo?.lastModified) throw infoError || new Error('Object timestamp unavailable');
-        if (new Date(objectInfo.lastModified).getTime() >= new Date(cutoff).getTime()) {
+        const timestamps = [
+          ...(objectInfo ? [objectInfo.lastModified] : []),
+          ...(r2Object ? [r2Object.Metadata?.['source-modified-at'] || r2Object.LastModified?.toISOString()] : []),
+        ];
+        if (!timestamps.length || timestamps.some(value => !value || !Number.isFinite(Date.parse(value)))) {
+          throw new Error('Object timestamp unavailable');
+        }
+        const modified = new Date(Math.max(...timestamps.map(value => Date.parse(value!)))).toISOString();
+        if (modified >= cutoff) {
           skippedNewer++;
           if (!dryRun) {
             const { error: refreshError } = await supabase.from('artifacts')
-              .update({ created_at: objectInfo.lastModified }).eq('storage_path', path)
+              .update({ created_at: modified }).eq('storage_path', path)
               .eq('type', type).lt('created_at', cutoff);
             if (refreshError) throw refreshError;
           }
           return;
         }
         if (dryRun) { removed++; return; }
-        const { error: removeError } = await supabase.storage.from('artifacts').remove([path]);
-        if (removeError) throw removeError;
+        if (objectInfo) {
+          const { error: removeError } = await supabase.storage.from('artifacts').remove([path]);
+          if (removeError) throw removeError;
+        }
+        if (r2Object) await removeR2Media([path]);
         const { error: deleteError } = await supabase.from('artifacts').delete()
           .eq('storage_path', path).eq('type', type).lt('created_at', cutoff);
         if (deleteError) throw deleteError;

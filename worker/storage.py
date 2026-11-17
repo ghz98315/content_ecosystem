@@ -12,6 +12,7 @@ import httpx
 
 import db
 import config
+import r2_media
 from media_upload import upload_limit_bytes, prepared_file
 
 BUCKET = os.environ.get("SUPABASE_BUCKET", "artifacts")
@@ -73,6 +74,15 @@ def download(url: str, suffix: str = ".mp4", referer: str = "https://www.douyin.
 
 def download_artifact(storage_path: str, suffix: str = "") -> str:
     """从 Storage 下载到临时文件，返回本地路径。"""
+    if r2_media.enabled() and r2_media.media_path(storage_path) and r2_media.info(storage_path):
+        fd, path = tempfile.mkstemp(suffix=suffix or os.path.splitext(storage_path)[1])
+        os.close(fd)
+        try:
+            r2_media.download_file(storage_path, path)
+        except BaseException:
+            os.remove(path)
+            raise
+        return path
     data = db.retry(
         lambda: db.get_client().storage.from_(BUCKET).download(storage_path)
     )
@@ -84,6 +94,9 @@ def download_artifact(storage_path: str, suffix: str = "") -> str:
 
 def upload(storage_path: str, local_file: str, content_type: str = "video/mp4") -> str:
     """上传本地文件到 Storage，返回 storage_path。覆盖同名。"""
+    if r2_media.enabled() and r2_media.media_path(storage_path) and content_type.startswith(('image/', 'video/')):
+        r2_media.upload_file(storage_path, local_file, content_type)
+        return storage_path
     with prepared_file(local_file, content_type) as prepared:
         return _upload_prepared(storage_path, prepared, content_type)
 
@@ -164,6 +177,9 @@ def _upload_resumable(
 
 def upload_bytes(storage_path: str, data: bytes, content_type: str) -> str:
     """直接上传字节（用于 JSON 等动态内容）。覆盖同名。"""
+    if r2_media.enabled() and r2_media.media_path(storage_path) and content_type.startswith(('image/', 'video/')):
+        r2_media.upload_bytes(storage_path, data, content_type)
+        return storage_path
     if len(data)>upload_limit_bytes():
         fd,path=tempfile.mkstemp(suffix=os.path.splitext(storage_path)[1])
         try:
