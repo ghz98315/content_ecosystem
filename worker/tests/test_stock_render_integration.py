@@ -1,6 +1,7 @@
 """Real-ffmpeg regression of the production stock path; cloud I/O is substituted."""
 import json,shutil,subprocess,tempfile,unittest,wave
 from contextlib import ExitStack
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock,patch
@@ -10,6 +11,18 @@ from stages import render
 from quality import probe_media
 
 class StockRenderIntegration(unittest.TestCase):
+ def test_local_master_names_use_china_date_and_keep_previous_exports(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);source=root/'source.mp4';source.write_bytes(b'first')
+   now=datetime(2026,11,16,16,30,tzinfo=timezone.utc)
+   first=render._save_local_master(source,root/'exports','书名：深圳/广州',now=now)
+   self.assertEqual('1117书名：深圳_广州.mp4',first.name)
+   source.write_bytes(b'second')
+   second=render._save_local_master(source,root/'exports','书名：深圳/广州',now=now)
+   self.assertEqual('1117书名：深圳_广州（2）.mp4',second.name)
+   self.assertEqual(b'first',first.read_bytes())
+   self.assertEqual(b'second',second.read_bytes())
+
  def test_video_duration_ignores_non_utf8_filename_diagnostics(self):
   diagnostic=b'Input #0, from \xff\xaa.mp4:\n  Duration: 00:00:42.75, start: 0.000000\n'
   with patch.object(render,'_run_ffmpeg',return_value=SimpleNamespace(stderr=diagnostic)):
@@ -95,7 +108,7 @@ class StockRenderIntegration(unittest.TestCase):
     patch.object(render,'_prepare_title_font',return_value=('PlayFont-ChenkunGBT',False)),patch.object(render,'_nvenc_available',return_value=False),
     patch.object(render,'inspect_render_quality',return_value={'status':'passed','checks':[],'summary':{},'metrics':{}})]
    for p in patches:stack.enter_context(p)
-   stage={'id':'synthetic','task_id':'synthetic','params':{'production_template':'guoxue-v1','template_version':3,'stock_source':'local_library','visual_mode':'stock_video','frame_mode':'landscape_blur'}}
+   stage={'id':'synthetic','task_id':'synthetic','params':{'production_template':'guoxue-v1','template_version':3,'stock_source':'local_library','visual_mode':'stock_video','frame_mode':'landscape_blur','video_text':{'title':'成片测试标题'}}}
    result=render.run(stage)
    self.assertEqual('done',result[0],str(stage_updates.call_args_list))
    final=next(meta for kind,meta in artifacts if kind=='final')
@@ -104,5 +117,6 @@ class StockRenderIntegration(unittest.TestCase):
    self.assertEqual('vertical',final['stock_processing']['feather_edges'])
    self.assertGreater(final['local_high_quality_bytes'],0)
    self.assertTrue(Path(final['local_high_quality_path']).is_file())
+   self.assertRegex(Path(final['local_high_quality_path']).name, r'^\d{4}成片测试标题\.mp4$')
 
 if __name__=='__main__':unittest.main()

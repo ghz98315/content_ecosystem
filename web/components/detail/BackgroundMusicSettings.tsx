@@ -26,12 +26,12 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
   useEffect(() => {
     let active=true;
     Promise.all([
-      supabase.from('tasks').select('bgm_path,bgm_volume,narration_volume,bgm_authorization_confirmed').eq('id',taskId).single(),
+      supabase.from('tasks').select('bgm_path,bgm_volume,narration_volume').eq('id',taskId).single(),
       supabase.from('stages').select('params').eq('task_id',taskId).eq('kind','image').single(),
     ]).then(([{data,error},imageStage]) => {
       if (!active) return;
       if (error) {setError('背景音乐配置读取失败，请刷新重试');return;}
-      setPath(data.bgm_path || '');setVolume(Number(data.bgm_volume ?? DEFAULT_BGM_VOLUME));setNarration(Number(data.narration_volume));setAuthorized(data.bgm_authorization_confirmed);setReady(true);
+      setPath(data.bgm_path || '');setVolume(Number(data.bgm_volume ?? DEFAULT_BGM_VOLUME));setNarration(Number(data.narration_volume));setAuthorized(Boolean(data.bgm_path));setReady(true);
       const current=musicPresetByPath(data.bgm_path || '');
       const personalCategory = userMusicPresetMatch(data.bgm_path || '')?.[2] as MusicCategory | undefined;
       const params = imageStage.data?.params;
@@ -75,9 +75,9 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
       setMessage('正在上传音乐文件…');
       const {error}=await supabase.storage.from('artifacts').uploadToSignedUrl(next,prepared.token,uploadFile,{contentType:uploadFile.type || 'audio/mpeg'});
       if(error)throw error;
-      setPath(next);setVolume(DEFAULT_BGM_VOLUME);setAuthorized(false);
+      setPath(next);setVolume(DEFAULT_BGM_VOLUME);setAuthorized(true);
       if (saveAsPreset) setPresetRevision(value => value + 1);
-      setMessage(saveAsPreset ? '已上传到个人预设库。确认授权并保存，即可用于当前任务。' : '音乐已上传，请试听并保存音乐设置。');
+      setMessage(saveAsPreset ? '已上传到个人预设库。保存音乐设置后即可用于当前任务。' : '音乐已上传，请试听并保存音乐设置。');
     } catch(err) {
       setMessage('');
       setError(err && typeof err === 'object' && 'message' in err ? String(err.message) : '音乐上传失败');
@@ -130,8 +130,8 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
         const next=event.target.value;
         if (!next) return;
         const preset=musicPresetByPath(next);
-        setPath(next);setVolume(DEFAULT_BGM_VOLUME);setAuthorized(Boolean(preset && !preset.userProvided));
-        setMessage(preset ? '内置音乐已选择，请试听并保存。' : '个人预设已选择，请确认授权后保存。');
+        setPath(next);setVolume(DEFAULT_BGM_VOLUME);setAuthorized(true);
+        setMessage(preset ? '内置音乐已选择，请试听并保存。' : '个人预设已选择，请试听并保存。');
       }}><option value="">选择一首试听</option><optgroup label="工作台内置音乐">{MUSIC_PRESETS.filter(item=>item.category===category).map(item=><option value={item.path} key={item.id}>{item.label} · {item.mood}</option>)}</optgroup>{personal.length > 0 && <optgroup label="我的预设音乐">{personal.map(item => <option key={item.path} value={item.path}>{item.label}</option>)}</optgroup>}</select></label>
       {selectedPreset && <div className="bgm-preset-credit"><span>{selectedPreset.userProvided ? '用户提供音乐，请按实际授权范围使用。' : '这首音乐采用 CC BY 4.0，发布视频时请在简介中署名。'}</span><button type="button" className="secondary-action" onClick={()=>void navigator.clipboard.writeText(selectedPreset.credit).then(()=>setMessage('音乐信息已复制。')).catch(()=>setError('复制失败，请手动复制下方文字'))}>复制音乐信息</button><small>{selectedPreset.credit}</small></div>}
       {personal.some(item => item.path === path) && <button type="button" disabled={busy} onClick={()=>void deletePreset()}>删除所选个人预设</button>}
@@ -142,7 +142,7 @@ export function BackgroundMusicSettings({ taskId }: { taskId: string }) {
       <div className="bgm-section-heading"><strong>调节混音音量</strong><small>背景音乐是陪衬；配音是人声。两项音量只在合成视频时生效，不会改动原始音频文件。</small></div>
       <label>背景音乐音量 {Math.round(volume*100)}%<input type="range" min="0.02" max="0.30" step="0.01" value={volume} disabled={!ready || busy} onChange={event=>{setVolume(Number(event.target.value));setMessage('有未保存修改');}} /></label>
       <label>人声配音音量 {Math.round(narration*100)}%<input type="range" min="0.50" max="1.50" step="0.05" value={narration} disabled={!ready || busy} onChange={event=>{setNarration(Number(event.target.value));setMessage('有未保存修改');}} /></label>
-      <label><input type="checkbox" checked={authorized} disabled={!path || busy || Boolean(selectedPreset && !selectedPreset.userProvided)} onChange={event=>setAuthorized(event.target.checked)} />{selectedPreset && !selectedPreset.userProvided ? '预设音乐已按 CC BY 4.0 授权，请按上方提示署名' : '我确认已取得该音乐的使用授权'}</label>
+      <label><input type="checkbox" checked={authorized} disabled={!path || busy} onChange={event=>setAuthorized(event.target.checked)} />{selectedPreset && !selectedPreset.userProvided ? '预设音乐已按 CC BY 4.0 授权，请按上方提示署名' : '我确认已取得该音乐的使用授权'}</label>
       <button type="button" disabled={!ready || busy} onClick={()=>void save()}>保存音乐设置</button>
       <button type="button" disabled={!ready || busy} onClick={()=>void save(false,true)}>保存配乐并重新成片</button>
       {path && <button type="button" disabled={busy} onClick={()=>void save(true)}>移除背景音乐</button>}

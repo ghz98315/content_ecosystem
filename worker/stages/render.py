@@ -13,6 +13,8 @@ import tempfile
 import time
 import unicodedata
 from functools import lru_cache
+from datetime import datetime, timedelta, timezone
+from itertools import count
 from pathlib import Path
 
 import imageio_ffmpeg
@@ -517,6 +519,29 @@ def _render_text_settings(stage: dict, book: dict, rewrite: dict) -> dict:
         'health_text_style': is_health,
         'guoxue_text_style': is_guoxue,
     }
+
+
+def _save_local_master(source: Path, export_dir: Path, title: str, *, now: datetime | None = None) -> Path:
+    china_time = timezone(timedelta(hours=8))
+    date = (now or datetime.now(china_time)).astimezone(china_time).strftime('%m%d')
+    safe_title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', title.strip())[:100].rstrip(' .')
+    stem = f'{date}{safe_title or "成片"}'
+    export_dir.mkdir(parents=True, exist_ok=True)
+    with source.open('rb') as audio_video:
+        for version in count(1):
+            suffix = '' if version == 1 else f'（{version}）'
+            target = export_dir / f'{stem}{suffix}.mp4'
+            try:
+                output = target.open('xb')
+            except FileExistsError:
+                continue
+            try:
+                with output:
+                    shutil.copyfileobj(audio_video, output)
+            except OSError:
+                target.unlink(missing_ok=True)
+                raise
+            return target
 
 
 def _history_cover_text(stage: dict, rewrite: dict) -> tuple[str, str]:
@@ -1468,9 +1493,8 @@ def run(stage: dict) -> tuple[str, str | None]:
                     or not high_probe.get('has_audio')):
                 raise ValueError('本机高清成片质检未通过；旧成片已保留')
             export_dir = Path(__file__).resolve().parents[1] / 'output' / 'high-quality-exports' / task_id
-            export_dir.mkdir(parents=True, exist_ok=True)
-            export_path = export_dir / f'{uuid.uuid4().hex}.mp4'
-            shutil.copyfile(high_temp, export_path)
+            title = text_settings['title'] or str(task_context.get('title') or '').strip() or book_name
+            export_path = _save_local_master(Path(high_temp), export_dir, title)
             local_high_quality_path = str(export_path)
             local_high_quality_bytes = export_path.stat().st_size
             print(f'  [render] 本机清晰版 {local_high_quality_bytes / 1048576:.1f} MiB', flush=True)

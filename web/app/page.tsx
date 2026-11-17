@@ -73,14 +73,15 @@ export default function HomePage() {
       const selected=profiles.data?.find(p=>p.is_default)||profiles.data?.find(p=>p.provider==='edge'&&p.voice_id==='zh-CN-XiaoxiaoNeural');
       if(selected)voice={...voice,...selected};
     }
+    const defaultPreset = MUSIC_PRESETS.find(p => p.category === productionTemplate(templateId).category);
     const { data: createdTask, error } = await supabase.from("tasks").insert({
       owner: userId,
       source_url: inputMode === 'link' ? url.trim() : null,
       source_platform: inputMode === 'ready_script' ? 'manual' : /weixin\.qq\.com|channels\.weixin\.qq\.com/i.test(url) ? "wechat_channels" : "douyin",
       title: inputMode === 'ready_script' ? (scriptTitle.trim() || script.split(/[。！？\n]/)[0].slice(0, 36) || '已导入成稿') : null,
-      bgm_path: MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)?.path || null,
+      bgm_path: defaultPreset?.path || null,
       bgm_volume:DEFAULT_BGM_VOLUME,
-      bgm_authorization_confirmed: !MUSIC_PRESETS.find(p=>p.category===productionTemplate(templateId).category)?.userProvided,
+      bgm_authorization_confirmed: Boolean(defaultPreset),
       tts_rate:"-8%",
       status: "configuring",
       content_category: databaseCategory(templateId),
