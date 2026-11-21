@@ -138,10 +138,19 @@ def align(text: str, words: list[dict], duration: float, *, repair: bool = False
     char_times = {i: times[j] for i, j in matched.items()}
     repaired: set[int] = set()
     if repair:
+        if times and not any(end-start >= .001 for start, end in times):
+            raise ValueError('识别未返回可用的逐字时间信息，请重新识别或检查录音文件')
         coverage = len(matched) / max(1, max(len(source), len(transcript)))
         changes = [op for op in matcher.get_opcodes() if op[0] != 'equal']
         if coverage < .80 or any(max(b-a, d-c) > 24 for _,a,b,c,d in changes):
             raise ValueError('录音与字幕文案差异较大，不能作为普通识别误差自动纠正；请上传匹配的录音或字幕稿')
+        def update_time(target: int, interval: tuple[float, float]) -> None:
+            times[target] = interval
+            for source_index, target_index in matched.items():
+                if target_index == target:
+                    char_times[source_index] = interval
+                    repaired.add(source_index)
+
         # Exact ASR matches can still have zero duration. Assign a bounded
         # window to the whole collapsed token before building subtitle cues.
         index = 0
@@ -155,17 +164,37 @@ def align(text: str, words: list[dict], duration: float, *, repair: bool = False
                 finish += 1
             left = times[index - 1][1] if index else 0.0
             right = times[finish][0] if finish < len(times) else duration
+            if right - left < .02:
+                # A collapsed timestamp may sit flush against both adjacent
+                # words. Borrow a short interval from a timed neighbour,
+                # preserving the rest of the recording and cue order.
+                preceding = index - 1
+                following = finish
+                previous_span = times[preceding][1] - times[preceding][0] if preceding >= 0 else 0.0
+                next_span = times[following][1] - times[following][0] if following < len(times) else 0.0
+                if max(previous_span, next_span) >= .04:
+                    count = finish - index
+                    if previous_span >= next_span:
+                        boundary = times[preceding][1]
+                        span = min(.3, count*.15, previous_span/2)
+                        update_time(preceding, (times[preceding][0], boundary-span))
+                        begin = boundary-span
+                    else:
+                        begin = times[following][0]
+                        span = min(.3, count*.15, next_span/2)
+                        update_time(following, (begin+span, times[following][1]))
+                    step = span/count
+                    for offset in range(index, finish):
+                        update_time(offset, (begin+(offset-index)*step, begin+(offset-index+1)*step))
+                    index = finish
+                    continue
             if right - left >= .02:
                 span = min(.3, (finish-index)*.15, right-left)
                 center = min(max(start, left + span/2), right - span/2)
                 begin = center - span/2
                 step = span/(finish-index)
                 for offset in range(index, finish):
-                    times[offset] = (begin+(offset-index)*step, begin+(offset-index+1)*step)
-                for source_index, target_index in matched.items():
-                    if index <= target_index < finish:
-                        char_times[source_index] = times[target_index]
-                        repaired.add(source_index)
+                    update_time(offset, (begin+(offset-index)*step, begin+(offset-index+1)*step))
             index = finish
         for _, a, b, c, d in changes:
             if a == b:

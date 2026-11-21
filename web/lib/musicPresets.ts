@@ -8,7 +8,7 @@ export function isMusicCategory(value: unknown): value is MusicCategory {
   return typeof value === 'string' && Object.hasOwn(MUSIC_CATEGORIES, value);
 }
 
-export const DEFAULT_BGM_VOLUME = 0.10;
+export const DEFAULT_BGM_VOLUME = 0.20;
 
 export type MusicPreset = {
   id: string;

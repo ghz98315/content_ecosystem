@@ -18,6 +18,24 @@ class ExternalAlignmentTests(unittest.TestCase):
         self.assertGreater(cue['end'],cue['start'])
         self.assertLessEqual(cue['end'],44.75)
 
+    def test_zero_duration_word_at_shared_boundary_borrows_neighbour_time(self):
+        text='先读经典。所以继续。'
+        words=[{'word':'先读经典','start':0,'end':1.2},
+               {'word':'所以','start':1.2,'end':1.2},
+               {'word':'继续','start':1.2,'end':2.0}]
+        cues,coverage=align(text,words,2.2,repair=True)
+        checked=validate_cues(text,cues,2.2)
+        self.assertEqual(1,coverage)
+        self.assertEqual('先读经典所以继续',''.join(c['text'] for c in checked))
+        self.assertTrue(any(c['auto_repaired'] for c in checked))
+        self.assertTrue(all(c['end']>c['start'] for c in checked))
+
+    def test_all_zero_duration_words_remain_unresolved(self):
+        text='今天读书。'
+        words=[{'word':'今天读书','start':0,'end':0}]
+        with self.assertRaisesRegex(ValueError,'未返回可用的逐字时间信息'):
+            align(text,words,2,repair=True)
+
     def test_unrelated_long_recording_is_not_treated_as_asr_noise(self):
         script='孔子带着学生周游列国，向隐士询问渡口。' * 8
         audio='八十岁也能保持思维敏捷，今天读不老的大脑。' * 35
