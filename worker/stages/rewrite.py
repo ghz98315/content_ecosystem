@@ -567,8 +567,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             issues = list(dict.fromkeys(issues + health_attribution_issues(text, hook)))
         strategies = obj.get('rewrite_strategy', []) if isinstance(obj, dict) else []
         strategies = [s.strip()[:240] for s in strategies if isinstance(s, str) and s.strip()][:5] if isinstance(strategies, list) else []
-        if historical and len(set(strategies)) < 2:
-            issues.append('请说明至少两种中段重构方法及实际落点')
+        if historical and len(set(strategies)) < 3:
+            issues.append('请说明至少三种中段重构方法及实际落点')
         entry = {'attempt': attempt + 1, 'revision': attempt, 'text': text,
                  'generation_seconds': round(time.monotonic() - request_started, 3),
                  'strategy': strategies, 'issues': issues, 'similarity': similarity,

@@ -44,11 +44,14 @@ class RewriteSkillTests(unittest.TestCase):
    self.assertIn('information_card',prompt)
  def test_history_rules_keep_narrative_and_move_disclaimers_to_review(self):
   prompt,profile=prompt_extension(resolve_domain('荣格在塔楼里讲了一个故事。',category='social_science'))
-  self.assertEqual('history-1.1',profile['version'])
+  self.assertEqual('history-1.2',profile['version'])
   self.assertIn('场景、人物动作、家庭或心理案例',prompt)
   self.assertIn('对话可以改写',prompt)
   self.assertIn('口播中删除免责',prompt)
   self.assertIn('必须深度塑造阅读价值',prompt)
+  self.assertIn('至少结合三种方法',prompt)
+  self.assertIn('不要求逐项举证',prompt)
+  self.assertIn('直接按可靠依据修正文稿',prompt)
   self.assertGreater(prompt.rfind('口播中删除免责'),prompt.find('附加交付约定'))
  def test_health_audience_and_attribution_rules_are_domain_scoped(self):
   health,_=prompt_extension(resolve_domain('关注血糖变化。','health'))
@@ -61,10 +64,12 @@ class RewriteSkillTests(unittest.TestCase):
   self.assertNotIn('银发女性',guoxue)
  def test_health_rules_follow_shared_contract_and_keep_literary_narrative(self):
   prompt,profile=prompt_extension(resolve_domain('《局外人》写孤独和选择。','health'))
-  self.assertEqual('1.6.0',profile['version'])
+  self.assertEqual('1.6.1',profile['version'])
   self.assertIn('故事冲突、生活场景、对话、意象',prompt)
   self.assertIn('把阅读价值讲透',prompt)
   self.assertIn('逐句降调',prompt)
+  self.assertIn('至少组合三种方法',prompt)
+  self.assertIn('不要求逐项举证',prompt)
   self.assertGreater(prompt.rfind('逐句降调'),prompt.find('附加交付约定'))
  def test_fact_and_output_anchors(self):
   obj={'information_card':[{'id':'F01','source_quote':'孩子更换工作','summary':'换工作'}],

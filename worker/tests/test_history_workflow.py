@@ -44,7 +44,7 @@ class HistoryWorkflowTests(unittest.TestCase):
         rewritten_tail = '如果您也想看懂这些关系，不妨翻开《示例读本》，从中学会辨认边界，也少把旧情绪带给家里人。'
         rewritten = rewritten_body + '\n\n' + rewritten_tail
         response = SimpleNamespace(choices=[SimpleNamespace(finish_reason='stop', message=SimpleNamespace(content=json.dumps({
-            'rewritten_remainder': rewritten, 'rewrite_strategy': ['从结果讲起', '改用生活比喻'],
+            'rewritten_remainder': rewritten, 'rewrite_strategy': ['从结果讲起', '改用生活比喻', '拆并句子调整节奏'],
         }, ensure_ascii=False)))])
         self.assertEqual(tail, history_conversion_tail(source))
         self.assertEqual(hook, opening_hook(source, 'social_science'))
