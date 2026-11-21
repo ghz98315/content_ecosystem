@@ -4,6 +4,20 @@ from external_alignment import align, differences, recording_match_report, valid
 
 
 class ExternalAlignmentTests(unittest.TestCase):
+    def test_exact_zero_duration_word_is_repaired_between_real_neighbours(self):
+        text='相信的事实。所以，碰到一个人。'
+        words=[{'word':'相信的事实','start':41.97,'end':43.81},
+               {'word':'所以','start':44.45,'end':44.45},
+               {'word':'碰到一个人','start':44.75,'end':46.99}]
+        cues,coverage=align(text,words,48,repair=True)
+        checked=validate_cues(text,cues,48)
+        self.assertEqual(1,coverage)
+        cue=next(c for c in checked if c['text']=='所以')
+        self.assertTrue(cue['auto_repaired'])
+        self.assertGreaterEqual(cue['start'],43.81)
+        self.assertGreater(cue['end'],cue['start'])
+        self.assertLessEqual(cue['end'],44.75)
+
     def test_unrelated_long_recording_is_not_treated_as_asr_noise(self):
         script='孔子带着学生周游列国，向隐士询问渡口。' * 8
         audio='八十岁也能保持思维敏捷，今天读不老的大脑。' * 35

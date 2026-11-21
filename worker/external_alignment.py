@@ -142,6 +142,31 @@ def align(text: str, words: list[dict], duration: float, *, repair: bool = False
         changes = [op for op in matcher.get_opcodes() if op[0] != 'equal']
         if coverage < .80 or any(max(b-a, d-c) > 24 for _,a,b,c,d in changes):
             raise ValueError('录音与字幕文案差异较大，不能作为普通识别误差自动纠正；请上传匹配的录音或字幕稿')
+        # Exact ASR matches can still have zero duration. Assign a bounded
+        # window to the whole collapsed token before building subtitle cues.
+        index = 0
+        while index < len(times):
+            start, end = times[index]
+            if end - start >= .001:
+                index += 1
+                continue
+            finish = index + 1
+            while finish < len(times) and times[finish][1] - times[finish][0] < .001 and abs(times[finish][0] - start) < .001:
+                finish += 1
+            left = times[index - 1][1] if index else 0.0
+            right = times[finish][0] if finish < len(times) else duration
+            if right - left >= .02:
+                span = min(.3, (finish-index)*.15, right-left)
+                center = min(max(start, left + span/2), right - span/2)
+                begin = center - span/2
+                step = span/(finish-index)
+                for offset in range(index, finish):
+                    times[offset] = (begin+(offset-index)*step, begin+(offset-index+1)*step)
+                for source_index, target_index in matched.items():
+                    if index <= target_index < finish:
+                        char_times[source_index] = times[target_index]
+                        repaired.add(source_index)
+            index = finish
         for _, a, b, c, d in changes:
             if a == b:
                 continue
