@@ -82,7 +82,7 @@ export function RewriteReviewPanel({ report, source, text, evaluatedText }: {
       <div><span>可改写区重复指标</span><strong>{pct(report.unlocked.score)}</strong></div>
       <div><span>重复指标目标</span><strong>{polish ? '仅供参考' : `低于 ${pct(report.threshold)}`}</strong></div>
       <div><span>开头逐字保留</span><strong>{report.hook_preserved ? '已保留' : '需核对'}</strong></div>
-      {report.tail_locked && <div><span>转化结尾逐字保留</span><strong>{report.tail_preserved ? '已保留' : '需核对'}</strong></div>}
+      {report.tail_locked && <div><span>原转化结尾</span><strong>{report.tail_preserved ? '已保留' : '已改写 · 人工确认'}</strong></div>}
     </div>
     {report.min_chars != null && <p>生成目标：{report.planned_min_chars != null ? `至少 ${report.planned_min_chars} 字` : '按当前类别预算'}；执行范围：{report.min_chars}{report.max_chars != null ? `–${report.max_chars}` : ' 以上'} 字。生成稿字数偏差 {(report.length_deviation * 100).toFixed(1)}%。人工编辑后以页面当前字数和确认校验为准。</p>}
     {!!report.planning_warnings?.length && <p className="rewrite-review-warning">本稿未达到规划目标，请结合执行范围确认：{report.planning_warnings.join('；')}</p>}

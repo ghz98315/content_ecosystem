@@ -888,15 +888,10 @@ def run(stage: dict) -> tuple[str, str | None]:
                 final_text = str(params.get("final_text") or candidates[idx]).strip()
                 if not final_text:
                     raise ValueError("最终文案不能为空")
-                if 'locked_tail_text' in rw:
-                    saved_hook = str(rw.get('hook_text') or '')
-                    saved_tail = str(rw['locked_tail_text'] or '')
-                    if not final_text.startswith(saved_hook) or not final_text.endswith(saved_tail):
-                        rw['manual_draft'] = {'index': idx, 'text': final_text}
-                        _upload_rewrite(sp, rw)
-                        db.set_stage(stage['id'], 'needs_review', output_ref=sp,
-                                     error='历史社科的锁定钩子和转化结尾须逐字保留，请恢复原文后再确认')
-                        return 'needs_review', sp
+                # Older history artifacts can still contain a frozen tail.
+                # Confirmation is an explicit human decision: keep deviations
+                # in the final review report, but do not bounce the stage back
+                # into an unconfirmable review loop.
                 if rw.get('rewrite_review'):
                     original_source = rw.get('source_text') or source
                     minimum, maximum = length_bounds(original_source, context['category'])

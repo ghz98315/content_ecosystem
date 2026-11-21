@@ -64,6 +64,17 @@ class HistoryWorkflowTests(unittest.TestCase):
         self.assertEqual((90, 110), length_bounds('甲' * 100, 'social_science'))
         self.assertEqual('history', resolve_domain(source, category='social_science')['domain'])
 
+    def test_legacy_locked_tail_deviation_is_reported_for_human_review(self):
+        hook = '第一句。第二句。第三句。第四句。'
+        tail = '原来的转化结尾。'
+        source = hook + '中间正文内容足够长。' * 12 + tail
+        edited = hook + '人工改写后的正文内容。' * 12 + '人工重塑后的阅读价值。'
+        report = evaluate(source, edited, hook, 'social_science', locked_tail=tail)
+        self.assertTrue(report['hook_preserved'])
+        self.assertTrue(report['tail_locked'])
+        self.assertFalse(report['tail_preserved'])
+        self.assertIn('转化结尾未逐字保留', report['retry_issues'])
+
     def test_render_template_accepts_old_and_new_snapshots(self):
         for version, style, ratio, mode in ((1, 'history_ink_scroll', '9:16', 'portrait'),
                                             (2, 'history_period_film', '4:3', 'landscape_blur')):

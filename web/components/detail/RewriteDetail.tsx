@@ -107,11 +107,6 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
       setErr("最终文案不能为空");
       return;
     }
-    if (data?.locked_tail_text != null && ((data.hook_text && !finalText.startsWith(data.hook_text))
-        || (data.locked_tail_text && !finalText.endsWith(data.locked_tail_text)))) {
-      setErr('历史社科的锁定钩子和转化结尾须逐字保留，请恢复原文后再确认。');
-      return;
-    }
     const isHistory = task.content_category === "social_science";
     setBusy(true);
     setErr(null);
@@ -143,6 +138,10 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
   const report = data?.compliance;
   const activeText = (isDone ? data?.final_text : drafts[selected ?? 0]) || drafts[selected ?? 0] || "";
   const activeLength = textLength(activeText);
+  const legacyLockEdited = Boolean(data?.locked_tail_text != null && activeText && (
+    (data.hook_text && !activeText.startsWith(data.hook_text))
+    || (data.locked_tail_text && !activeText.endsWith(data.locked_tail_text))
+  ));
   const minimumLength = data?.rewrite_review?.min_chars ?? (data?.source_text ? Math.ceil(textLength(data.source_text) * 0.85) : 0);
   const maximumLength = data?.rewrite_review?.max_chars;
   const lengthTooShort = minimumLength > 0 && (activeLength < minimumLength || (maximumLength != null && activeLength > maximumLength));
@@ -190,13 +189,14 @@ export function RewriteDetail({ stage, task, taskId, onRerun }: DetailCommon) {
             <div><span>合规状态</span><strong>{data.imported_final_script ? '用户确认稿' : report?.status === "blocked" ? "需要修改" : report?.status === "warning" ? "建议复核" : report?.status === "pass" ? "已通过" : "待检查"}</strong><small>{data.imported_final_script ? '未运行二创或自动改写检查' : report?.issues?.length ? `${report.issues.length} 项建议` : "未发现风险项"}</small></div>
           </section>
           {data.rewrite_review && <RewriteReviewPanel report={{ ...data.rewrite_review, ...(isDone ? data.final_similarity : {}) }} source={data.source_formatted || data.source_text || ''} text={activeText} evaluatedText={isDone && data.final_similarity ? data.final_text || '' : data.candidates[selected ?? 0] || ''} />}
+          {isReview && legacyLockEdited && <p role="status" className="rewrite-review-warning">开头钩子或原转化结尾已被人工修改。系统不再阻断提交，请确认语义、事实和转化表达后继续。</p>}
           {isReview && lengthTooShort && <p role="alert">当前稿件 {activeLength} 字，目标 {minimumLength}{maximumLength != null ? `–${maximumLength}` : ' 字以上'}。请核对是否遗漏信息；若确认可用，可直接人工确认继续。</p>}
           {data.hook && <section className="rewrite-hook-panel" aria-label="开头钩子"><div><span>开头钩子</span><strong>{data.hook}</strong></div><small>{data.hook_strategy === "preserved" ? "原文锁定钩子" : data.hook_strategy === "contrast" ? "反差钩子" : data.hook_strategy === "suspense" ? "悬念钩子" : "反常识钩子"}</small></section>}
 
           {(data.hook_text || data.body_text || data.tail_text) && <section className="rewrite-lock-status" aria-label="改写结构" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-hover)" }}>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>开头</span><strong>已锁定</strong><small style={{ display: "block" }}>{data.hook_text ? `${textLength(data.hook_text)} 字` : ""}</small></div>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>中段</span><strong>{data.rewrite_review?.reuse_target_applies === false ? '保留结构精修' : '深度重写'}</strong><small style={{ display: "block" }}>{data.body_text ? `${textLength(data.body_text)} 字` : ""}</small></div>
-            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>{data.locked_tail_text ? '转化原文已锁定' : data.rewrite_review ? '按语义重写' : '原版本'}</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
+            <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>结尾</span><strong>{data.locked_tail_text ? '原转化结尾 · 可人工改写' : data.rewrite_review ? '按语义重写' : '原版本'}</strong><small style={{ display: "block" }}>{data.tail_text ? `${textLength(data.tail_text)} 字` : ""}</small></div>
             <div><span style={{ display: "block", color: "var(--text-secondary)", fontSize: 11 }}>书名</span><strong>{data.book_title ? "随文案确认" : "未识别"}</strong></div>
           </section>}
           <div className="rewrite-workspace">
