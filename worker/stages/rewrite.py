@@ -22,7 +22,7 @@ from rewrite_review import (
 )
 from rewrite_skill import resolve_domain, prompt_extension, audit_output, DomainConflict
 from rewrite_editorial import scene_plan_audit, health_attribution_issues, repair_scope, apply_paragraph_edits
-from spoken_style import spoken_style_issues
+from spoken_style import health_conversational_issues, history_style_issues, spoken_style_issues
 from prompt_profiles import (
     SPOKEN_STYLE_RULES,
     author_name,
@@ -389,7 +389,11 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
     category = context['category']
     historical = category == 'social_science'
     hook = opening_hook(source, category)
-    tail = history_conversion_tail(source) if historical else ''
+    # Historical recommendations need value shaping rather than verbatim
+    # locking. Keep the detected source tail for audit/UI, but rewrite it with
+    # the rest of the editable body while preserving its intent and book name.
+    source_tail = history_conversion_tail(source) if historical else ''
+    tail = ''
     polish_only = mode != 'repost_dedup' and category == 'health' and context.get('rewrite_approach') == 'polish'
     prompt_kind = 'history_rewrite' if historical else 'polish' if polish_only else 'initial_dedup'
     prompt = load_prompt(category, prompt_kind)
@@ -549,6 +553,10 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             issues.append('未原样保留书名或数字：' + '、'.join(missing_terms))
         issues = list(dict.fromkeys(issues))
         issues = list(dict.fromkeys(issues + spoken_style_issues(text, hook, tail)))
+        if historical:
+            issues = list(dict.fromkeys(issues + history_style_issues(text, hook)))
+        if context['category'] == 'health':
+            issues = list(dict.fromkeys(issues + health_conversational_issues(text, hook, source)))
         skill_audit = audit_output(source, text, obj) if skill_profile else None
         if skill_audit:
             issues = list(dict.fromkeys(issues + skill_audit['issues']))
@@ -580,8 +588,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             'editorial': editorial,
         })
         if historical:
-            structure['locked_tail_text'] = tail
-            structure.update(cta_original=tail, cta_revised=tail)
+            structure['locked_tail_text'] = ''
+            structure.update(cta_original=source_tail, cta_revised=actual_tail)
         if skill_audit:
             structure['rewrite_skill'] = {**skill_profile, **skill_audit}
         if checkpoint:

@@ -7,7 +7,7 @@ from pathlib import Path
 from rewrite_review import normalized
 
 ROOT = Path(__file__).resolve().parent.parent / 'skills' / 'book-video-rewrite'
-VERSION = '1.5.0'
+VERSION = '1.6.0'
 DOMAINS = {'guoxue', 'health', 'mixed', 'general', 'scene'}
 LABELS = {'guoxue':'国学','health':'女性成长与健康生活','mixed':'国学与健康混合','general':'通用','scene':'山河人文'}
 CLASSICS = ('道德经','论语','庄子','孟子','大学','中庸','易经','黄帝内经')
@@ -31,7 +31,7 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
     explicit = str(explicit or 'auto')
     if category == 'social_science':
         return {'domain':'history', 'label':'历史社科', 'reason':'历史社科生产线',
-                'evidence':{'templates':sorted(set(templates))}, 'version':'history-1.0'}
+                'evidence':{'templates':sorted(set(templates))}, 'version':'history-1.1'}
     if category == 'scene' and explicit not in {'auto','scene'}:
         raise DomainConflict('山河人文生产线请使用山河人文二创规则')
     if category == 'scene' and explicit == 'auto':
@@ -83,8 +83,11 @@ def prompt_extension(profile):
     if profile['domain'] == 'history':
         rules = (ROOT / 'references' / 'history.md').read_text(encoding='utf-8')
         contract = (Path(__file__).parent/'prompts'/'rewrite_skill_contract.txt').read_text(encoding='utf-8').strip()
-        text = rules + '\n\n' + contract + '\n历史社科的 tail_text 由程序填充，模型只输出可改写中段。'
-        return text, {**profile, 'version':'history-1.0', 'rule_files':['history.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
+        # The shared contract defines the JSON/evidence envelope.  Put the
+        # category rules last so history narration keeps its scenes and
+        # dialogue while uncertainty notes stay in review metadata.
+        text = contract + '\n\n' + rules + '\n历史哲科只锁定开头钩子；模型输出钩子之后的完整正文，并保留原有荐书对象与转化意图。'
+        return text, {**profile, 'version':'history-1.1', 'rule_files':['history.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
     if profile['domain'] == 'scene':
         root = ROOT.parent / 'scene-video-pipeline'
         rules = (root / 'references' / 'rewrite-production.md').read_text(encoding='utf-8')
@@ -102,6 +105,14 @@ def prompt_extension(profile):
     pieces.append(contract)
     digest = hashlib.sha256('\n'.join(pieces).encode()).hexdigest()
     profile = {**profile, 'rule_files':references, 'rules_sha256':digest}
+    if profile['domain'] == 'health':
+        # Keep the shared JSON/evidence contract, then let health-specific
+        # rules decide what remains in narration and what stays in review.
+        return '\n\n'.join([
+            f"本次二创领域：{profile['label']}。依据：{profile['reason']}。",
+            contract,
+            *rules,
+        ]), profile
     return '\n\n'.join([f"本次二创领域：{profile['label']}。依据：{profile['reason']}。",*rules,contract]), profile
 
 

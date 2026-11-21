@@ -42,6 +42,14 @@ class RewriteSkillTests(unittest.TestCase):
    prompt,profile=prompt_extension(resolve_domain('虚构主题。',domain))
    self.assertEqual(profile['rule_files'],files);self.assertEqual(len(profile['rules_sha256']),64)
    self.assertIn('information_card',prompt)
+ def test_history_rules_keep_narrative_and_move_disclaimers_to_review(self):
+  prompt,profile=prompt_extension(resolve_domain('荣格在塔楼里讲了一个故事。',category='social_science'))
+  self.assertEqual('history-1.1',profile['version'])
+  self.assertIn('场景、人物动作、家庭或心理案例',prompt)
+  self.assertIn('对话可以改写',prompt)
+  self.assertIn('口播中删除免责',prompt)
+  self.assertIn('必须深度塑造阅读价值',prompt)
+  self.assertGreater(prompt.rfind('口播中删除免责'),prompt.find('附加交付约定'))
  def test_health_audience_and_attribution_rules_are_domain_scoped(self):
   health,_=prompt_extension(resolve_domain('关注血糖变化。','health'))
   mixed,_=prompt_extension(resolve_domain('谈《黄帝内经》与血压。','mixed'))
@@ -49,8 +57,15 @@ class RewriteSkillTests(unittest.TestCase):
   for prompt in (health,mixed):
    self.assertIn('50岁以上',prompt)
    self.assertIn('银发女性',prompt)
-   self.assertIn('不能为了口播自然省掉证据边界',prompt)
+   self.assertIn('只有涉及诊断、用药、治疗',prompt)
   self.assertNotIn('银发女性',guoxue)
+ def test_health_rules_follow_shared_contract_and_keep_literary_narrative(self):
+  prompt,profile=prompt_extension(resolve_domain('《局外人》写孤独和选择。','health'))
+  self.assertEqual('1.6.0',profile['version'])
+  self.assertIn('故事冲突、生活场景、对话、意象',prompt)
+  self.assertIn('把阅读价值讲透',prompt)
+  self.assertIn('逐句降调',prompt)
+  self.assertGreater(prompt.rfind('逐句降调'),prompt.find('附加交付约定'))
  def test_fact_and_output_anchors(self):
   obj={'information_card':[{'id':'F01','source_quote':'孩子更换工作','summary':'换工作'}],
        'rewrite_outline':[{'purpose':'先说担忧','fact_ids':['F01'],'target_quote':'工作要换的时候'}]}

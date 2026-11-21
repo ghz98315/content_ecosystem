@@ -35,12 +35,14 @@ class HistoryWorkflowTests(unittest.TestCase):
         client.assert_called_once_with(api_key='test-key', base_url='https://api.deepseek.example/v1',
                                        timeout=config.DEEPSEEK_TIMEOUT, max_retries=0)
 
-    def test_generated_script_locks_both_ends_and_reports_middle_reuse(self):
+    def test_generated_script_locks_hook_and_rewrites_book_value_tail(self):
         hook = '第一句留个悬念。第二句说到旧事。第三句引出人物。第四句回到日常。'
         middle = '甲乙丙丁戊己庚辛壬癸' * 18 + '。'
         tail = '最后，我推荐一本《示例读本》。买不买随您，有空可以翻一翻。'
         source = f'{hook}\n\n{middle}\n\n{tail}'
-        rewritten = '春夏秋冬东西南北山川' * 18 + '。'
+        rewritten_body = '春夏秋冬东西南北山川' * 17 + '。'
+        rewritten_tail = '如果您也想看懂这些关系，不妨翻开《示例读本》，从中学会辨认边界，也少把旧情绪带给家里人。'
+        rewritten = rewritten_body + '\n\n' + rewritten_tail
         response = SimpleNamespace(choices=[SimpleNamespace(finish_reason='stop', message=SimpleNamespace(content=json.dumps({
             'rewritten_remainder': rewritten, 'rewrite_strategy': ['从结果讲起', '改用生活比喻'],
         }, ensure_ascii=False)))])
@@ -50,10 +52,13 @@ class HistoryWorkflowTests(unittest.TestCase):
         with patch.object(rewrite, '_request_rewrite', return_value=response) as call:
             candidates, _, structure = rewrite._generate_candidates(source, {'category':'social_science'})
         self.assertEqual(1, call.call_count)
-        self.assertEqual('\n\n'.join((hook, rewritten, tail)), candidates[0])
+        self.assertEqual('\n\n'.join((hook, rewritten)), candidates[0])
         report = structure['rewrite_review']
-        self.assertTrue(report['tail_preserved'])
-        self.assertEqual(0, report['unlocked']['score'])
+        self.assertFalse(report['tail_locked'])
+        self.assertFalse(report['tail_preserved'])
+        self.assertEqual('', structure['locked_tail_text'])
+        self.assertEqual(tail, structure['cta_original'])
+        self.assertEqual(rewritten_tail, structure['cta_revised'])
         self.assertGreater(report['full']['score'], 0.10)
         self.assertIn('转化结尾未逐字保留', evaluate(source, candidates[0][:-1], hook, 'social_science', locked_tail=tail)['retry_issues'])
         self.assertEqual((90, 110), length_bounds('甲' * 100, 'social_science'))
