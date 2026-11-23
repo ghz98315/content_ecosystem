@@ -94,6 +94,7 @@ def request_history_plan(client, model: str, scenes: list[str], *, modern_life: 
     )
     if modern_life:
         planner += '\n' + _MODERN_LIFE_DIRECTION
+    line_label = '女性成长健康' if modern_life else '历史社科'
     for start in range(0, len(scenes), _PLAN_BATCH_SIZE):
         batch = [{'index': index, 'text': scene}
                  for index, scene in enumerate(scenes[start:start + _PLAN_BATCH_SIZE], start + 1)]
@@ -114,14 +115,27 @@ def request_history_plan(client, model: str, scenes: list[str], *, modern_life: 
                             chunks.append(choice.delta.content)
         except Exception as exc:
             if getattr(exc, 'status_code', None) == 524 or 'timeout' in type(exc).__name__.lower():
-                raise RuntimeError(f'历史社科分镜{label}请求超时，尚未提交生图。请稍后重跑画面节点。') from exc
+                raise RuntimeError(f'{line_label}分镜{label}请求超时，尚未提交生图。请稍后重跑画面节点。') from exc
             raise
         try:
             payload = json.loads(''.join(chunks))
             new_cast, batch_shots = payload['cast'], payload['shots']
             if not isinstance(new_cast, list) or not isinstance(batch_shots, list):
                 raise ValueError('人物卡或镜头字段格式不正确')
-            if [shot['index'] for shot in batch_shots] != [item['index'] for item in batch]:
+            expected_indices = [item['index'] for item in batch]
+            actual_indices = [int(shot['index']) if str(shot.get('index', '')).isdigit() else shot.get('index')
+                              for shot in batch_shots if isinstance(shot, dict)]
+            if (len(batch_shots) == len(batch) and len(actual_indices) == len(batch_shots)
+                    and actual_indices == list(range(1, len(batch_shots) + 1))):
+                # Some models restart numbering for every batch even when the prompt
+                # asks for global indices. Count and order make this correction exact.
+                for shot, index in zip(batch_shots, expected_indices):
+                    shot['index'] = index
+                actual_indices = expected_indices
+            elif len(actual_indices) == len(batch_shots):
+                for shot, index in zip(batch_shots, actual_indices):
+                    shot['index'] = index
+            if actual_indices != expected_indices:
                 raise ValueError('镜头编号与本批片段不一致')
             for card in new_cast:
                 key = _text(card.get('id'), 'id', 16)
@@ -133,7 +147,7 @@ def request_history_plan(client, model: str, scenes: list[str], *, modern_life: 
                 cast.append(card)
             shots.extend(batch_shots)
         except (TypeError, AttributeError, KeyError, ValueError) as exc:
-            raise ValueError(f'历史社科分镜{label}格式异常，尚未提交生图：{exc}') from exc
+            raise ValueError(f'{line_label}分镜{label}格式异常，尚未提交生图：{exc}') from exc
     return compile_history_plan({'cast': cast, 'shots': shots}, len(scenes))
 
 

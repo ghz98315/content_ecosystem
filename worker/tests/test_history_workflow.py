@@ -372,6 +372,22 @@ class HistoryWorkflowTests(unittest.TestCase):
         self.assertIn('西方人', plan[-1]['scene'])
         self.assertNotIn('示例人物', plan[-1]['scene'])
 
+    def test_later_batch_local_numbers_are_safely_normalized(self):
+        rows = [{'index':index,'cast':[],'era':'当代','setting':'女子在窗边舒展肩颈',
+                 'composition':'中景'} for index in range(1, 7)]
+        client = MagicMock()
+        create = client.chat.completions.create
+        create.side_effect = [_mock_history_stream({'cast':[],'shots':rows}),
+                              _mock_history_stream({'cast':[],'shots':[{**rows[0], 'index':1}]})]
+        plan = request_history_plan(client, 'model', ['旁白'] * 7, modern_life=True)
+        self.assertEqual(list(range(1, 8)), [shot['index'] for shot in plan])
+
+    def test_womens_growth_format_error_uses_its_own_line_name(self):
+        client = MagicMock()
+        client.chat.completions.create.return_value = _mock_history_stream({'cast':[], 'shots':[]})
+        with self.assertRaisesRegex(ValueError, '女性成长健康分镜第1–1镜格式异常'):
+            request_history_plan(client, 'model', ['旁白'], modern_life=True)
+
     def test_history_gateway_timeout_is_identified_before_image_submission(self):
         client = MagicMock()
         timeout = RuntimeError('upstream')
