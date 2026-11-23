@@ -2,12 +2,13 @@
 from __future__ import annotations
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from rewrite_review import normalized
 
 ROOT = Path(__file__).resolve().parent.parent / 'skills' / 'book-video-rewrite'
-VERSION = '1.6.1'
+VERSION = '1.6.2'
 DOMAINS = {'guoxue', 'health', 'mixed', 'general', 'scene'}
 LABELS = {'guoxue':'国学','health':'女性成长与健康生活','mixed':'国学与健康混合','general':'通用','scene':'山河人文'}
 CLASSICS = ('道德经','论语','庄子','孟子','大学','中庸','易经','黄帝内经')
@@ -31,7 +32,7 @@ def resolve_domain(source: str, explicit='auto', templates=(), category='health'
     explicit = str(explicit or 'auto')
     if category == 'social_science':
         return {'domain':'history', 'label':'历史社科', 'reason':'历史社科生产线',
-                'evidence':{'templates':sorted(set(templates))}, 'version':'history-1.2'}
+                'evidence':{'templates':sorted(set(templates))}, 'version':'history-1.3'}
     if category == 'scene' and explicit not in {'auto','scene'}:
         raise DomainConflict('山河人文生产线请使用山河人文二创规则')
     if category == 'scene' and explicit == 'auto':
@@ -87,7 +88,7 @@ def prompt_extension(profile):
         # category rules last so history narration keeps its scenes and
         # dialogue while uncertainty notes stay in review metadata.
         text = contract + '\n\n' + rules + '\n历史哲科只锁定开头钩子；模型输出钩子之后的完整正文，并保留原有荐书对象与转化意图。'
-        return text, {**profile, 'version':'history-1.2', 'rule_files':['history.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
+        return text, {**profile, 'version':'history-1.3', 'rule_files':['history.md'], 'rules_sha256':hashlib.sha256(text.encode()).hexdigest()}
     if profile['domain'] == 'scene':
         root = ROOT.parent / 'scene-video-pipeline'
         rules = (root / 'references' / 'rewrite-production.md').read_text(encoding='utf-8')
@@ -116,11 +117,12 @@ def prompt_extension(profile):
     return '\n\n'.join([f"本次二创领域：{profile['label']}。依据：{profile['reason']}。",*rules,contract]), profile
 
 
-def audit_output(source, text, obj):
+def audit_output(source, text, obj, *, require_retention=False):
     """Validate evidence/anchors. This is not independent semantic fact verification."""
     issues=[];facts=[];outline=[];source_norm=normalized(source);text_norm=normalized(text)
     raw_facts = obj.get('information_card', []) if isinstance(obj,dict) else []
     raw_outline = obj.get('rewrite_outline', []) if isinstance(obj,dict) else []
+    raw_beats = obj.get('retention_beats', []) if isinstance(obj,dict) else []
     if not isinstance(raw_facts,list) or not raw_facts:
         issues.append('缺少信息卡 information_card，请补充带原文依据的事实条目')
         raw_facts=[]
@@ -149,7 +151,33 @@ def audit_output(source, text, obj):
         used.update(refs);observed_order.extend(positions[key] for key in refs)
         outline.append({'purpose':purpose,'fact_ids':refs,'target_quote':anchor})
     if ids-used:issues.append('部分信息卡未关联到提纲：'+'、'.join(sorted(ids-used)))
-    return {'information_card':facts,'rewrite_outline':outline,'issues':list(dict.fromkeys(issues)),
+    beats=[]
+    if require_retention:
+        expected=max(2,min(8,math.ceil(len(text_norm)/500)))
+        if not isinstance(raw_beats,list) or len(raw_beats)<expected:
+            issues.append(f'留存抓手不足：当前{len(raw_beats) if isinstance(raw_beats,list) else 0}处，按篇幅至少{expected}处')
+            raw_beats=[] if not isinstance(raw_beats,list) else raw_beats
+        seen=set();beat_positions=[]
+        for item in raw_beats[:8]:
+            if not isinstance(item,dict):issues.append('留存抓手格式无效');continue
+            anchor=str(item.get('target_quote','')).strip();function=str(item.get('function','')).strip();pull=str(item.get('next_pull','')).strip()
+            norm_anchor=normalized(anchor)
+            if len(norm_anchor)<4 or len(anchor)>100 or not function or len(function)>40 or not pull or len(pull)>100:
+                issues.append('留存抓手必须给出正文锚点、功能和继续收听理由');continue
+            if norm_anchor not in text_norm:
+                issues.append('留存抓手锚点不在实际正文中');continue
+            position=text_norm.index(norm_anchor)
+            if norm_anchor in seen:
+                issues.append('留存抓手锚点重复，请分布到不同段落');continue
+            seen.add(norm_anchor);beat_positions.append(position)
+            beats.append({'target_quote':anchor,'function':function,'next_pull':pull})
+        if len(beat_positions)>=2:
+            ordered=sorted(beat_positions)
+            gap_limit=max(550,math.ceil(len(text_norm)/max(1,expected))*3//2)
+            gaps=[b-a for a,b in zip([0,*ordered],[*ordered,len(text_norm)])]
+            if max(gaps,default=0)>gap_limit:
+                issues.append('留存抓手分布不均，中段存在过长的连续平铺区')
+    return {'information_card':facts,'rewrite_outline':outline,'retention_beats':beats,'issues':list(dict.fromkeys(issues)),
             'evidence_status':'source_quotes_and_output_anchors_checked',
             'fact_semantics_status':'需人工核对完整事实与含义；锚点对应不等于语义已独立核验',
             'source_order_changed':any(a>b for a,b in zip(observed_order,observed_order[1:])),

@@ -557,7 +557,8 @@ def _generate_single_candidates(source: str, context: dict, notes: str, mode: st
             issues = list(dict.fromkeys(issues + history_style_issues(text, hook)))
         if context['category'] == 'health':
             issues = list(dict.fromkeys(issues + health_conversational_issues(text, hook, source)))
-        skill_audit = audit_output(source, text, obj) if skill_profile else None
+        require_retention = historical or (skill_profile or {}).get('domain') in {'health', 'mixed'}
+        skill_audit = audit_output(source, text, obj, require_retention=require_retention) if skill_profile else None
         if skill_audit:
             issues = list(dict.fromkeys(issues + skill_audit['issues']))
         editorial = scene_plan_audit(source, text, obj) if context['category'] == 'scene' else None

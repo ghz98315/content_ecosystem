@@ -34,6 +34,13 @@ export interface RewriteReview {
   strategy?: string[];
   comparison_summary?: string[];
   issues?: string[];
+  rewrite_skill?: {
+    retention_beats?: Array<{
+      target_quote: string;
+      function: string;
+      next_pull: string;
+    }>;
+  } | null;
   editorial?: { notice?: string; issues?: string[]; plan?: {
     content_shape?: string; selected?: string; selection_reason?: string;
     alternatives?: Array<{id: string; structure: string; outline: string[]; reason: string}>;
@@ -99,6 +106,10 @@ export function RewriteReviewPanel({ report, source, text, evaluatedText }: {
     {!!report.issues?.length && <ul>{report.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul>}
     {!!report.comparison_summary?.length && <details open><summary>生成时的原稿与交付稿对比摘要</summary><ul>{report.comparison_summary.map((item, i) => <li key={i}>{item}</li>)}</ul></details>}
     {!!report.strategy?.length && <details open><summary>本轮重构策略（模型提供，请结合文稿核对）</summary><ul>{report.strategy.map((strategy, i) => <li key={i}>{strategy}</li>)}</ul></details>}
+    {!!report.rewrite_skill?.retention_beats?.length && <details open><summary>中段留存抓手（{report.rewrite_skill.retention_beats.length} 处）</summary>
+      <p>系统按正文实际位置检查分布。每一处都要说明观众为什么愿意继续听，不以夸张、恐吓或医疗焦虑代替内容吸引力。</p>
+      <ol>{report.rewrite_skill.retention_beats.map((beat, index) => <li key={`${beat.target_quote}-${index}`}><strong>{beat.function}</strong> · “{beat.target_quote}”<br /><span>继续听的理由：{beat.next_pull}</span></li>)}</ol>
+    </details>}
     {!report.strategy?.length && <p>模型未提供具体重构策略，请结合分段对照与重复片段人工评估。</p>}
     <details><summary>查看检测细项与重复片段</summary><p>全文5字片段重合 {pct(report.full.phrase_overlap)}；整句复用 {pct(report.full.sentence_reuse)}。字符序列相似度 {pct(report.full.sequence_similarity)} 仅作参考，不用于代表语义相似度。</p><p>可改写区最长连续复用：{report.unlocked.longest_match} 字。</p>{report.unlocked.repeated_fragments.map((fragment, i) => <blockquote key={i}>{fragment}</blockquote>)}</details>
     <div className="rewrite-reading-compare"><section><div className="rewrite-reading-heading"><h4>原稿 · 语义分段</h4><button type="button" onClick={() => void copy(source, 'source')} disabled={!source} aria-label="复制原始文案">{copyStatus === 'source' ? '已复制' : '复制原稿'}</button></div><pre>{source}</pre></section><section><div className="rewrite-reading-heading"><h4>当前改写稿</h4><button type="button" onClick={() => void copy(text, 'rewrite')} disabled={!text} aria-label="复制当前改写稿">{copyStatus === 'rewrite' ? '已复制' : '复制改写稿'}</button></div><pre>{text}</pre></section></div>

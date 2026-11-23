@@ -44,7 +44,7 @@ class RewriteSkillTests(unittest.TestCase):
    self.assertIn('information_card',prompt)
  def test_history_rules_keep_narrative_and_move_disclaimers_to_review(self):
   prompt,profile=prompt_extension(resolve_domain('荣格在塔楼里讲了一个故事。',category='social_science'))
-  self.assertEqual('history-1.2',profile['version'])
+  self.assertEqual('history-1.3',profile['version'])
   self.assertIn('场景、人物动作、家庭或心理案例',prompt)
   self.assertIn('对话可以改写',prompt)
   self.assertIn('口播中删除免责',prompt)
@@ -52,6 +52,8 @@ class RewriteSkillTests(unittest.TestCase):
   self.assertIn('至少结合三种方法',prompt)
   self.assertIn('不要求逐项举证',prompt)
   self.assertIn('直接按可靠依据修正文稿',prompt)
+  self.assertIn('retention_beats',prompt)
+  self.assertIn('每450—550字',prompt)
   self.assertGreater(prompt.rfind('口播中删除免责'),prompt.find('附加交付约定'))
  def test_health_audience_and_attribution_rules_are_domain_scoped(self):
   health,_=prompt_extension(resolve_domain('关注血糖变化。','health'))
@@ -64,12 +66,14 @@ class RewriteSkillTests(unittest.TestCase):
   self.assertNotIn('银发女性',guoxue)
  def test_health_rules_follow_shared_contract_and_keep_literary_narrative(self):
   prompt,profile=prompt_extension(resolve_domain('《局外人》写孤独和选择。','health'))
-  self.assertEqual('1.6.1',profile['version'])
+  self.assertEqual('1.6.2',profile['version'])
   self.assertIn('故事冲突、生活场景、对话、意象',prompt)
   self.assertIn('把阅读价值讲透',prompt)
   self.assertIn('逐句降调',prompt)
   self.assertIn('至少组合三种方法',prompt)
   self.assertIn('不要求逐项举证',prompt)
+  self.assertIn('retention_beats',prompt)
+  self.assertIn('每450—550字',prompt)
   self.assertGreater(prompt.rfind('逐句降调'),prompt.find('附加交付约定'))
  def test_fact_and_output_anchors(self):
   obj={'information_card':[{'id':'F01','source_quote':'孩子更换工作','summary':'换工作'}],
@@ -78,6 +82,35 @@ class RewriteSkillTests(unittest.TestCase):
   self.assertFalse(report['issues']);self.assertEqual(report['external_originality_status'],'未实测')
   obj['information_card'][0]['source_quote']='不存在的事件'
   self.assertTrue(audit_output('孩子更换工作。','工作要换的时候。',obj)['issues'])
+ def test_retention_beats_are_grounded_and_distributed(self):
+  blocks=['甲乙丙丁戊己庚辛壬癸'*35,'春夏秋冬东西南北山川'*35,'琴棋书画梅兰竹菊松柏'*35]
+  anchors=['先看第一处转折','再看中间的反差','最后留下一个问题']
+  text=blocks[0]+anchors[0]+blocks[1]+anchors[1]+blocks[2]+anchors[2]
+  source='家人开始重新安排生活。'+text
+  obj={'information_card':[{'id':'F01','source_quote':'家人开始重新安排生活','summary':'家庭生活变化'}],
+       'rewrite_outline':[{'purpose':'说明生活变化','fact_ids':['F01'],'target_quote':'先看第一处转折'}],
+       'retention_beats':[
+        {'target_quote':anchors[0],'function':'悬念发起','next_pull':'接下来会看到这个选择带来的意外变化'},
+        {'target_quote':anchors[1],'function':'反差揭示','next_pull':'下一段会解释反差为什么会发生'},
+        {'target_quote':anchors[2],'function':'价值预告','next_pull':'后文会给出可以带走的具体启发'}]}
+  report=audit_output(source,text,obj,require_retention=True)
+  self.assertFalse(report['issues'],report['issues'])
+  self.assertEqual(3,len(report['retention_beats']))
+ def test_retention_beats_reject_shortage_and_clustering(self):
+  text=('甲乙丙丁戊己庚辛壬癸'*110)+'结尾提示'
+  obj={'information_card':[{'id':'F01','source_quote':'甲乙丙丁戊己','summary':'虚构信息'}],
+       'rewrite_outline':[{'purpose':'说明信息','fact_ids':['F01'],'target_quote':'甲乙丙丁戊己'}],
+       'retention_beats':[{'target_quote':'结尾提示','function':'价值预告','next_pull':'继续听会得到结论'}]}
+  issues=audit_output(text,text,obj,require_retention=True)['issues']
+  self.assertTrue(any('留存抓手不足' in issue for issue in issues))
+  clustered='第一处抓手第二处抓手第三处抓手'+text
+  obj['rewrite_outline'][0]['target_quote']='第一处抓手'
+  obj['retention_beats']=[
+   {'target_quote':'第一处抓手','function':'悬念发起','next_pull':'继续听第一个变化'},
+   {'target_quote':'第二处抓手','function':'反差揭示','next_pull':'继续听第二个变化'},
+   {'target_quote':'第三处抓手','function':'价值预告','next_pull':'继续听最后的答案'}]
+  clustered_issues=audit_output(clustered,clustered,obj,require_retention=True)['issues']
+  self.assertTrue(any('分布不均' in issue for issue in clustered_issues))
  def test_saved_attempts_resume_within_four_slots(self):
   history=[{'attempt':1,'revision':0,'state':'reserved','text':'','issues':['中断']}]
   calls=[]
