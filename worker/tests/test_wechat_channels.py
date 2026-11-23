@@ -69,6 +69,23 @@ class ChannelsTests(unittest.TestCase):
    factory.return_value.__enter__.return_value=client;path=wx.download(MEDIA)
   try:self.assertEqual(Path(path).read_bytes(),b'video');self.assertNotIn('Cookie',client.stream.call_args.kwargs['headers'])
   finally:Path(path).unlink(missing_ok=True)
+ def test_download_resumes_after_transient_connection_error(self):
+  first=MagicMock(status_code=200,is_success=True)
+  def interrupted(*args,**kwargs):
+   yield b'part'
+   raise httpx.ReadTimeout('temporary')
+  first.iter_bytes.side_effect=interrupted
+  second=MagicMock(status_code=206,is_success=True);second.iter_bytes.return_value=iter([b'video'])
+  first_cm=MagicMock();first_cm.__enter__.return_value=first
+  second_cm=MagicMock();second_cm.__enter__.return_value=second
+  client=MagicMock();client.stream.side_effect=[first_cm,second_cm]
+  with patch.object(wx.httpx,'Client') as factory,patch.object(wx.time,'sleep'):
+   factory.return_value.__enter__.return_value=client;path=wx.download(MEDIA)
+  try:
+   self.assertEqual(Path(path).read_bytes(),b'partvideo')
+   self.assertNotIn('Range',client.stream.call_args_list[0].kwargs['headers'])
+   self.assertEqual(client.stream.call_args_list[1].kwargs['headers']['Range'],'bytes=4-')
+  finally:Path(path).unlink(missing_ok=True)
  def test_download_validates_redirect_before_second_request(self):
   client=MagicMock();response=MagicMock(status_code=302,headers={'location':'https://evil.example/a.mp4'})
   client.stream.return_value.__enter__.return_value=response

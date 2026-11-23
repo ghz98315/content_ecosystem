@@ -12,6 +12,7 @@ from . import ResolveResult
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'
 MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024
+MAX_DOWNLOAD_ATTEMPTS = 3
 ENV_FILE = Path(__file__).resolve().parents[1] / '.env'
 
 class ChannelsError(ValueError):
@@ -120,27 +121,37 @@ def resolve(source_url):
              'stats_collected_at':int(time.time())})
 
 def download(url):
-    """Bounded download with each redirect validated; never attaches Yuanbao cookies."""
+    """Bounded resumable download; every redirect is validated and no session cookie is attached."""
     fd,path=tempfile.mkstemp(suffix='.mp4');os.close(fd);started=time.monotonic()
     try:
         with httpx.Client(verify=True,trust_env=False,timeout=httpx.Timeout(30,read=30),follow_redirects=False) as client:
-            for _ in range(5):
-                _media_url(url)
-                with client.stream('GET',url,headers={'User-Agent':UA,'Referer':'https://channels.weixin.qq.com/'}) as response:
-                    if response.status_code in (301,302,303,307,308):
-                        url=urljoin(url,response.headers.get('location',''));continue
-                    if not response.is_success:raise ChannelsError('视频号媒体地址已失效，请重跑采集获取新地址。')
-                    size=0
-                    with open(path,'wb') as out:
-                        for chunk in response.iter_bytes(1024*1024):
-                            size+=len(chunk)
-                            if size>MAX_DOWNLOAD_BYTES or time.monotonic()-started>300:
-                                raise ChannelsError('视频号下载超过本机测试容量或时间限制，请上传压缩后的视频或音频。')
-                            out.write(chunk)
-                    if not size:raise ChannelsError('视频号下载文件为空，请重试或上传原视频。')
-                    return path
-            raise ChannelsError('视频号媒体跳转过多，已停止下载，请稍后重试。')
+            size=0
+            for attempt in range(MAX_DOWNLOAD_ATTEMPTS):
+                current=url
+                try:
+                    for _ in range(5):
+                        _media_url(current)
+                        headers={'User-Agent':UA,'Referer':'https://channels.weixin.qq.com/'}
+                        if size:headers['Range']=f'bytes={size}-'
+                        with client.stream('GET',current,headers=headers) as response:
+                            if response.status_code in (301,302,303,307,308):
+                                current=urljoin(current,response.headers.get('location',''));continue
+                            if not response.is_success:raise ChannelsError('视频号媒体地址已失效，请重跑采集获取新地址。')
+                            append=size>0 and response.status_code==206
+                            if size and not append:size=0
+                            with open(path,'ab' if append else 'wb') as out:
+                                for chunk in response.iter_bytes(1024*1024):
+                                    size+=len(chunk)
+                                    if size>MAX_DOWNLOAD_BYTES or time.monotonic()-started>300:
+                                        raise ChannelsError('视频号下载超过本机测试容量或时间限制，请上传压缩后的视频或音频。')
+                                    out.write(chunk)
+                            if not size:raise ChannelsError('视频号下载文件为空，请重试或上传原视频。')
+                            return path
+                    raise ChannelsError('视频号媒体跳转过多，已停止下载，请稍后重试。')
+                except httpx.HTTPError:
+                    if attempt+1>=MAX_DOWNLOAD_ATTEMPTS or time.monotonic()-started>290:raise
+                    time.sleep(1+attempt*2)
     except BaseException as exc:
         Path(path).unlink(missing_ok=True)
-        if isinstance(exc,httpx.HTTPError):raise ChannelsError('视频号下载连接异常，请稍后重试或上传原视频/音频。') from None
+        if isinstance(exc,httpx.HTTPError):raise ChannelsError('视频号下载连接异常，已自动重试仍未恢复；请稍后重跑或上传原视频/音频。') from None
         raise
