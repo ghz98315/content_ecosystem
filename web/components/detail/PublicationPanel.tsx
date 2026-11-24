@@ -110,7 +110,7 @@ export function PublicationPanel({ taskId, scene=false }: { taskId: string; scen
       </label>)}
       <label className="publication-wide"><span>发布简介与话题标签<small>简介最多200字；末行用 #话题 分隔，最多8个</small></span><textarea aria-label="发布简介与话题标签" rows={5} disabled={Boolean(busy)} value={descriptionTagsInput} onChange={event => { const value = event.target.value; setDescriptionTagsInput(value); edit({ ...copy, ...splitPublicationDescriptionAndTags(value) }); }} /><button type="button" onClick={() => void clipboard(descriptionTagsInput)}>复制简介与标签</button></label>
       {PUBLICATION_FIELDS.slice(4).map(field => <label key={field.key} className="publication-wide">
-        <span>{scene&&field.key==='purchase_comment'?'商品转化评论（无商品可留空）':field.label}<small>{characterCount(copy[field.key])}/{field.max}字</small></span>
+        <span>{scene&&field.key==='purchase_comment'?'商品转化评论（无商品可留空）':field.label}<small>{field.key === 'purchase_comment' ? `前半段联系本篇痛点塑造价值；末尾购书步骤由系统固定追加 · ${characterCount(copy[field.key])}/${field.max}字` : `${characterCount(copy[field.key])}/${field.max}字`}</small></span>
         <textarea aria-label={field.label} rows={field.rows} value={copy[field.key]} disabled={Boolean(busy)} onChange={event => edit({ ...copy, [field.key]: event.target.value })} />
         <button type="button" onClick={() => void clipboard(copy[field.key])}>复制{field.label}</button>
       </label>)}

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { PUBLICATION_PROMPT, validatePublication, withConfirmedCover } from '@/lib/publication';
+import { PUBLICATION_PROMPT, publicationBookTitle, validatePublication, withConfirmedCover, withPurchaseGuide } from '@/lib/publication';
 import { splitSourceDescription } from '@/lib/sourceMetadata';
 
 export const dynamic = 'force-dynamic';
@@ -99,7 +99,10 @@ export async function POST(request: NextRequest) {
       const raw = payload.choices?.[0]?.message?.content;
       if (typeof raw !== 'string') throw new RequestError('文案服务返回空内容，请重试', 502);
       let copy;
-      try { copy = validatePublication(JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')), task.content_category==='scene', cover); }
+      try {
+        copy = validatePublication(JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')), task.content_category==='scene', cover);
+        copy = { ...copy, purchase_comment: withPurchaseGuide(copy.purchase_comment, publicationBookTitle(script.text, copy.purchase_comment)) };
+      }
       catch (error) { throw new RequestError(`生成结果未满足要求：${error instanceof Error ? error.message : '格式错误'}。请重新生成`, 502); }
       // Recheck after the external request; an old draft must never masquerade as current.
       const [current, currentCover] = await Promise.all([scriptContext(db, task.id), confirmedCover(db, task.id)]);
@@ -109,7 +112,11 @@ export async function POST(request: NextRequest) {
     }
     if (body.sourceHash !== script.hash) throw new RequestError('缺少有效的文案版本，请刷新后重试', 409);
     let copy;
-    try { copy = validatePublication(body.copy, task.content_category==='scene', cover); }
+    try {
+      copy = validatePublication(body.copy, task.content_category==='scene', cover);
+      copy = { ...copy, purchase_comment: withPurchaseGuide(copy.purchase_comment, publicationBookTitle(script.text, copy.purchase_comment)) };
+      copy = validatePublication(copy, task.content_category==='scene', cover);
+    }
     catch (error) { throw new RequestError(error instanceof Error ? error.message : '发布文案格式无效'); }
     const previous = await latest(db, task.id);
     if ((previous?.id || null) !== (body.baseId || null)) throw new RequestError('发布文案已有新版本，请刷新并保留需要的修改', 409);

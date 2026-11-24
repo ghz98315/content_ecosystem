@@ -23,7 +23,7 @@ export const PUBLICATION_FIELDS = [
   { key: 'publish_title', label: '发布标题', max: 16, rows: 1 },
   { key: 'description', label: '发布简介', max: 200, rows: 3 },
   { key: 'interaction_comment', label: '互动评论', max: 100, rows: 3 },
-  { key: 'purchase_comment', label: '橱窗购书评论', max: 100, rows: 3 },
+  { key: 'purchase_comment', label: '橱窗购书评论', max: 320, rows: 8 },
 ] as const;
 
 export const PUBLICATION_PROMPT = `你是一位中文短视频宣发编辑，为已经确认的口播文案制作发布文案包。
@@ -36,13 +36,42 @@ export const PUBLICATION_PROMPT = `你是一位中文短视频宣发编辑，为
 2. publish_titles：恰好3个显示在视频封面下方的发布标题。每条从一个具体的读者处境、真实困惑或值得转给亲友的启发出发，写成自然完整、读者愿意分享的话。三个角度有区别，不照抄封面文字，不用「看完必转」「震惊」等诱导话术，不夸大效果。每个包含标点、空格及其他符号在内最多16字；publish_title默认采用第一个，也必须不超过16字。description：200字以内，沿着原标题的话题写清这条视频讲了什么、读者能得到什么，用确认稿中的具体内容扩写，不加话题标签。
 3. tags：3至8个相关话题，不带#，可参考来源标签，剔除无关或没有依据的标签。
 4. interaction_comment：100字以内，具体价值或生活痛点 + 一个容易回答的问题，邀请听众分享真实经历，不编造评论者身份。
-5. purchase_comment：100字以内，先用一句正文支持的具体价值或收获吸引读者，再自然引导到主页橱窗选购。“读经典、学智慧”这类空泛表达不能单独作为价值。正文明确提到书名才可以写该书名；没提到就使用“相关书籍”等概括表达。不得虚构已上架、折扣、销量或购买效果。
+5. purchase_comment：只生成固定购书步骤之前的“价值共鸣段”，控制在100字以内。必须从确认稿中抓住一个具体处境、矛盾、遗憾或痛点，说清这本书能帮助听众看懂什么、缓解什么困扰或获得什么可实行的启发；要让中老年听众觉得“这说的就是我”，不能只写“读经典、学智慧、值得一读”等空话。正文明确提到书名时，价值段中必须写出选定的《书名》；有多本书时，选择正文主要推荐的一本。不要写“点头像、进主页、商品橱窗、下拉、搜索”等购买步骤，系统会在末尾统一追加。正文没有明确书名或没有购书转化时使用概括表达，系统不会强行追加模板。不得虚构已上架、折扣、销量、疗效或购买效果。
 6. replies：最多5条可供作者选用的简短回复，每条50字以内，分别回应共鸣、困惑、不同意见或书籍咨询等可能情况；不要伪造真实用户问题或已发生的互动。不得捏造库存或承诺。
 不得虚构名人引语、书籍作者、历史事实、疗效、收入或保证性效果。不要提供未在正文出现的健康诊断和治疗建议。
 长度按包含标点和空格的字符数计算。只返回以下结构的严格JSON，不要代码块或解释：
 {"cover_options":[{"title":"","subtitle":""},{"title":"","subtitle":""},{"title":"","subtitle":""}],"publish_titles":["","",""],"cover_title":"","cover_subtitle":"","publish_title":"","description":"","tags":[""],"interaction_comment":"","purchase_comment":"","replies":[""]}`;
 
 export const characterCount = (value: string) => Array.from(value).length;
+
+const PURCHASE_VALUE_MAX = 100;
+const PURCHASE_GUIDE_MAX = 320;
+const PURCHASE_GUIDE_START = '🔥 视频同款《';
+
+function normalizeBookTitle(value: string) {
+  return value.trim().replace(/^《|》$/g, '').trim();
+}
+
+/** Select only a title that is actually present in the confirmed script. */
+export function publicationBookTitle(script: string, purchaseComment: string): string | null {
+  const titles = [...new Set([...script.matchAll(/《([^《》\r\n]{1,50})》/g)]
+    .map(match => normalizeBookTitle(match[1])).filter(Boolean))];
+  const selected = titles.find(title => purchaseComment.includes(`《${title}》`));
+  return selected || (titles.length === 1 ? titles[0] : null);
+}
+
+/** Keep the value paragraph editable while making the purchase steps deterministic. */
+export function withPurchaseGuide(purchaseComment: string, bookTitle: string | null): string {
+  const marker = purchaseComment.indexOf(PURCHASE_GUIDE_START);
+  const value = (marker >= 0 ? purchaseComment.slice(0, marker) : purchaseComment).trim();
+  if (!bookTitle || !value) return value;
+  if (characterCount(value) > PURCHASE_VALUE_MAX) throw new Error(`购书评论价值段须为1至${PURCHASE_VALUE_MAX}字`);
+  const title = normalizeBookTitle(bookTitle);
+  const guide = `🔥 视频同款《${title}》：\n①↖ 点我头像进入主页\n②点【商品橱窗】\n③下拉或用🔍 找书《${title}》❤️❤️❤️`;
+  const combined = `${value}\n\n${guide}`;
+  if (characterCount(combined) > PURCHASE_GUIDE_MAX) throw new Error(`橱窗购书评论须为1至${PURCHASE_GUIDE_MAX}字`);
+  return combined;
+}
 
 /** Reject invalid copy instead of silently cutting off a sentence or CTA. */
 export function validatePublication(input: unknown, allowEmptyPurchase = false, cover: ConfirmedPublicationCover | null = null): PublicationCopy {
