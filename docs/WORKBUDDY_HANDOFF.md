@@ -2,6 +2,8 @@
 
 ## 当前交接点
 
+- **2026-11-26 独立前置采集 Skill 已交付**　`skills/media-transcript-clean/` 脱离 Supabase，支持采集、逐字稿、清洗分别调用；已安装本机 Codex 全局技能目录，跨目录6项离线验证通过。压缩包 `worker/output/media-transcript-clean.zip`，不含凭据、缓存或原稿；本轮不涉及生产 Web/Worker 部署，详见下方记录。
+
 - **2026-11-26 视频号图文采集误报已修复**　`289e8bcb-c292-479f-8866-52b53b11e709` 为图片配乐内容，无视频地址；已区分图文、缺少地址和不可信地址，19 项采集测试通过，真实解析已核验并更新当前任务提示。任务仍等待用户上传原始文案 TXT/MD 或含朗读的视频/音频。修复位于本机 Worker 源码，无 Web 和数据库迁移，远端状态见下方记录。
 
 - **2026-11-24 发布包购书评论固定引导已完成**　购书评论现由“联系本篇痛点的价值共鸣段 + 系统固定购书步骤”组成；系统只使用确认稿中真实出现并能确定的书名，生成和保存时都会去重追加，无明确书名或无购书内容时不强行添加。发布包契约测试与 Web TypeScript 检查通过，本地已提交；GitHub HTTPS 连续 TLS 中断，尚未推送和触发 Vercel。
@@ -61,6 +63,13 @@ Next.js 工作台和轻量 API 在 Vercel，Supabase 管理账号、任务、阶
 - 历史资料　[架构初查](ARCHITECTURE.md)、[旧交接单](HANDOFF_TO_CODEX_2026-11-10.md)、[项目历史检查点](../PROGRESS.md)、[历史部署手册](DEPLOYMENT_RUNBOOK.md)。其中的域名、提交号、环境状态和待办要按本页的最新记录复核。
 
 ## 最近变更与接手位置
+
+### 2026-11-26 · 采集逐字稿清洗跨项目 Skill · 已交付及全局安装
+
+- 按用户要求独立封装三个前置节点到 `skills/media-transcript-clean/`，本地文件产物替代 Supabase；视频号解析和抖音公开分享页复用现有模块，ASR 使用 faster-whisper，清洗由调用 Skill 的 Codex 执行。提供 general 及5类现有清洗规则，保留开头、统计和差异报告，字数变化只提醒，不触发自动重写。
+- 交付15个文件（入口、UI信息、规则、脚本及依赖），本机全局安装在 `C:/Users/ghz00/.codex/skills/media-transcript-clean`；ZIP 在 `worker/output/media-transcript-clean.zip`。归档只包含 py/md/txt/yaml，排除缓存、环境文件及真实资料。其他项目新聊天用 `$media-transcript-clean`；若列表未刷新可显式读取入口路径。
+- 验证：源包和全局安装分别6项离线测试通过；Skill quick_validate 两处通过；CLI --help 和 git diff --check 通过。全局安装测试从仓库外临时目录启动，代码没有导入项目 db/storage/config。验证涵盖虚构文本全链、缓存命中/源变化失效、差异提示、重复导入保护、错误凭据脱敏、图文识别、模拟词级时间与CUDA回退。
+- 限制：未在独立包调用真实平台或下载Whisper模型，未实测真实音频识别；ASR测试为模拟模型。视频号需调用者自己的登录态，抖音只含公开分享页，无 f2 签名回退；清洗使用当前Codex而不是原DeepSeek API，听感与错词仍需抽查。用户级Skill不等于WorkBuddy自动发现，WorkBuddy需显式加载或按客户端安装。未调用收费模型，未改真实任务，未部署或重启生产Worker。本轮仅本地保存和提交，远端发布不属于本次运行要求。
 
 ### 2026-11-26 · 视频号图文误报媒体地址 · 修复及真实核验完成
 

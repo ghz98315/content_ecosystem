@@ -1,0 +1,4 @@
+interface:
+  display_name: "采集·逐字稿·保真清洗"
+  short_description: "跨项目采集视频或导入文件，生成中文逐字稿、清洗正文与可核查的修改对比"
+  default_prompt: "使用 $media-transcript-clean 处理我提供的链接或文件，在当前项目输出原始逐字稿、清洗稿和修改对比。"
