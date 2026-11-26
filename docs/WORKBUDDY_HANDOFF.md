@@ -66,7 +66,7 @@ Next.js 工作台和轻量 API 在 Vercel，Supabase 管理账号、任务、阶
 
 - 任务 `289e8bcb-c292-479f-8866-52b53b11e709` 实测响应为 `mediaType=2`，包含 `picInfo` 和 `bgmInfo`，无 `videoUrl/h264VideoInfo.videoUrl`。现有视频采集器把空地址误报为非预期域名；已补充内容类型判断和明确的上传文案兜底，保留媒体域名限制，不把背景音乐当逐字稿来源。
 - 涉及 `worker/resolvers/wechat_channels.py`、`worker/tests/test_wechat_channels.py`。19 项视频号采集测试、`git diff --check` 通过；使用新版代码真实解析该链接，确认为图文分支，仅将当前 ingest 的错误提示更新为上传 TXT/MD 或含朗读的视频/音频，其他阶段和产物未修改。没有可用的视频音轨，未伪造采集成功，也未自动采用73字符的简介代替完整原稿。
-- 本机按任务 Worker 下次启动加载新版代码；已运行进程未强制重启。无 Web、迁移或配置改动。代码待本次提交和远端推送，任务仍 needs_review，等待原始文案或含朗读的素材。
+- 本机按任务 Worker 下次启动加载新版代码；已运行进程未强制重启。无 Web、迁移或配置改动。提交 `51992db` 已 HTTPS 推送远端 master；同时带出此前待推送的发布包提交 `979bfaa`，其 Vercel 部署状态未验证。当前图文任务仍 needs_review，等待原始文案或含朗读的素材。
 
 ### 2026-11-24 · 发布包购书评论固定引导 · 本地已提交，推送受阻
 
