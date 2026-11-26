@@ -40,6 +40,19 @@ def _media_url(url):
         raise ChannelsError('视频号返回了非预期媒体地址，已停止下载；可上传原视频或音频。')
     return url
 
+
+def _feed_video_url(feed):
+    """Image posts may have background music, but no spoken video to transcribe."""
+    h264 = feed.get('h264VideoInfo') or {}
+    if not isinstance(h264, dict):
+        h264 = {}
+    media = h264.get('videoUrl') or feed.get('videoUrl')
+    if not media:
+        if feed.get('mediaType') in (2, '2') or feed.get('picInfo'):
+            raise ChannelsError('这条视频号是图文内容（图片配乐），平台未提供视频地址，无法按视频提取逐字稿。请在采集页上传原始文案 TXT/MD，或上传含朗读的原视频/音频后继续；重复重跑不能解决。')
+        raise ChannelsError('视频号未返回可下载的视频地址，请稍后重跑；仍无地址时，请上传原视频、音频或文案 TXT/MD。')
+    return _media_url(media)
+
 def _post(client,url,**kwargs):
     try:
         response=client.post(url,**kwargs)
@@ -109,9 +122,7 @@ def resolve(source_url):
         raise ChannelsError('视频号暂未允许读取该内容，请确认微信可播放并稍后重试，或上传视频/音频。')
     feed=payload.get('feedInfo') or {}
     if not isinstance(feed,dict):raise ChannelsError('视频号返回了异常的视频信息，请稍后重试或上传视频。')
-    h264=feed.get('h264VideoInfo') or {}
-    if not isinstance(h264,dict):h264={}
-    media=_media_url(h264.get('videoUrl') or feed.get('videoUrl'))
+    media=_feed_video_url(feed)
     # Persist only descriptive metadata. Session cookie, playback tokens and signed URLs stay in memory.
     stats,exact,estimated=_engagement(feed)
     return ResolveResult(ok=True,title=str(profile.get('desc') or feed.get('description') or ''),

@@ -12,6 +12,17 @@ MEDIA='https://finder.video.qq.com/test.mp4?key=signed-test-key'
 def response(value,status=200):return httpx.Response(status,json=value)
 
 class ChannelsTests(unittest.TestCase):
+ def test_image_post_is_not_misreported_as_untrusted_url_or_bgm_video(self):
+  for media_type in (2, '2'):
+   with self.subTest(media_type=media_type),self.assertRaisesRegex(wx.ChannelsError,'图文内容'):
+    wx._feed_video_url({'mediaType':media_type,'picInfo':[{'url':MEDIA}],'bgmInfo':{'bgmUrl':MEDIA}})
+ def test_missing_video_url_has_distinct_recovery_message(self):
+  with self.assertRaisesRegex(wx.ChannelsError,'未返回可下载'):
+   wx._feed_video_url({'h264VideoInfo':{}})
+ def test_feed_video_fallback_preserves_host_validation(self):
+  self.assertEqual(wx._feed_video_url({'h264VideoInfo':{},'videoUrl':MEDIA}),MEDIA)
+  with self.assertRaises(wx.ChannelsError):
+   wx._feed_video_url({'videoUrl':'https://evil.example/video.mp4'})
  def test_engagement_keeps_exact_and_estimated_counts_distinct(self):
   display,exact,estimated=wx._engagement({'likeCountFmt':'1.5万','commentCountFmt':'1008','forwardCount':1839,'favCountFmt':'0'})
   self.assertEqual(display,{'likes':'1.5万','comments':'1008','shares':'1839','saves':'0'})
