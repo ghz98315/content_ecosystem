@@ -94,49 +94,32 @@ def request_history_plan(client, model: str, scenes: list[str], *, modern_life: 
     )
     if modern_life:
         planner += '\n' + _MODERN_LIFE_DIRECTION
-    line_label = '女性成长健康' if modern_life else '历史社科'
+    line_label = '画面'
     for start in range(0, len(scenes), _PLAN_BATCH_SIZE):
         batch = [{'index': index, 'text': scene}
                  for index, scene in enumerate(scenes[start:start + _PLAN_BATCH_SIZE], start + 1)]
         label = f"第{batch[0]['index']}–{batch[-1]['index']}镜"
+        for attempt in range(2):
+            raw = _request_history_batch(client, model, planner, cast, batch, line_label, label, attempt)
+            try:
+                payload = json.loads(raw)
+                new_cast, batch_shots = payload['cast'], payload['shots']
+                if not isinstance(new_cast, list) or not isinstance(batch_shots, list):
+                    raise ValueError('人物卡或镜头字段格式不正确')
+                expected = [item['index'] for item in batch]
+                indices = [int(str(shot.get('index', '')).strip()) if re.fullmatch(r'[0-9]+', str(shot.get('index', '')).strip()) else None
+                           for shot in batch_shots]
+                if indices == list(range(1, len(batch) + 1)):
+                    indices = expected
+                if len(indices) != len(expected) or set(indices) != set(expected):
+                    raise ValueError(f'镜头编号与本批片段不一致（预期 {expected}，返回 {indices}）')
+                by_index = dict(zip(indices, batch_shots))
+                batch_shots = [dict(by_index[index], index=index) for index in expected]
+                break
+            except (TypeError, AttributeError, KeyError, ValueError) as exc:
+                if attempt:
+                    raise ValueError(f'{line_label}分镜{label}格式异常，尚未提交生图：{exc}') from exc
         try:
-            chunks = []
-            with client.chat.completions.create(
-                model=model, messages=[
-                    {'role': 'system', 'content': planner},
-                    {'role': 'user', 'content': json.dumps({'existing_cast': cast, 'scenes': batch}, ensure_ascii=False)},
-                ],
-                temperature=0.2, response_format={'type': 'json_object'}, stream=True,
-                extra_body={'thinking': {'type': 'disabled'}},
-            ) as stream:
-                for chunk in stream:
-                    for choice in chunk.choices or []:
-                        if choice.delta.content:
-                            chunks.append(choice.delta.content)
-        except Exception as exc:
-            if getattr(exc, 'status_code', None) == 524 or 'timeout' in type(exc).__name__.lower():
-                raise RuntimeError(f'{line_label}分镜{label}请求超时，尚未提交生图。请稍后重跑画面节点。') from exc
-            raise
-        try:
-            payload = json.loads(''.join(chunks))
-            new_cast, batch_shots = payload['cast'], payload['shots']
-            if not isinstance(new_cast, list) or not isinstance(batch_shots, list):
-                raise ValueError('人物卡或镜头字段格式不正确')
-            expected_indices = [item['index'] for item in batch]
-            actual_indices = [int(shot['index']) if str(shot.get('index', '')).isdigit() else shot.get('index')
-                              for shot in batch_shots if isinstance(shot, dict)]
-            if (len(batch_shots) == len(batch) and len(actual_indices) == len(batch_shots)
-                    and actual_indices == list(range(1, len(batch_shots) + 1))):
-                # Some models restart numbering for every batch even when the prompt
-                # asks for global indices. Count and order make this correction exact.
-                for shot, index in zip(batch_shots, expected_indices):
-                    shot['index'] = index
-                actual_indices = expected_indices
-            elif len(actual_indices) == len(batch_shots):
-                for shot, index in zip(batch_shots, actual_indices):
-                    shot['index'] = index
-            if actual_indices != expected_indices:
-                raise ValueError('镜头编号与本批片段不一致')
             for card in new_cast:
                 key = _text(card.get('id'), 'id', 16)
                 if key in cast_ids:
@@ -151,6 +134,31 @@ def request_history_plan(client, model: str, scenes: list[str], *, modern_life: 
     return compile_history_plan({'cast': cast, 'shots': shots}, len(scenes))
 
 
+def _request_history_batch(client, model, planner, cast, batch, line_label, label, attempt):
+    if attempt:
+        indices = [item['index'] for item in batch]
+        planner += f'\n上一轮格式未通过。shots 必须恰好逐条返回这些编号，以整数填写 index：{indices}。不要合并、拆分或额外返回封面。'
+    chunks = []
+    try:
+        with client.chat.completions.create(
+            model=model, messages=[
+                {'role': 'system', 'content': planner},
+                {'role': 'user', 'content': json.dumps({'existing_cast': cast, 'scenes': batch}, ensure_ascii=False)},
+            ],
+            temperature=0.2, response_format={'type': 'json_object'}, stream=True,
+            extra_body={'thinking': {'type': 'disabled'}},
+        ) as stream:
+            for chunk in stream:
+                for choice in chunk.choices or []:
+                    if choice.delta.content:
+                        chunks.append(choice.delta.content)
+    except Exception as exc:
+        if getattr(exc, 'status_code', None) == 524 or 'timeout' in type(exc).__name__.lower():
+            raise RuntimeError(f'{line_label}分镜{label}请求超时，尚未提交生图。请稍后重跑画面节点。') from exc
+        raise
+    return ''.join(chunks)
+
+
 def request_history_adjustment(client, model: str, note: str) -> str:
     response = client.chat.completions.create(
         model=model, temperature=0.2, response_format={'type':'json_object'},
@@ -161,7 +169,7 @@ def request_history_adjustment(client, model: str, note: str) -> str:
     )
     adjustment = json.loads(response.choices[0].message.content).get('adjustment')
     if not isinstance(adjustment, str) or len(adjustment) > 360:
-        raise ValueError('历史社科画面修改备注格式异常')
+        raise ValueError('画面修改备注格式异常')
     return adjustment.strip()
 
 

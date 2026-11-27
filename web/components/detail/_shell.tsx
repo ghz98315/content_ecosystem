@@ -1,6 +1,13 @@
 "use client";
 import { Stage, Task, STAGES } from "@/lib/types";
 
+function displayStageError(stage: Stage) {
+  const error = stage.error || "";
+  return stage.kind === "image"
+    ? error.replace(/^(历史社科|女性成长健康)(?=分镜|画面)/, "").replace(/^分镜/, "画面分镜")
+    : error;
+}
+
 const STATUS_LABEL: Record<string, string> = {
   pending: "等待中", processing: "处理中", done: "完成",
   failed: "失败", needs_review: "待确认", cancelled: "已跳过",
@@ -89,7 +96,7 @@ export function DetailShell({
           fontFamily: "monospace", wordBreak: "break-all", marginBottom: 16,
         }}>
           <strong style={{ display: "block", marginBottom: 4 }}>{isFailed ? "阶段失败" : "等待人工确认"}</strong>
-          <span style={{ display: "block", fontFamily: "inherit" }}>{stage.error}</span>
+          <span style={{ display: "block", fontFamily: "inherit" }}>{displayStageError(stage)}</span>
           <span style={{ display: "block", marginTop: 6, fontFamily: "inherit" }}>{recoveryText}</span>
         </div>
       )}
@@ -117,7 +124,7 @@ export function DetailShell({
           color: diagnosticColor, fontSize: 12,
           fontFamily: "monospace", wordBreak: "break-all", marginTop: 16,
         }}>
-          {stage.error}
+          {displayStageError(stage)}
         </div>
       )}
     </div>

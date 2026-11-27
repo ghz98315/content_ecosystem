@@ -10,11 +10,15 @@
 """
 import threading
 import time
+from pathlib import Path
 import config
 import db
 from stages import REAL_HANDLERS
 from stages.image import process_replacement_request
 from stage_timing import StageTiming
+
+_STORYBOARD_MODULE = Path(__file__).with_name("history_visuals.py")
+_STORYBOARD_MTIME = _STORYBOARD_MODULE.stat().st_mtime_ns
 
 
 class StageHeartbeat:
@@ -218,6 +222,11 @@ def main() -> None:
     network_failures = 0
     while True:
         try:
+            # The supervised Windows Worker reloads shared planner updates
+            # between stages, after the current handler releases its lease.
+            if not config.WORKER_TASK_ID and _STORYBOARD_MODULE.stat().st_mtime_ns != _STORYBOARD_MTIME:
+                print("分镜规则已更新，当前阶段已结束，等待守护程序重载。", flush=True)
+                raise SystemExit(75)
             # Logon can precede network/proxy startup. Do not claim work until
             # recovery succeeds, and keep recovery inside the retry boundary.
             if not recovered_at_startup:

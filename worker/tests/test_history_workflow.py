@@ -382,10 +382,10 @@ class HistoryWorkflowTests(unittest.TestCase):
         plan = request_history_plan(client, 'model', ['旁白'] * 7, modern_life=True)
         self.assertEqual(list(range(1, 8)), [shot['index'] for shot in plan])
 
-    def test_womens_growth_format_error_uses_its_own_line_name(self):
+    def test_shared_planner_format_error_uses_stage_name(self):
         client = MagicMock()
         client.chat.completions.create.return_value = _mock_history_stream({'cast':[], 'shots':[]})
-        with self.assertRaisesRegex(ValueError, '女性成长健康分镜第1–1镜格式异常'):
+        with self.assertRaisesRegex(ValueError, '^画面分镜第1–1镜格式异常'):
             request_history_plan(client, 'model', ['旁白'], modern_life=True)
 
     def test_history_gateway_timeout_is_identified_before_image_submission(self):
@@ -393,7 +393,7 @@ class HistoryWorkflowTests(unittest.TestCase):
         timeout = RuntimeError('upstream')
         timeout.status_code = 524
         client.chat.completions.create.side_effect = timeout
-        with self.assertRaisesRegex(RuntimeError, '历史社科分镜第1–1镜请求超时，尚未提交生图'):
+        with self.assertRaisesRegex(RuntimeError, '^画面分镜第1–1镜请求超时，尚未提交生图'):
             request_history_plan(client, 'model', ['旁白'])
 
 
