@@ -173,7 +173,12 @@ class BookCoverInsertTests(unittest.TestCase):
             source=Path(directory)/'cover.png';target=Path(directory)/'prepared.png'
             Image.new('RGB',(1792,1344),'red').save(source)
             _prepare_book_cover_pip(source,target)
-            with Image.open(target) as prepared:self.assertEqual((760,570),prepared.size)
+            with Image.open(target) as prepared:
+                self.assertEqual((760,570),prepared.size)
+                bounds = prepared.getchannel('A').getbbox()
+                self.assertLessEqual((bounds[2]-bounds[0])*1.18,760)
+                self.assertLessEqual((bounds[3]-bounds[1])*1.18,570)
+                self.assertAlmostEqual((bounds[2]-bounds[0])/(bounds[3]-bounds[1]),1792/1344,places=2)
 
 
 if __name__=='__main__':unittest.main()

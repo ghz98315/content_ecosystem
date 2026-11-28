@@ -66,7 +66,11 @@ export async function GET(request: NextRequest) {
   try {
     const { db, task } = await context(request, request.nextUrl.searchParams.get('taskId') || '');
     const [stored, script, cover] = await Promise.all([latest(db, task.id), scriptContext(db, task.id), confirmedCover(db, task.id)]);
-    const record = stored?.meta?.copy ? { ...stored, meta:{...stored.meta, copy:withConfirmedCover(stored.meta.copy, cover)} } : stored;
+    const savedCopy = stored?.meta?.copy;
+    const record = savedCopy ? { ...stored, meta:{...stored.meta, copy:withConfirmedCover({
+      ...savedCopy,
+      purchase_comment: withPurchaseGuide(savedCopy.purchase_comment || '', publicationBookTitle(script?.text || '', savedCopy.purchase_comment || '')),
+    }, cover)} } : stored;
     const source = splitSourceDescription(task.title);
     return response({ record, cover, ready: Boolean(script), sourceHash: script?.hash || null,
       stale: Boolean(record && (!script || record.meta.source_hash !== script.hash)),

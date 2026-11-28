@@ -50,6 +50,8 @@ assert.doesNotThrow(() => validatePublication({ ...copy, publish_title: '字'.re
 assert.throws(() => validatePublication({ ...copy, publish_titles: ['字'.repeat(16) + '！', ...copy.publish_titles.slice(1)] }));
 assert.throws(() => validatePublication({ ...copy, publish_title: '字'.repeat(16) + '！' }));
 assert.equal(publicationBookTitle(script, copy.purchase_comment), '道德经');
+assert.equal(publicationBookTitle('谈《道德经》和《庄子》', '读庄子，学会放下'), '庄子');
+assert.match(withPurchaseGuide('遇到委屈时，读书能帮助我们换个角度看问题。', null), /①↖ 点我头像进入主页/);
 const guided = withPurchaseGuide('操心太多，容易把关心变成彼此的负担。《道德经》能帮我们重新看见相处的分寸。', '道德经');
 assert.match(guided, /🔥 视频同款《道德经》：\n①↖ 点我头像进入主页\n②点【商品橱窗】\n③下拉或用🔍 找书《道德经》❤️❤️❤️$/);
 assert.equal((guided.match(/🔥 视频同款/g) || []).length, 1);

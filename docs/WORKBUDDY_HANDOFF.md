@@ -2,6 +2,8 @@
 
 ## 当前交接点
 
+- **2026-11-28 通用书封与购书评论优化**　所有类别的书封画中画保持原比例，并在放大运镜时完整保留边缘。发布包购书指引兼容无书名号、多书无法确定和旧记录。13项书封测试、发布包契约及Web TypeScript通过，待本次提交和发布核验。
+
 - **2026-11-27 分镜标签防复发已发布**　提交 ca99670 已推送，Vercel success，生产任务页200且资源含旧错误前缀兼容。172581d8 已成片，Windows 守护程序15:38:29启动新 Worker（PID31044）。共用分镜报错采用阶段名称，真实任务错误分支未重新触发。
 
 - **2026-11-27 女性成长任务生图重跑完成**　172581d8 生图已 done，成片运行中。11 月 21 日启动的常驻 Worker 沿用旧错误标签，数据库分类仍为 health。分镜批次校验补强已在本机验证，常驻进程待成片结束且队列空闲后重载。
@@ -59,6 +61,8 @@ Next.js 工作台和轻量 API 在 Vercel，Supabase 管理账号、任务、阶
 
 ### 排查入口
 
+后续优化先标注适用范围。书封完整比例、购书操作指引等通用能力改在共享渲染/发布入口，并覆盖所有类别。字体、专属画风、类别文案规则按生产模板或类别配置处理，避免仅在健康分支实现通用需求。历史已保存记录与重新生成两种入口都需核验。
+
 - 新建任务、模板和类别　`web/components/ProductionSetup.tsx`、`web/lib/productionTemplateManifest.json`、`worker/production_templates.py`。
 - 改稿、审稿与断点恢复　`worker/stages/rewrite.py`、`worker/rewrite_review.py`、`worker/rewrite_editorial.py`、`worker/rewrite_checkpoint.py`、`skills/book-video-rewrite/`。
 - 配音、字幕和修复入口　`web/app/api/narration/route.ts`、`worker/stages/external_narration.py`、`worker/external_alignment.py`、`worker/stages/tts.py`。
@@ -67,6 +71,16 @@ Next.js 工作台和轻量 API 在 Vercel，Supabase 管理账号、任务、阶
 - 历史资料　[架构初查](ARCHITECTURE.md)、[旧交接单](HANDOFF_TO_CODEX_2026-11-10.md)、[项目历史检查点](../PROGRESS.md)、[历史部署手册](DEPLOYMENT_RUNBOOK.md)。其中的域名、提交号、环境状态和待办要按本页的最新记录复核。
 
 ## 最近变更与接手位置
+
+### 2026-11-28 · 通用书封完整比例与购书指引 · 本地完成
+
+- 适用所有类别。画中画保持 contain 等比缩放，在透明画布预留1.18倍运镜空间，避免放大时裁掉书封边缘。发布包补齐未带书名号、多书不明确及历史已保存购书评论的引导模板。
+- 修改 worker/stages/render.py、web/lib/publication.ts、web/app/api/publication/route.ts，新增定向断言并通过13项书封测试、发布包契约测试及Web类型检查。没有明确书名时保留通用找书指引，不编造名称；空评论不补购书引导。完整书封保持原比例，含原图已有留白。旧成片需要重新成片才能更新画中画，发布包旧记录读取时直接补指引。
+
+### 2026-11-28 · 配音数字转换越界 · 已定位并修复
+
+- 1747139e 在 recording_match_report → normalize_tts_numbers → _integer_to_zh 越界。函数接受8位数字，但单位表仅覆盖千位，遇到万位即失败。已按万分组转换，保留超过8位编号逐位读法。任务原配音保留，待重跑核验。
+- 5项配音回归及万位数字断言通过，git diff --check通过。已仅将失败tts恢复processing，使用新版external_narration.run复用原录音处理（exec session36660）。独立进程缺少cublas，自动回退CPU，目前仍在识别，阶段心跳已更新。常驻Worker仍有其他成片处理中，尚未重载。源码未提交/推送，未确认本次恢复最终结果；后续需核验tts状态并在空闲时重载数字修复。
 
 ### 2026-11-27 · 分镜类别误标防复发 · 已发布
 

@@ -46,7 +46,7 @@ export const characterCount = (value: string) => Array.from(value).length;
 
 const PURCHASE_VALUE_MAX = 100;
 const PURCHASE_GUIDE_MAX = 320;
-const PURCHASE_GUIDE_START = '🔥 视频同款《';
+const PURCHASE_GUIDE_START = '🔥 视频同款';
 
 function normalizeBookTitle(value: string) {
   return value.trim().replace(/^《|》$/g, '').trim();
@@ -56,7 +56,7 @@ function normalizeBookTitle(value: string) {
 export function publicationBookTitle(script: string, purchaseComment: string): string | null {
   const titles = [...new Set([...script.matchAll(/《([^《》\r\n]{1,50})》/g)]
     .map(match => normalizeBookTitle(match[1])).filter(Boolean))];
-  const selected = titles.find(title => purchaseComment.includes(`《${title}》`));
+  const selected = titles.find(title => purchaseComment.includes(title));
   return selected || (titles.length === 1 ? titles[0] : null);
 }
 
@@ -64,10 +64,12 @@ export function publicationBookTitle(script: string, purchaseComment: string): s
 export function withPurchaseGuide(purchaseComment: string, bookTitle: string | null): string {
   const marker = purchaseComment.indexOf(PURCHASE_GUIDE_START);
   const value = (marker >= 0 ? purchaseComment.slice(0, marker) : purchaseComment).trim();
-  if (!bookTitle || !value) return value;
+  if (!value) return value;
   if (characterCount(value) > PURCHASE_VALUE_MAX) throw new Error(`购书评论价值段须为1至${PURCHASE_VALUE_MAX}字`);
-  const title = normalizeBookTitle(bookTitle);
-  const guide = `🔥 视频同款《${title}》：\n①↖ 点我头像进入主页\n②点【商品橱窗】\n③下拉或用🔍 找书《${title}》❤️❤️❤️`;
+  const title = bookTitle ? normalizeBookTitle(bookTitle) : null;
+  const book = title ? `《${title}》` : '书籍';
+  const search = title ? `找书《${title}》` : '找文案中推荐的书';
+  const guide = `🔥 视频同款${book}：\n①↖ 点我头像进入主页\n②点【商品橱窗】\n③下拉或用🔍 ${search}❤️❤️❤️`;
   const combined = `${value}\n\n${guide}`;
   if (characterCount(combined) > PURCHASE_GUIDE_MAX) throw new Error(`橱窗购书评论须为1至${PURCHASE_GUIDE_MAX}字`);
   return combined;

@@ -92,7 +92,8 @@ def _prepare_book_cover_pip(source: str | Path, destination: str | Path) -> None
     """Resize a still cover once instead of scaling it for every video frame."""
     from PIL import Image, ImageOps
     with Image.open(source) as original:
-        cover = ImageOps.contain(ImageOps.exif_transpose(original), (760, 570), Image.Resampling.LANCZOS)
+        # Reserve space for the full 1.18x zoom so no edge of the book is lost.
+        cover = ImageOps.contain(ImageOps.exif_transpose(original), (640, 480), Image.Resampling.LANCZOS)
         canvas = Image.new('RGBA', (760, 570), (0, 0, 0, 0))
         canvas.alpha_composite(cover.convert('RGBA'), ((760-cover.width)//2, (570-cover.height)//2))
         canvas.save(destination, format='PNG')
